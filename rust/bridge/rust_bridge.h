@@ -23,7 +23,28 @@ namespace satdump::rust
     /// CCSDS derandomiser, in place (the twin of derand_ccsds_cpp)
     bool derand_ccsds(uint8_t *data, int length);
 
+    /// CCSDS derandomiser on soft symbols, in place (the twin of derand_ccsds_soft). Not used by
+    /// SatDump yet: the differential tests (tests/diff) compare it with the C++ one first.
+    bool derand_ccsds_soft(int8_t *data, int length);
+
+    /// CCSDS derandomiser on one bit per byte, in place (the twin of derand_ccsds_bits). Not used
+    /// by SatDump yet, as derand_ccsds_soft.
+    bool derand_ccsds_bits(uint8_t *data, int length);
+
     /// Makes the Rust code panic on purpose and returns the status it reports (STATUS_PANIC);
     /// for tests. It does not switch Rust off.
     int panic_check();
+
+    /// While one of these exists, Rust is paused: enabled() is false and the functions above
+    /// leave the work to the C++ code, as with SATDUMP_NO_RUST. For tests: the differential
+    /// tests (tests/diff) run the C++ side of each comparison under one, so that side stays the
+    /// C++ code even where SatDump calls Rust.
+    class CppOnly
+    {
+    public:
+        CppOnly();
+        ~CppOnly();
+        CppOnly(const CppOnly &) = delete;
+        CppOnly &operator=(const CppOnly &) = delete;
+    };
 } // namespace satdump::rust

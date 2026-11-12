@@ -130,6 +130,12 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | Fuzz harnesses for 8-bit and 12-bit JPEG reading (fuzz_jpeg, fuzz_jpeg12): random and damaged streams, starting from good ones made by the unit tests' encoder, in the clang fuzz build and its short ctest run | 2026-11-12 |
 | Docs | DEPENDENCIES.md: the 8-bit libjpeg stays bundled on Linux too, because Debian 13's libjpeg-turbo 2.1.5 cannot read lossless JPEG and reads damaged streams differently (revisit at libjpeg-turbo 3.x); libjpeg62-turbo is dropped from the Pi package lists there, both libjpeg copies' fork changes are listed, and their user lists are corrected (FY-4 uses neither; the cubesat decoders use the 8-bit one through load_jpeg, which does not yet have decompress_jpeg's checks) | 2026-11-12 |
 | Packaging | Every Linux package list now includes muparser, which Linux builds need since they use the system's copy: the three Linux jobs of the manual upstream build (all_build.yml), the Forgejo Debian build (which also gets bzip2, OpenJPEG and libaec), and the README's install lists for Debian, Red Hat, Alpine, Gentoo and openSUSE | 2026-11-12 |
+| Tests | Differential test framework (`tests/diff`): each Rust part is run against the C++ that SatDump ships on edge, seeded (`SD_DIFF_SEED`, `SD_DIFF_CASES`), corpus and mutated cases, fed whole or in chunks; an exception or a Rust panic counts as a difference, and each difference is saved as a reproducer in `<build>/diff-failures` with its replay commands | 2026-11-12 |
+| Tests | JSONL oracles: the C++ writes what each twin should give; small ones are committed in `tests/diff/oracles` and `cargo test` replays them in Rust without the C++; every oracle file needs a minimum number of cases | 2026-11-12 |
+| Tests | Float rule for C++/Rust comparisons: Rust must match the shipped C++; the C++ being ported is built with `-ffp-contract=off` in every build (goldens checked), `std::fma` becomes `mul_add`, and a ULP tolerance is allowed only for float outputs no flag makes exact, never for integers or pixels | 2026-11-12 |
+| Tests | The derandomiser comparison (bytes, soft symbols, bits; every length 0-4096, odd bit values, negative lengths, unaligned buffers, the golden CADUs) now runs on the framework, with permanent self-tests that a planted bug is caught | 2026-11-12 |
+| Rust | Rust soft-symbol and one-bit-per-byte CCSDS derandomisers next to the byte one; only compared with the C++ so far, SatDump does not call them yet | 2026-11-12 |
+| Rust | `satdump::rust::CppOnly`: a test guard that pauses Rust so the C++ code does the work; the differential tests run each comparison's C++ side under it | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -277,7 +283,33 @@ How it fits together:
 
 Rust tests in the gate: `rust_unit` (cargo test), `rust_clippy` (clippy, warnings are
 errors), `cli_rust` (no Rust symbols exported, no extra libraries needed, the switch works),
-`golden_no_rust`, and the C++-against-Rust cases in `unit`.
+`golden_no_rust`, the C++-against-Rust cases in `unit`, and the `diff_*` tests below.
+
+### Differential tests (C++ against Rust)
+
+Every Rust part has a twin: the C++ code SatDump ships, and the Rust code with the same
+buffer contract. Both get the same cases and must give the same outcome (a status, bytes and
+records). The tests are built only with `-DSATDUMP_WITH_RUST=ON` and run in the gate's `unit`
+label: `diff_selftest`, `diff_twins`, `diff_oracles`, `diff_corpus_make`, `diff_corpus`,
+`diff_oracles_make` and `diff_rust_replay`.
+
+- Cases come from edge lists, a seeded generator, the golden recordings and fuzz corpora,
+  and mutations of these. Stream decoders are fed in chunks, and the chunk boundaries are
+  part of each case.
+- `SD_DIFF_SEED` sets the seed. `SD_DIFF_CASES` sets the seeded cases per twin: 2000 by
+  default (about half a second), 200000 for a deep run (under a minute).
+- The C++ side of a comparison always runs with Rust paused (`CppOnly`), so it stays C++
+  even where SatDump calls Rust. An exception or a Rust panic counts as a difference.
+- The C++ writes JSONL oracles. Small ones are committed in `tests/diff/oracles`, and
+  `cargo test` replays them without the C++.
+- Floats: Rust must match the C++ as it ships. The C++ files being ported are built with
+  `-ffp-contract=off` in every build and the goldens are checked; where the C++ calls
+  `std::fma`, the Rust uses `mul_add`. A ULP tolerance is allowed only for float outputs no
+  flag makes exact, never for integers or pixels.
+- A difference is saved in `<build>/diff-failures`; one line names the first differing byte
+  or record and gives the replay command (`satdump-diff replay <folder>`).
+- Fuzz corpora are not in ctest (none are committed); run a fuzz run's corpus folder by hand
+  with `satdump-diff run --corpus <folder>`.
 
 ## Known issues left as they are
 

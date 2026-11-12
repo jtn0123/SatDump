@@ -178,6 +178,8 @@ if(SATDUMP_WITH_RUST)
             bash ${CMAKE_CURRENT_SOURCE_DIR}/golden/golden.sh ${SATDUMP_CHECK_PREFIX} ${_golden_mode})
         set_tests_properties(golden_no_rust PROPERTIES LABELS cli)
     endif()
+    # Fork: differential tests, C++ against Rust (tests/diff/diff.h)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/diff/diff.cmake)
 endif()
 
 if(SATDUMP_FUZZ)

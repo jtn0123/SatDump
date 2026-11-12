@@ -26,9 +26,9 @@ fn guard(body: impl FnOnce() -> i32) -> i32 {
 /// A C++ (pointer, length) pair as a slice, or `None` when they can't be one
 ///
 /// # Safety
-/// When `length` > 0 and `data` is not null, `data` must point to `length` writable bytes
-/// that nothing else touches until the slice is dropped.
-unsafe fn buffer<'a>(data: *mut u8, length: i32) -> Option<&'a mut [u8]> {
+/// When `length` > 0 and `data` is not null, `data` must point to `length` writable, aligned
+/// values of `T` that nothing else touches until the slice is dropped.
+unsafe fn buffer<'a, T>(data: *mut T, length: i32) -> Option<&'a mut [T]> {
     let len = usize::try_from(length).ok()?;
     if len == 0 {
         return Some(&mut []);
@@ -36,8 +36,25 @@ unsafe fn buffer<'a>(data: *mut u8, length: i32) -> Option<&'a mut [u8]> {
     if data.is_null() {
         return None;
     }
-    // SAFETY: data is not null and the caller guarantees len writable, unshared bytes
+    // SAFETY: data is not null and the caller guarantees len writable, aligned, unshared values
     Some(unsafe { std::slice::from_raw_parts_mut(data, len) })
+}
+
+/// Runs `work` on the C++ buffer inside [`guard`], or refuses bad arguments
+///
+/// # Safety
+/// As [`buffer`].
+unsafe fn in_place<T>(data: *mut T, length: i32, work: impl FnOnce(&mut [T])) -> i32 {
+    guard(|| {
+        // SAFETY: passed on from this function's own contract
+        match unsafe { buffer(data, length) } {
+            Some(buf) => {
+                work(buf);
+                STATUS_OK
+            }
+            None => STATUS_BAD_ARGUMENT,
+        }
+    })
 }
 
 /// CCSDS derandomiser, in place (the twin of C++ `derand_ccsds_cpp`)
@@ -46,16 +63,30 @@ unsafe fn buffer<'a>(data: *mut u8, length: i32) -> Option<&'a mut [u8]> {
 /// `data` must point to `length` writable bytes (see [`buffer`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn satdump_rs_derand_ccsds(data: *mut u8, length: i32) -> i32 {
-    guard(|| {
-        // SAFETY: passed on from this function's own contract
-        match unsafe { buffer(data, length) } {
-            Some(buf) => {
-                crate::derand::derandomize(buf);
-                STATUS_OK
-            }
-            None => STATUS_BAD_ARGUMENT,
-        }
-    })
+    // SAFETY: passed on from this function's own contract
+    unsafe { in_place(data, length, crate::derand::derandomize) }
+}
+
+/// CCSDS derandomiser on soft symbols, in place (the twin of C++ `derand_ccsds_soft`; not used
+/// by SatDump yet, only compared with it by the differential tests in `tests/diff`)
+///
+/// # Safety
+/// `data` must point to `length` writable bytes (see [`buffer`]).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn satdump_rs_derand_ccsds_soft(data: *mut i8, length: i32) -> i32 {
+    // SAFETY: passed on from this function's own contract
+    unsafe { in_place(data, length, crate::derand::derandomize_soft) }
+}
+
+/// CCSDS derandomiser on one bit per byte, in place (the twin of C++ `derand_ccsds_bits`; not
+/// used by SatDump yet, only compared with it by the differential tests in `tests/diff`)
+///
+/// # Safety
+/// `data` must point to `length` writable bytes (see [`buffer`]).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn satdump_rs_derand_ccsds_bits(data: *mut u8, length: i32) -> i32 {
+    // SAFETY: passed on from this function's own contract
+    unsafe { in_place(data, length, crate::derand::derandomize_bits) }
 }
 
 /// Panics on purpose inside [`guard`] and returns the status; the C++ tests use it to prove
@@ -83,6 +114,12 @@ mod tests {
             assert_eq!(satdump_rs_derand_ccsds(std::ptr::null_mut(), 5), STATUS_BAD_ARGUMENT);
             assert_eq!(satdump_rs_derand_ccsds(data.as_mut_ptr(), -1), STATUS_BAD_ARGUMENT);
             assert_eq!(satdump_rs_derand_ccsds(std::ptr::null_mut(), 0), STATUS_OK);
+            assert_eq!(satdump_rs_derand_ccsds_soft(std::ptr::null_mut(), 5), STATUS_BAD_ARGUMENT);
+            assert_eq!(satdump_rs_derand_ccsds_soft(data.as_mut_ptr().cast(), -1), STATUS_BAD_ARGUMENT);
+            assert_eq!(satdump_rs_derand_ccsds_soft(std::ptr::null_mut(), 0), STATUS_OK);
+            assert_eq!(satdump_rs_derand_ccsds_bits(std::ptr::null_mut(), 5), STATUS_BAD_ARGUMENT);
+            assert_eq!(satdump_rs_derand_ccsds_bits(data.as_mut_ptr(), i32::MIN), STATUS_BAD_ARGUMENT);
+            assert_eq!(satdump_rs_derand_ccsds_bits(std::ptr::null_mut(), 0), STATUS_OK);
         }
         assert_eq!(data, [1, 2, 3]);
     }
@@ -93,5 +130,13 @@ mod tests {
         // SAFETY: data has 4 writable bytes
         assert_eq!(unsafe { satdump_rs_derand_ccsds(data.as_mut_ptr(), 4) }, STATUS_OK);
         assert_eq!(data, [0xFF, 0x48, 0x0E, 0xC0]);
+        let mut soft = [5i8; 10];
+        // SAFETY: soft has 10 writable bytes
+        assert_eq!(unsafe { satdump_rs_derand_ccsds_soft(soft.as_mut_ptr(), 10) }, STATUS_OK);
+        assert_eq!(soft, [!5, !5, !5, !5, !5, !5, !5, !5, 5, !5]); // 0xFF, then 0x48 = 0100 1000
+        let mut bits = [3u8; 10];
+        // SAFETY: bits has 10 writable bytes
+        assert_eq!(unsafe { satdump_rs_derand_ccsds_bits(bits.as_mut_ptr(), 10) }, STATUS_OK);
+        assert_eq!(bits, [0, 0, 0, 0, 0, 0, 0, 0, 3, 0]);
     }
 }

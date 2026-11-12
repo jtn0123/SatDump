@@ -8,6 +8,8 @@
 extern "C"
 {
     int32_t satdump_rs_derand_ccsds(uint8_t *data, int32_t length);
+    int32_t satdump_rs_derand_ccsds_soft(int8_t *data, int32_t length);
+    int32_t satdump_rs_derand_ccsds_bits(uint8_t *data, int32_t length);
     int32_t satdump_rs_panic_check();
 }
 
@@ -22,6 +24,7 @@ namespace satdump::rust
         }
 
         std::atomic<bool> rust_on{allowed_by_environment()};
+        std::atomic<int> paused{0}; // CppOnly guards that exist
 
         // True when Rust did the work. After a Rust failure the C++ code does it from then on.
         bool done(int32_t status, const char *part)
@@ -34,7 +37,7 @@ namespace satdump::rust
         }
     } // namespace
 
-    bool enabled() { return rust_on.load(std::memory_order_relaxed); }
+    bool enabled() { return rust_on.load(std::memory_order_relaxed) && paused.load(std::memory_order_relaxed) == 0; }
 
     bool derand_ccsds(uint8_t *data, int length)
     {
@@ -43,5 +46,22 @@ namespace satdump::rust
         return done(satdump_rs_derand_ccsds(data, length), "derandomiser");
     }
 
+    bool derand_ccsds_soft(int8_t *data, int length)
+    {
+        if (!enabled())
+            return false;
+        return done(satdump_rs_derand_ccsds_soft(data, length), "soft-symbol derandomiser");
+    }
+
+    bool derand_ccsds_bits(uint8_t *data, int length)
+    {
+        if (!enabled())
+            return false;
+        return done(satdump_rs_derand_ccsds_bits(data, length), "bit derandomiser");
+    }
+
     int panic_check() { return satdump_rs_panic_check(); }
+
+    CppOnly::CppOnly() { paused.fetch_add(1); }
+    CppOnly::~CppOnly() { paused.fetch_sub(1); }
 } // namespace satdump::rust
