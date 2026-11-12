@@ -1,6 +1,7 @@
-// Fork: a database held in memory, with the orbit element (Kepler) and IERS tables, made the
-// current one (satdump::db_keplers) under settings of the test's own. The settings and the
-// database in use before are put back when the rig goes. Nothing is read from the network.
+// Fork: a database held in memory (or in a file the test names), with the orbit element (Kepler)
+// and IERS tables, made the current one (satdump::db_keplers) under settings of the test's own.
+// The settings and the database in use before are put back when the rig goes. Nothing is read
+// from the network.
 #pragma once
 
 #include "core/config.h"
@@ -48,8 +49,9 @@ namespace test_rig
         std::shared_ptr<satdump::KeplerDBHandler> keplers;
         std::shared_ptr<satdump::IersDBHandler> iers;
 
-        // Sets the settings, then makes the database (init() runs the start-up updates)
-        OfflineRig(const nlohmann::ordered_json &general_settings, const nlohmann::ordered_json &kepler_settings = kepler_sources({}))
+        // Sets the settings, then makes the database (init() runs the start-up updates). db_path
+        // names a database file to use instead of one held in memory
+        OfflineRig(const nlohmann::ordered_json &general_settings, const nlohmann::ordered_json &kepler_settings = kepler_sources({}), const std::string &db_path = ":memory:")
         {
             // An event bus of its own: an update tells everything listening on the bus, and
             // objects of earlier tests (trackers, schedulers) stay listening after they are gone
@@ -60,14 +62,28 @@ namespace test_rig
             satdump::satdump_cfg.main_cfg["satdump_general"] = general_settings;
             satdump::satdump_cfg.main_cfg["kepler_settings"] = kepler_settings;
 
-            db = std::make_shared<satdump::DBHandler>(":memory:");
+            db = std::make_shared<satdump::DBHandler>(db_path);
             db->subhandlers.push_back(keplers = std::make_shared<satdump::KeplerDBHandler>(db));
             db->subhandlers.push_back(iers = std::make_shared<satdump::IersDBHandler>(db));
-            db->init();
+            try
+            {
+                db->init();
+            }
+            catch (...) // a rig that throws here is never destroyed: what it changed is put back now
+            {
+                put_back();
+                throw;
+            }
             satdump::db_keplers = keplers;
         }
 
-        ~OfflineRig()
+        ~OfflineRig() { put_back(); }
+
+        OfflineRig(const OfflineRig &) = delete;
+        OfflineRig &operator=(const OfflineRig &) = delete;
+
+    private:
+        void put_back()
         {
             // The updates init() scheduled must never run on a database that is gone (the task
             // thread is not started in the unit tests, this is to be safe)
@@ -80,8 +96,5 @@ namespace test_rig
             satdump::satdump_cfg.main_cfg = old_cfg;
             satdump::eventBus = old_bus;
         }
-
-        OfflineRig(const OfflineRig &) = delete;
-        OfflineRig &operator=(const OfflineRig &) = delete;
     };
 } // namespace test_rig

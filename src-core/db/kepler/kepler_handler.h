@@ -4,6 +4,8 @@
 #include "core/exception.h"
 #include "db/db_handler.h"
 #include <mutex>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace satdump
@@ -28,6 +30,12 @@ namespace satdump
     };
 
     TLE keplerToTle(KeplerData kep);
+
+    // Fork: why keplerToTle cannot write these elements as a TLE, or "" when it can: a value that
+    // is not a number, an epoch outside the years 2000 to 2099, or a drag term (BSTAR) or second
+    // derivative of the mean motion that is not 0 or of a size from 1e-14 to 1. Element files with
+    // such an entry are refused when they are read, and keplerToTle throws for them
+    std::string keplerTleProblem(const KeplerData &kep);
     bool ccsdsOmmToKepler(std::string omm_line, KeplerData &kep_out);
     bool tleToKepler(TLE tle, KeplerData &kep_out);
 
@@ -75,7 +83,7 @@ namespace satdump
         {
             KeplerData kep;
             if (getKepler(kep, norad))
-                return keplerToTle(kep);
+                return storedToTle(kep);
             else
                 return {};
         }
@@ -86,18 +94,24 @@ namespace satdump
 
             KeplerData kep;
             if (getKepler(kep, norad, timestamp))
-                return keplerToTle(kep);
+                return storedToTle(kep);
             else
                 return {};
         }
 
     private:
+        // Fork: the TLE for elements read from the database, or none, with a warning, when they
+        // cannot be written as one (stored before such elements were refused). keplerToTle threw,
+        // which stopped SatDump at start-up
+        std::optional<TLE> storedToTle(const KeplerData &kep);
+
         std::vector<TLE> get_all_tles()
         {
             std::vector<TLE> tles;
             auto keps = getAllNewestKepler();
             for (auto &kep : keps)
-                tles.push_back(keplerToTle(kep));
+                if (std::optional<TLE> tle = storedToTle(kep)) // Fork: see storedToTle
+                    tles.push_back(*tle);
             return tles;
         }
 

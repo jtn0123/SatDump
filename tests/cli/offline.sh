@@ -8,6 +8,9 @@
 #     products carry those elements
 #   - with the files missing, both still end with exit code 0, with one warning per file, and
 #     the data read before is still used
+#   - an element file with a value a TLE cannot be made from is refused with one warning, and
+#     elements of that kind already in the database are skipped with a warning (both stopped
+#     SatDump at start-up, or made it drop the database for the run)
 #   - the installed defaults download nothing
 # Where the system allows it (unshare), every run is in a network namespace with no network
 # at all, where host names cannot be looked up either. Every run also has its web proxy set to
@@ -94,6 +97,7 @@ METEOR-M2 3
 1 57166U 23091A   25314.50000000  .00000100  00000-0  50000-4 0  9990
 2 57166  98.6500  20.7500 0003000  80.5000 279.6000 14.24000000123455
 TLE
+cp "$D/data/elements.tle" "$WORK/elements.tle"
 cp "$TESTS/offline/finals2000A.daily.json" "$TESTS/offline/leap-seconds.list" "$D/data/"
 
 # run_off <expected exit code> <name> <args...>: like run(), with no network when possible,
@@ -172,6 +176,37 @@ check products-noaa-no-files-carry-elements carries_elements "$WORK/products-noa
 run_off 0 live-no-files "${LIVE[@]/live-1/live-2}"
 check live-no-files-one-warning [ "$(count live-no-files "Cannot read the orbit element file")" = 1 ]
 check live-no-files-no-download no_download live-no-files
+
+# An element file whose entries all read, but with a drag term (BSTAR) of 1.2, as a column mix-up
+# gives (OMM CSV this time; the format is found from the content): a TLE cannot be made from it.
+# It was stored, and making the TLEs then stopped every command at start-up (exit 134). Now the
+# file is refused with one warning, and the elements read before are kept
+cat > "$D/data/elements.tle" << 'CSV'
+OBJECT_NAME,OBJECT_ID,EPOCH,MEAN_MOTION,ECCENTRICITY,INCLINATION,RA_OF_ASC_NODE,ARG_OF_PERICENTER,MEAN_ANOMALY,EPHEMERIS_TYPE,CLASSIFICATION_TYPE,NORAD_CAT_ID,ELEMENT_SET_NO,REV_AT_EPOCH,BSTAR,MEAN_MOTION_DOT,MEAN_MOTION_DDOT
+METOP-B,2012-049A,2025-11-11T12:00:00.000000,14.21512345,.00015,98.69,10.1234,90.1,270.05,0,U,38771,999,67890,.00005,.000001,0
+NOAA 19,2009-005A,2025-11-11T12:00:00.000000,14.13,.00014,99.05,40.5,100.2,260,0,U,33591,999,86543,1.2,.000001,0
+CSV
+run_off 0 bad-elements pipeline metop_ahrpt cadu "$WORK/in/metop.cadu" "$PASS/products-bad-elements"
+check bad-elements-one-warning [ "$(count bad-elements "has 1 entries that cannot be read")" = 1 ]
+check bad-elements-keep-database not_logged bad-elements "keeps its data in memory"
+check bad-elements-keep-elements logged bad-elements "3 Keplers in database"
+
+# Elements of that kind already in the database (stored by the version that then stopped): they
+# are skipped with a warning, and the database is still used. Making their TLE threw, and the
+# run dropped main.db for an empty database in memory
+check stored-bad-elements-put python3 -I -B - "$D/home/.config/satdump/main.db" << 'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute("INSERT INTO kepler VALUES ('99999_1762862400', 99999, 999, 'FORK BAD', '2025-001A', 1762862400, "
+           "98.69, 10.1234, 0.00015, 90.1, 270.05, 14.2, 0.000001, 0, 1.5, 100)")
+db.commit()
+PY
+cp "$WORK/elements.tle" "$D/data/elements.tle"
+run_off 0 stored-bad-elements pipeline metop_ahrpt cadu "$WORK/in/metop.cadu" "$PASS/products-stored-bad-elements"
+check stored-bad-elements-skipped logged stored-bad-elements "Stored orbit elements are not used: the elements of satellite 99999"
+check stored-bad-elements-keep-database not_logged stored-bad-elements "keeps its data in memory"
+check stored-bad-elements-read-file logged stored-bad-elements "Read 3 orbit elements from file://$D/data/elements.tle"
+check stored-bad-elements-keep-elements logged stored-bad-elements "4 Keplers in database"
 
 # The installed defaults (no settings file): nothing is fetched, nothing is read. Only with no
 # network, so that defaults that went wrong could never reach a real server from a test

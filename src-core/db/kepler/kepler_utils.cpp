@@ -7,10 +7,14 @@
 #include "utils/http.h"
 #include "utils/string.h"
 #include <cctype>
+#include <climits>
+#include <cmath>
 #include <cstring>
 #include <exception>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
+#include <utility>
 #include "common/utils.h"
 
 namespace satdump
@@ -54,7 +58,9 @@ namespace satdump
 
             int coefflen = std::to_string(coef).size();
 
-            std::string res = std::to_string((int)(val * pow(10, mult)));
+            // Fork: a long long, not an int. The loop above ends by 10 x 2^53 at the latest, which
+            // can be past an int: the cast was then undefined
+            std::string res = std::to_string((long long)(val * pow(10, mult)));
 
             if (res.size() > sz - 1 - coefflen)
                 res.resize(sz - 1 - coefflen);
@@ -71,6 +77,38 @@ namespace satdump
             throw satdump_exception("Error, value must be below 1!");
     }
 
+    // Fork: see kepler_handler.h
+    std::string keplerTleProblem(const KeplerData &kep)
+    {
+        const std::pair<const char *, double> values[] = {{"epoch", kep.epoch},
+                                                          {"inclination", kep.inclination},
+                                                          {"right ascension", kep.right_ascension},
+                                                          {"eccentricity", kep.eccentricity},
+                                                          {"argument of perigee", kep.argument_of_perigee},
+                                                          {"mean anomaly", kep.mean_anomaly},
+                                                          {"mean motion", kep.mean_motion},
+                                                          {"first derivative of the mean motion", kep.derivative_mean_motion},
+                                                          {"second derivative of the mean motion", kep.second_derivative_mean_motion},
+                                                          {"drag term (BSTAR)", kep.bstar_drag_term}};
+        for (auto &v : values)
+            if (!std::isfinite(v.second))
+                return std::string("the ") + v.first + " is not a finite number";
+
+        // 2000-01-01 to 2100-01-01 UTC: the TLE gives the year in two digits, read back as 20yy
+        if (kep.epoch < 946684800.0 || kep.epoch >= 4102444800.0)
+            return "the epoch is not in the years 2000 to 2099";
+
+        // A TLE holds these as five digits and a one-digit exponent, so 0 or a size from 1e-14 to
+        // just under 1. strLE threw at 1 and above, and never finished below about 1e-292
+        const std::pair<const char *, double> exponent_values[] = {{"second derivative of the mean motion", kep.second_derivative_mean_motion},
+                                                                   {"drag term (BSTAR)", kep.bstar_drag_term}};
+        for (auto &v : exponent_values)
+            if (v.second != 0 && !(std::fabs(v.second) >= 1e-14 && std::fabs(v.second) < 1))
+                return std::string("the ") + v.first + " is not 0 or of a size from 1e-14 to 1";
+
+        return "";
+    }
+
     // Fork: whether a designator has the OMM form, YYYY-NNN then 1 to 3 letters for the piece
     static bool isOmmDesignator(const std::string &d)
     {
@@ -84,6 +122,11 @@ namespace satdump
 
     TLE keplerToTle(KeplerData kep)
     {
+        // Fork: values a TLE cannot hold are an error, never a hang or a wrong line (see above)
+        std::string problem = keplerTleProblem(kep);
+        if (!problem.empty())
+            throw satdump_exception("the elements of satellite " + std::to_string(kep.satellite_number) + " cannot be written as a TLE: " + problem);
+
         TLE tle;
         tle.name = kep.name;
         tle.norad = kep.satellite_number;
@@ -137,6 +180,16 @@ namespace satdump
         return tle;
     }
 
+    // Fork: a whole-number column of OMM CSV (catalogue number, element set, revolutions). It went
+    // from std::stod straight into an int, which is undefined for "1e20" or "nan"
+    static int ommWholeNumber(const std::string &text)
+    {
+        double v = std::stod(text);
+        if (!(v >= 0 && v <= INT_MAX))
+            throw std::out_of_range("not a whole number from 0 to INT_MAX");
+        return (int)v;
+    }
+
     bool ccsdsOmmToKepler(std::string omm, KeplerData &kep)
     {
         try
@@ -168,9 +221,9 @@ namespace satdump
             kep.argument_of_perigee = std::stod(elems[7]);
             kep.mean_anomaly = std::stod(elems[8]);
 
-            kep.satellite_number = std::stod(elems[11]);
-            kep.element_number = std::stod(elems[12]);
-            kep.revolutions_at_epoch = std::stod(elems[13]);
+            kep.satellite_number = ommWholeNumber(elems[11]);
+            kep.element_number = ommWholeNumber(elems[12]);
+            kep.revolutions_at_epoch = ommWholeNumber(elems[13]);
 
             kep.bstar_drag_term = std::stod(elems[14]);
             kep.derivative_mean_motion = std::stod(elems[15]);
@@ -181,7 +234,9 @@ namespace satdump
             return false;
         }
 
-        return true;
+        // Fork: a line with values a TLE cannot be made from cannot be used either. It was stored,
+        // and making the TLE then threw, which stopped SatDump at start-up (exit 134)
+        return keplerTleProblem(kep).empty();
     }
 
     bool tleToKepler(TLE tle, KeplerData &kep)
@@ -216,7 +271,8 @@ namespace satdump
 
         predict_destroy_orbital_elements(tle_ephems);
 
-        return true;
+        // Fork: see ccsdsOmmToKepler (an exponent column that is not a digit can give a BSTAR of 1e16)
+        return keplerTleProblem(kep).empty();
     }
 
     std::vector<KeplerData> parseCcsdsOmmFile(std::string fileCont)

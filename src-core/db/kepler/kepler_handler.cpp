@@ -89,7 +89,16 @@ namespace satdump
             // the interval had passed. Downloads still run on the task thread, as before.
             if (allSourcesAreLocal())
             {
-                updateKeplerDatabase();
+                // Fork: an error here must not leave start-up. Start-up then went on with a
+                // database in memory, whose update failed again, out of SatDump (exit 134)
+                try
+                {
+                    updateKeplerDatabase();
+                }
+                catch (const std::exception &e)
+                {
+                    logger->error("Reading the orbit element files at start-up failed (%s); the elements in the database are used", e.what());
+                }
                 last_update = time(0);
             }
 
@@ -199,6 +208,19 @@ namespace satdump
         logger->info("%d Keplers in database!", h->get_table_size("kepler"));
         all_ = get_all_tles();
         eventBus->fire_event<TLEsUpdatedEvent>(TLEsUpdatedEvent());
+    }
+
+    std::optional<TLE> KeplerDBHandler::storedToTle(const KeplerData &kep)
+    {
+        try
+        {
+            return keplerToTle(kep);
+        }
+        catch (const std::exception &e)
+        {
+            logger->warn("Stored orbit elements are not used: %s", e.what());
+            return {};
+        }
     }
 
     void KeplerDBHandler::putKepler(KeplerData kep)

@@ -19,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <sqlite3.h>
 #include <string>
@@ -297,6 +298,110 @@ TEST_CASE("Orbit elements: a designator with a quote is stored, with the rest of
     CHECK(kep.designator == "2009-005'A");
     CHECK(rig.keplers->getAllNewestKepler().size() == 2);
     CHECK_FALSE(c.has(slog::LOG_ERROR, "Error inserting"));
+}
+
+TEST_CASE("Orbit elements: an entry a TLE cannot be made from cannot be read, so its file is not used")
+{
+    int bad = -1;
+    CHECK(satdump::parseKeplerText(OMM_HEADER + OMM_METOP + "\n", bad).size() == 1);
+    CHECK(bad == 0);
+
+    // One value changed in each. They were read, stored, and making the TLE then threw (a drag
+    // term of 1 or more), never finished (a tiny one) or was undefined (a catalogue number too
+    // big for an int)
+    const std::vector<std::pair<size_t, std::string>> changes = {
+        {14, "1.2"},  {14, "-1"},   {14, "1e-300"}, {14, "nan"},  {16, "1"},    {16, "-inf"}, {3, "inf"},
+        {4, "nan"},   {11, "1e20"}, {11, "nan"},    {11, "-5"},   {12, "1e10"}, {13, "-1"},
+        {2, "2025-11-10T12:00:nan"}, {2, "2025-11-10T12:00:1e300"}, {2, "1999-12-31T23:59:59"}, {2, "2100-01-01T00:00:00"},
+    };
+    for (auto &change : changes)
+    {
+        std::string line = omm_with(OMM_METOP, change.first, change.second);
+        CAPTURE(line);
+        std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(OMM_HEADER + line + "\n" + OMM_NOAA + "\n", bad);
+        CHECK(bad == 1);
+        CHECK(keps.size() == 1);
+    }
+
+    // TLE text: an exponent column that is not a digit gives a drag term of 5e15
+    std::string tle = TLE_TEXT;
+    size_t line1 = tle.find("1 38771");
+    std::string changed = tle.substr(line1, 60) + " ";
+    tle.replace(line1, 69, tle_line(changed + tle.substr(line1 + 61, 7)));
+    CHECK(satdump::parseKeplerText(tle, bad).size() == 2);
+    CHECK(bad == 1);
+}
+
+TEST_CASE("Orbit elements: a file with an entry a TLE cannot be made from changes nothing at start-up, with one warning")
+{
+    // Read at start-up, it was stored, and making the TLEs then threw out of init(); SatDump fell
+    // back to a database in memory, read the file again there, and stopped (exit 134)
+    TempDir dir;
+    dir.write("elements.csv", OMM_HEADER + OMM_METOP + "\n" + omm_with(OMM_NOAA, 14, "1.2") + "\n");
+    LogCapture c;
+    std::unique_ptr<test_rig::OfflineRig> rig;
+    CHECK_NOTHROW(rig = std::make_unique<test_rig::OfflineRig>(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.csv")})));
+    REQUIRE(rig != nullptr);
+    CHECK(rig->keplers->getAllNewestKepler().empty());
+    CHECK(rig->keplers->all_.empty());
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "1 entries that cannot be read"));
+}
+
+TEST_CASE("Orbit elements: stored elements a TLE cannot be made from are skipped, with a warning")
+{
+    // Elements stored before such values were refused. Making their TLE threw: at start-up that
+    // made SatDump drop the whole database for the run, and a product asking for them failed
+    TempDir dir;
+    dir.write("elements.tle", TLE_TEXT);
+    const std::string db_path = (dir.path / "main.db").string();
+    {
+        test_rig::OfflineRig earlier(test_rig::general("Never", false), test_rig::kepler_sources({}), db_path);
+        satdump::KeplerData kep = metop_elements();
+        kep.satellite_number = 99999;
+        kep.name = "FORK BAD";
+        kep.bstar_drag_term = 1.5;
+        earlier.keplers->putKepler(kep);
+    }
+
+    LogCapture c;
+    std::unique_ptr<test_rig::OfflineRig> rig;
+    CHECK_NOTHROW(rig = std::make_unique<test_rig::OfflineRig>(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.tle")}), db_path));
+    REQUIRE(rig != nullptr);
+    CHECK(rig->keplers->getAllNewestKepler().size() == 4);
+    CHECK(rig->keplers->all_.size() == 3);
+    CHECK(c.has(slog::LOG_WARN, "Stored orbit elements are not used: the elements of satellite 99999 cannot be written as a TLE: the drag term (BSTAR)"));
+    CHECK_FALSE(rig->keplers->get_from_norad(99999).has_value());
+    CHECK_FALSE(rig->keplers->get_from_norad_time(99999, EPOCH).has_value());
+    CHECK(rig->keplers->get_from_norad(38771).has_value());
+}
+
+TEST_CASE("Orbit elements: making a TLE refuses values it cannot write, and never hangs")
+{
+    satdump::KeplerData kep = metop_elements();
+    CHECK(satdump::keplerTleProblem(kep) == "");
+    kep.bstar_drag_term = -0.00012;
+    CHECK(satdump::keplerTleProblem(kep) == "");
+
+    // strLE went round its loop for ever below about 1e-292, and threw at 1 and above
+    for (double v : {1e-300, -1e-300, 5e-324, 1e-15, 1.0, -1.0, 2.5})
+    {
+        CAPTURE(v);
+        kep = metop_elements();
+        kep.bstar_drag_term = v;
+        CHECK(satdump::keplerTleProblem(kep).find("drag term (BSTAR)") != std::string::npos);
+        CHECK_THROWS_AS(satdump::keplerToTle(kep), std::exception);
+        kep = metop_elements();
+        kep.second_derivative_mean_motion = v;
+        CHECK(satdump::keplerTleProblem(kep).find("second derivative") != std::string::npos);
+        CHECK_THROWS_AS(satdump::keplerToTle(kep), std::exception);
+    }
+    kep = metop_elements();
+    kep.mean_motion = NAN;
+    CHECK(satdump::keplerTleProblem(kep) == "the mean motion is not a finite number");
+    kep = metop_elements();
+    kep.epoch = 4102444800.0; // 2100-01-01
+    CHECK(satdump::keplerTleProblem(kep) == "the epoch is not in the years 2000 to 2099");
 }
 
 TEST_CASE("Orbit elements: a local file is read at start-up, before init() returns")

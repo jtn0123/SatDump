@@ -68,7 +68,15 @@ namespace satdump
             std::string bulletin = bulletinUrl(), leap_seconds = leapSecondsUrl();
             if ((bulletin.empty() || isFileUrl(bulletin)) && (leap_seconds.empty() || isFileUrl(leap_seconds)))
             {
-                updateIERS();
+                // Fork: as for the orbit elements, an error here must not leave start-up
+                try
+                {
+                    updateIERS();
+                }
+                catch (const std::exception &e)
+                {
+                    logger->error("Reading the IERS files at start-up failed (%s); the data in the database is used", e.what());
+                }
                 last_update = time(0);
             }
 

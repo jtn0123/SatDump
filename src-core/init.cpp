@@ -242,7 +242,16 @@ namespace satdump
             logger->error("Cannot use the database %s/main.db (%s); it is left as it is and this run keeps its data in memory only", user_path.c_str(), e.what());
             db->subhandlers.clear(); // they hold the old database too, so it would never be freed
             db = std::make_shared<DBHandler>(":memory:");
-            setup_db();
+            // Fork: an error here too is logged, never let out of SatDump (it stopped every
+            // command with exit 134). The run goes on with what the database could set up
+            try
+            {
+                setup_db();
+            }
+            catch (const std::exception &e2)
+            {
+                logger->error("Cannot set up the database in memory either (%s); this run may have no orbit elements or IERS data", e2.what());
+            }
         }
 
         // Products
