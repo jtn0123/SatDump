@@ -28,6 +28,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Start-up | A damaged settings file no longer stops SatDump: it uses the default settings and leaves the file as it is | 2026-11-11 |
 | Start-up | A damaged database (`main.db`) no longer stops SatDump: that run keeps its data in memory | 2026-11-11 |
 | Start-up | HOME not set (services, cron) no longer crashes: settings go under `XDG_CONFIG_HOME`, then the user's home folder | 2026-11-11 |
+| Start-up | A crash ends with its real signal (so a service manager sees it), and an error that nothing handled is printed before the stop | 2026-11-11 |
 | Bug fix | Background updates (orbit data, Earth-orientation data) waited for the task listed last, not the one due first; a "never" interval no longer overflows | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
@@ -55,6 +56,10 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | 1 | Usage error: unknown option, missing argument, unknown pipeline, input file not found |
 | 2 | The command ran and failed (the log line `Error running command` says why) |
 | 3 | Radio problem: the radio is not connected, its driver is missing, or it could not be opened, set up or started (`legacy record` and `legacy live`) |
+
+A crash ends the way the system reports crashes: by its signal (a shell shows 128 + the
+signal number, for example 139 for a segmentation fault or 134 for an abort), so a service
+manager can tell a crash from an ordinary failure.
 
 ## Building and testing
 

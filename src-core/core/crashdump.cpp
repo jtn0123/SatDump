@@ -14,6 +14,11 @@
 #include <string>
 #endif
 
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
+#include <string>
+
 namespace satdump
 {
 #ifdef SATDUMP_CRASHDUMP
@@ -105,13 +110,46 @@ namespace satdump
 
         std::ofstream("satdump_crash_" + std::to_string(time(NULL)) + ".txt").write((char *)report.c_str(), report.size());
 
+        // Fork: end by the same signal, so the exit status says "crashed" (for example 139 for
+        // a segmentation fault) rather than 1, which means a usage error. exit() is also not
+        // safe here: it runs destructors while other threads keep going.
         signal(sig, SIG_DFL);
-        exit(1);
+        raise(sig);
     }
 #endif
 
+    // Fork: an exception that nothing caught (often in a worker thread) ends SatDump through
+    // std::terminate; say what it was before stopping
+    static void terminate_handler()
+    {
+        const char *what = "an unknown exception";
+        std::string msg;
+        if (std::exception_ptr e = std::current_exception())
+        {
+            try
+            {
+                std::rethrow_exception(e);
+            }
+            catch (std::exception &ex)
+            {
+                msg = ex.what();
+                what = msg.c_str();
+            }
+            catch (...)
+            {
+            }
+            fprintf(stderr, "\nSatDump stopped on an error that was not handled: %s\n", what);
+        }
+        else
+            fprintf(stderr, "\nSatDump stopped: std::terminate was called\n");
+        fflush(stderr);
+        std::abort();
+    }
+
     void initCrashDump()
     {
+        std::set_terminate(terminate_handler);
+
 #ifdef SATDUMP_CRASHDUMP
 
 #ifndef SATDUMP_CRASHDUMP_CPPTRACE
