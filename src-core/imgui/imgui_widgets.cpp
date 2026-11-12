@@ -43,6 +43,7 @@ Index of this file:
 #include "imgui.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_internal.h"
+#include "imgui_soft.h"
 
 // System includes
 #include <stdint.h>     // intptr_t
@@ -1226,7 +1227,9 @@ bool ImGui::Checkbox(const char* label, bool* v)
     const ImGuiID id = window->GetID(label);
     const ImVec2 label_size = CalcTextSize(label, NULL, true);
 
-    const float square_sz = GetFrameHeight();
+    // Soft look: a small box centred on the line instead of a frame-height square
+    const float square_sz = GImSoft.Enabled ? ImMin(GetFrameHeight(), GImSoft.CheckSize) : GetFrameHeight();
+    const float square_off_y = IM_TRUNC((GetFrameHeight() - square_sz) * 0.5f);
     const ImVec2 pos = window->DC.CursorPos;
     const ImRect total_bb(pos, pos + ImVec2(square_sz + (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f), label_size.y + style.FramePadding.y * 2.0f));
     ItemSize(total_bb, style.FramePadding.y);
@@ -1260,9 +1263,31 @@ bool ImGui::Checkbox(const char* label, bool* v)
         MarkItemEdited(id);
     }
 
-    const ImRect check_bb(pos, pos + ImVec2(square_sz, square_sz));
+    const ImRect check_bb(pos + ImVec2(0.0f, square_off_y), pos + ImVec2(square_sz, square_off_y + square_sz));
     const bool mixed_value = (g.LastItemData.ItemFlags & ImGuiItemFlags_MixedValue) != 0;
-    if (is_visible)
+    if (is_visible && GImSoft.Enabled)
+    {
+        // Soft look: outlined box when off, filled with the accent colour when on
+        RenderNavCursor(total_bb, id);
+        const float rounding = ImMin(style.FrameRounding, square_sz * 0.30f);
+        const bool filled = *v || mixed_value;
+        const ImU32 box_col = filled ? GetColorU32(ImGuiCol_CheckMark, (held && hovered) ? 0.80f : 1.0f)
+                                     : GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+        window->DrawList->AddRectFilled(check_bb.Min, check_bb.Max, box_col, rounding);
+        if (!filled)
+            window->DrawList->AddRect(check_bb.Min + ImVec2(0.5f, 0.5f), check_bb.Max - ImVec2(0.5f, 0.5f), GImSoft.ControlBorder, rounding);
+        if (mixed_value)
+        {
+            const ImVec2 bar(IM_TRUNC(square_sz * 0.25f), IM_TRUNC(square_sz * 0.44f));
+            window->DrawList->AddRectFilled(check_bb.Min + bar, check_bb.Max - bar, GImSoft.OnAccent, 1.0f);
+        }
+        else if (*v)
+        {
+            const float pad = ImMax(1.0f, IM_TRUNC(square_sz * 0.24f));
+            RenderCheckMark(window->DrawList, check_bb.Min + ImVec2(pad, pad), GImSoft.OnAccent, square_sz - pad * 2.0f);
+        }
+    }
+    else if (is_visible)
     {
         RenderNavCursor(total_bb, id);
         RenderFrame(check_bb.Min, check_bb.Max, GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), true, style.FrameRounding);
@@ -1280,7 +1305,7 @@ bool ImGui::Checkbox(const char* label, bool* v)
             RenderCheckMark(window->DrawList, check_bb.Min + ImVec2(pad, pad), check_col, square_sz - pad * 2.0f);
         }
     }
-    const ImVec2 label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y);
+    const ImVec2 label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, pos.y + style.FramePadding.y);
     if (g.LogEnabled)
         LogRenderedText(&label_pos, mixed_value ? "[~]" : *v ? "[x]" : "[ ]");
     if (is_visible && label_size.x > 0.0f)
@@ -1348,9 +1373,11 @@ bool ImGui::RadioButton(const char* label, bool active)
     const ImGuiID id = window->GetID(label);
     const ImVec2 label_size = CalcTextSize(label, NULL, true);
 
-    const float square_sz = GetFrameHeight();
+    // Soft look: a small ring centred on the line instead of a frame-height disc
+    const float square_sz = GImSoft.Enabled ? ImMin(GetFrameHeight(), GImSoft.CheckSize) : GetFrameHeight();
+    const float square_off_y = IM_TRUNC((GetFrameHeight() - square_sz) * 0.5f);
     const ImVec2 pos = window->DC.CursorPos;
-    const ImRect check_bb(pos, pos + ImVec2(square_sz, square_sz));
+    const ImRect check_bb(pos + ImVec2(0.0f, square_off_y), pos + ImVec2(square_sz, square_off_y + square_sz));
     const ImRect total_bb(pos, pos + ImVec2(square_sz + (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f), label_size.y + style.FramePadding.y * 2.0f));
     ItemSize(total_bb, style.FramePadding.y);
     if (!ItemAdd(total_bb, id))
@@ -1368,20 +1395,37 @@ bool ImGui::RadioButton(const char* label, bool active)
 
     RenderNavCursor(total_bb, id);
     const int num_segment = window->DrawList->_CalcCircleAutoSegmentCount(radius);
-    window->DrawList->AddCircleFilled(center, radius, GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), num_segment);
-    if (active)
+    if (GImSoft.Enabled)
     {
-        const float pad = ImMax(1.0f, IM_TRUNC(square_sz / 6.0f));
-        window->DrawList->AddCircleFilled(center, radius - pad, GetColorU32(ImGuiCol_CheckMark));
+        // Soft look: outlined ring when off, accent disc with a small centre dot when on
+        if (active)
+        {
+            window->DrawList->AddCircleFilled(center, radius, GetColorU32(ImGuiCol_CheckMark), num_segment);
+            window->DrawList->AddCircleFilled(center, ImMax(1.5f, radius * 0.38f), GImSoft.OnAccent);
+        }
+        else
+        {
+            window->DrawList->AddCircleFilled(center, radius, GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), num_segment);
+            window->DrawList->AddCircle(center, radius - 0.5f, GImSoft.ControlBorder, num_segment);
+        }
+    }
+    else
+    {
+        window->DrawList->AddCircleFilled(center, radius, GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), num_segment);
+        if (active)
+        {
+            const float pad = ImMax(1.0f, IM_TRUNC(square_sz / 6.0f));
+            window->DrawList->AddCircleFilled(center, radius - pad, GetColorU32(ImGuiCol_CheckMark));
+        }
     }
 
-    if (style.FrameBorderSize > 0.0f)
+    if (style.FrameBorderSize > 0.0f && !GImSoft.Enabled)
     {
         window->DrawList->AddCircle(center + ImVec2(1, 1), radius, GetColorU32(ImGuiCol_BorderShadow), num_segment, style.FrameBorderSize);
         window->DrawList->AddCircle(center, radius, GetColorU32(ImGuiCol_Border), num_segment, style.FrameBorderSize);
     }
 
-    ImVec2 label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y);
+    ImVec2 label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, pos.y + style.FramePadding.y);
     if (g.LogEnabled)
         LogRenderedText(&label_pos, active ? "(x)" : "( )");
     if (label_size.x > 0.0f)
@@ -1741,7 +1785,11 @@ void ImGui::SeparatorTextEx(ImGuiID id, const char* label, const char* label_end
             window->DrawList->AddLine(ImVec2(sep2_x1, seps_y), ImVec2(sep2_x2, seps_y), separator_col, separator_thickness);
         if (g.LogEnabled)
             LogSetNextTextDecoration("---", NULL);
+        if (GImSoft.Enabled)
+            PushStyleColor(ImGuiCol_Text, GImSoft.Muted);
         RenderTextEllipsis(window->DrawList, label_pos, ImVec2(bb.Max.x, bb.Max.y + style.ItemSpacing.y), bb.Max.x, label, label_end, &label_size);
+        if (GImSoft.Enabled)
+            PopStyleColor();
     }
     else
     {
@@ -1947,7 +1995,7 @@ bool ImGui::BeginCombo(const char* label, const char* preview_value, ImGuiComboF
         window->DrawList->AddRectFilled(bb.Min, ImVec2(value_x2, bb.Max.y), frame_col, style.FrameRounding, (flags & ImGuiComboFlags_NoArrowButton) ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersLeft);
     if (!(flags & ImGuiComboFlags_NoArrowButton))
     {
-        ImU32 bg_col = GetColorU32((popup_open || hovered) ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
+        ImU32 bg_col = GImSoft.Enabled ? frame_col : GetColorU32((popup_open || hovered) ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
         ImU32 text_col = GetColorU32(ImGuiCol_Text);
         window->DrawList->AddRectFilled(ImVec2(value_x2, bb.Min.y), bb.Max, bg_col, style.FrameRounding, (w <= arrow_size) ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersRight);
         if (value_x2 + arrow_size - style.FramePadding.x <= bb.Max.x)
@@ -3346,7 +3394,22 @@ bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_dat
         MarkItemEdited(id);
 
     // Render grab
-    if (grab_bb.Max.x > grab_bb.Min.x)
+    if (grab_bb.Max.x > grab_bb.Min.x && GImSoft.Enabled)
+    {
+        // Soft look: the track fills with the accent colour, with a brighter leading edge as the handle
+        // Keep the handle clear of the rounded ends; nothing is filled while it rests at the start
+        const ImGuiCol grab_idx = g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab;
+        const float edge_w = 3.0f;
+        const float grab_x = ImClamp(IM_ROUND((grab_bb.Min.x + grab_bb.Max.x) * 0.5f), frame_bb.Min.x + edge_w, frame_bb.Max.x);
+        // Both parts are the rounded track itself, clipped, so they follow its ends exactly
+        window->DrawList->PushClipRect(frame_bb.Min, ImVec2(grab_x - edge_w, frame_bb.Max.y), true);
+        window->DrawList->AddRectFilled(frame_bb.Min, frame_bb.Max, GetColorU32(grab_idx, 0.38f), g.Style.FrameRounding);
+        window->DrawList->PopClipRect();
+        window->DrawList->PushClipRect(ImVec2(grab_x - edge_w, frame_bb.Min.y), ImVec2(grab_x, frame_bb.Max.y), true);
+        window->DrawList->AddRectFilled(frame_bb.Min, frame_bb.Max, GetColorU32(grab_idx), g.Style.FrameRounding);
+        window->DrawList->PopClipRect();
+    }
+    else if (grab_bb.Max.x > grab_bb.Min.x)
         window->DrawList->AddRectFilled(grab_bb.Min, grab_bb.Max, GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), style.GrabRounding);
 
     // Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
@@ -7000,7 +7063,10 @@ bool ImGui::TreeNodeBehavior(ImGuiID id, ImGuiTreeNodeFlags flags, const char* l
         {
             // Framed type
             const ImU32 bg_col = GetColorU32((held && hovered) ? ImGuiCol_HeaderActive : hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header);
-            RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, true, style.FrameRounding);
+            if (!GImSoft.Enabled)
+                RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, true, style.FrameRounding);
+            else if (hovered)
+                RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, false, GImSoft.RowRounding);
             RenderNavCursor(frame_bb, id, nav_render_cursor_flags);
             if (span_all_columns && !span_all_columns_label)
                 TablePopBackgroundChannel();
@@ -7021,7 +7087,14 @@ bool ImGui::TreeNodeBehavior(ImGuiID id, ImGuiTreeNodeFlags flags, const char* l
             if (hovered || selected)
             {
                 const ImU32 bg_col = GetColorU32((held && hovered) ? ImGuiCol_HeaderActive : hovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header);
-                RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, false);
+                if (GImSoft.Enabled)
+                {
+                    // Soft look: a full-height row highlight (unframed rows are only one text line tall)
+                    const ImVec2 grow(0.0f, ImMin(style.FramePadding.y * 0.6f, style.ItemSpacing.y * 0.5f));
+                    RenderFrame(frame_bb.Min - grow, frame_bb.Max + grow, bg_col, false, GImSoft.RowRounding);
+                }
+                else
+                    RenderFrame(frame_bb.Min, frame_bb.Max, bg_col, false, 0.0f);
             }
             RenderNavCursor(frame_bb, id, nav_render_cursor_flags);
             if (span_all_columns && !span_all_columns_label)
@@ -7402,7 +7475,7 @@ bool ImGui::Selectable(const char* label, bool selected, ImGuiSelectableFlags fl
         {
             // Between 1.91.0 and 1.91.4 we made selected Selectable use an arbitrary lerp between _Header and _HeaderHovered. Removed that now. (#8106)
             ImU32 col = GetColorU32((held && highlighted) ? ImGuiCol_HeaderActive : highlighted ? ImGuiCol_HeaderHovered : ImGuiCol_Header);
-            RenderFrame(bb.Min, bb.Max, col, false, 0.0f);
+            RenderFrame(bb.Min, bb.Max, col, false, GImSoft.Enabled ? GImSoft.RowRounding : 0.0f);
         }
         if (g.NavId == id)
         {
@@ -10563,7 +10636,7 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
         ImDrawList* display_draw_list = window->DrawList;
         const ImU32 tab_col = GetColorU32((held || hovered) ? ImGuiCol_TabHovered : tab_contents_visible ? (tab_bar_focused ? ImGuiCol_TabSelected : ImGuiCol_TabDimmedSelected) : (tab_bar_focused ? ImGuiCol_Tab : ImGuiCol_TabDimmed));
         TabItemBackground(display_draw_list, bb, flags, tab_col);
-        if (tab_contents_visible && (tab_bar->Flags & ImGuiTabBarFlags_DrawSelectedOverline) && style.TabBarOverlineSize > 0.0f)
+        if (!GImSoft.Enabled && tab_contents_visible && (tab_bar->Flags & ImGuiTabBarFlags_DrawSelectedOverline) && style.TabBarOverlineSize > 0.0f)
         {
             // Might be moved to TabItemBackground() ?
             ImVec2 tl = bb.GetTL() + ImVec2(0, 1.0f * g.CurrentDpiScale);
@@ -10665,6 +10738,13 @@ void ImGui::TabItemBackground(ImDrawList* draw_list, const ImRect& bb, ImGuiTabI
     IM_UNUSED(flags);
     IM_ASSERT(width > 0.0f);
     const float rounding = ImMax(0.0f, ImMin((flags & ImGuiTabItemFlags_Button) ? g.Style.FrameRounding : g.Style.TabRounding, width * 0.5f - 1.0f));
+    if (GImSoft.Enabled)
+    {
+        // Soft look: a fully rounded pill, like a segmented control, instead of a folder tab
+        const ImRect pill(bb.Min.x + 1.0f, bb.Min.y + 2.0f, bb.Max.x - 1.0f, bb.Max.y - 2.0f);
+        draw_list->AddRectFilled(pill.Min, pill.Max, col, ImMin(GImSoft.RowRounding, pill.GetHeight() * 0.5f));
+        return;
+    }
     const float y1 = bb.Min.y + 1.0f;
     const float y2 = bb.Max.y - g.Style.TabBarBorderSize;
     draw_list->PathLineTo(ImVec2(bb.Min.x, y2));

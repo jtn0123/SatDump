@@ -35,6 +35,7 @@ Index of this file:
 #include "imgui.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_internal.h"
+#include "imgui_soft.h"
 #ifdef IMGUI_ENABLE_FREETYPE
 #include "misc/freetype/imgui_freetype.h"
 #endif
@@ -5847,9 +5848,32 @@ begin:
 //-----------------------------------------------------------------------------
 
 // Render an arrow aimed to be aligned with text (p_min is a position in the same space text would be positioned). To e.g. denote expanded/collapsed state
+ImSoftSkin GImSoft;
+
 void ImGui::RenderArrow(ImDrawList* draw_list, ImVec2 pos, ImU32 col, ImGuiDir dir, float scale)
 {
     const float h = draw_list->_Data->FontSize * 1.00f;
+    if (GImSoft.Enabled)
+    {
+        // Soft look: a thin open chevron in a quieter shade of the given colour
+        const float e = h * 0.24f * scale;
+        const ImVec2 mid = pos + ImVec2(h * 0.50f, h * 0.50f * scale);
+        ImVec2 p0, p1, p2;
+        switch (dir)
+        {
+        case ImGuiDir_Up:    p0 = ImVec2(-e, +e * 0.5f); p1 = ImVec2(0.0f, -e * 0.5f); p2 = ImVec2(+e, +e * 0.5f); break;
+        case ImGuiDir_Down:  p0 = ImVec2(-e, -e * 0.5f); p1 = ImVec2(0.0f, +e * 0.5f); p2 = ImVec2(+e, -e * 0.5f); break;
+        case ImGuiDir_Left:  p0 = ImVec2(+e * 0.5f, -e); p1 = ImVec2(-e * 0.5f, 0.0f); p2 = ImVec2(+e * 0.5f, +e); break;
+        default:             p0 = ImVec2(-e * 0.5f, -e); p1 = ImVec2(+e * 0.5f, 0.0f); p2 = ImVec2(-e * 0.5f, +e); break;
+        }
+        const ImU32 alpha = (ImU32)(((col >> IM_COL32_A_SHIFT) & 0xFF) * 0.65f);
+        const ImU32 quiet = (col & ~IM_COL32_A_MASK) | (alpha << IM_COL32_A_SHIFT);
+        draw_list->PathLineTo(mid + p0);
+        draw_list->PathLineTo(mid + p1);
+        draw_list->PathLineTo(mid + p2);
+        draw_list->PathStroke(quiet, 0, ImMax(1.5f, h * 0.10f));
+        return;
+    }
     float r = h * 0.40f * scale;
     ImVec2 center = pos + ImVec2(h * 0.50f, h * 0.50f * scale);
 

@@ -7,6 +7,7 @@
 #include "core/resources.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
+#include "imgui/imgui_soft.h"
 #include "logger.h"
 #include "nlohmann/json_utils.h"
 #include "style.h"
@@ -127,6 +128,8 @@ namespace style
 
             for (auto &style_item : data["ImGuiStyle"].items())
             {
+                if (style_item.value().is_array())
+                    continue; // two-value sizes are handled below
                 if (!style_item.value().is_number_float())
                 {
                     logger->debug("Invalid theme value for %s", style_item.key().c_str());
@@ -139,8 +142,54 @@ namespace style
                 else
                     logger->debug("Invalid theme attribute: %s", style_item.key().c_str());
             }
+
+            // Two-value sizes (padding and spacing), given as [x, y]
+            const std::map<std::string, ImVec2 ImGuiStyle::*> vec2_map = {{"WindowPadding", &ImGuiStyle::WindowPadding},
+                                                                          {"FramePadding", &ImGuiStyle::FramePadding},
+                                                                          {"ItemSpacing", &ImGuiStyle::ItemSpacing},
+                                                                          {"ItemInnerSpacing", &ImGuiStyle::ItemInnerSpacing},
+                                                                          {"CellPadding", &ImGuiStyle::CellPadding},
+                                                                          {"SeparatorTextPadding", &ImGuiStyle::SeparatorTextPadding}};
+            for (auto &style_item : data["ImGuiStyle"].items())
+            {
+                std::map<std::string, ImVec2 ImGuiStyle::*>::const_iterator vec2_pos = vec2_map.find(style_item.key());
+                if (vec2_pos == vec2_map.end())
+                    continue;
+                if (style_item.value().is_array() && style_item.value().size() == 2 && style_item.value()[0].is_number() && style_item.value()[1].is_number())
+                    style.*(vec2_pos->second) = ImVec2(style_item.value()[0].get<float>(), style_item.value()[1].get<float>());
+                else
+                    logger->debug("Invalid theme value for %s", style_item.key().c_str());
+            }
         }
         style.ScaleAllSizes(ui_scale);
+
+        // Optional soft look for the built-in widgets (off unless the theme asks for it)
+        GImSoft = ImSoftSkin();
+        if (data.contains("Soft") && data["Soft"].is_object())
+        {
+            auto &c = data["Soft"];
+            auto soft_color = [&c](const char *key, ImU32 &target)
+            {
+                if (!c.contains(key) || !c[key].is_string())
+                    return;
+                ImVec4 col = ImGui::ColorConvertU32ToFloat4(target);
+                hexToImVec4(c[key], &col);
+                target = ImGui::ColorConvertFloat4ToU32(col);
+            };
+
+            GImSoft.Enabled = getValueOrDefault(c["enabled"], true);
+            GImSoft.RowRounding = getValueOrDefault(c["row_rounding"], GImSoft.RowRounding);
+            GImSoft.CardRounding = getValueOrDefault(c["card_rounding"], GImSoft.CardRounding);
+            GImSoft.CheckSize = getValueOrDefault(c["check_size"], GImSoft.CheckSize);
+            soft_color("control_border", GImSoft.ControlBorder);
+            soft_color("on_accent", GImSoft.OnAccent);
+            soft_color("card_bg", GImSoft.CardBg);
+            soft_color("card_border", GImSoft.CardBorder);
+            soft_color("muted", GImSoft.Muted);
+        }
+        GImSoft.RowRounding *= ui_scale;
+        GImSoft.CardRounding *= ui_scale;
+        GImSoft.CheckSize *= ui_scale;
 
         // Built-in ImGui colors
         if (data.contains("ImGuiColors") && data["ImGuiColors"].is_object())
