@@ -1,5 +1,7 @@
 #include "demuxer.h"
 #include "mpdu.h"
+#include "vcdu.h"
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -9,8 +11,8 @@ namespace ccsds
 {
     namespace ccsds_aos
     {
-        Demuxer::Demuxer(int mpdu_data_size, bool hasInsertZone, int insertZoneSize, bool secondaryHeaderExtendsPkt)
-            : MPDU_DATA_SIZE(mpdu_data_size), HAS_INSERT_ZONE(hasInsertZone), INSERT_ZONE_SIZE(insertZoneSize), SECONDARY_HEADER_EXTENDS_PKT(secondaryHeaderExtendsPkt)
+        Demuxer::Demuxer(int mpdu_data_size, bool hasInsertZone, int insertZoneSize, bool secondaryHeaderExtendsPkt, bool checkFrameCounter)
+            : MPDU_DATA_SIZE(mpdu_data_size), HAS_INSERT_ZONE(hasInsertZone), INSERT_ZONE_SIZE(insertZoneSize), SECONDARY_HEADER_EXTENDS_PKT(secondaryHeaderExtendsPkt), CHECK_FRAME_COUNTER(checkFrameCounter)
         {
             // Init variables
             currentCCSDSPacket.header.packet_length = 0;
@@ -19,6 +21,7 @@ namespace ccsds
             totalPacketLength = 0;
             inHeader = false;
             inHeaderBuffer = 0;
+            lastVCDUCounter = -1;
             abortPacket();
         }
 
@@ -26,6 +29,7 @@ namespace ccsds
         void Demuxer::readPacket(uint8_t *h)
         {
             workingOnPacket = true;
+            currentCCSDSPacket.payload.clear(); // Fork: a new packet never starts with bytes left from an earlier one
             currentCCSDSPacket.header = parseCCSDSHeader(h);
             currentPacketPayloadLength = currentCCSDSPacket.header.packet_length + 1 + (SECONDARY_HEADER_EXTENDS_PKT ? (currentCCSDSPacket.header.secondary_header_flag ? 8 : 0) : 0);
             totalPacketLength = currentPacketPayloadLength + HEADER_LENGTH;
@@ -66,11 +70,39 @@ namespace ccsds
         {
             ccsdsBuffer.clear(); // Clear buffer from previous run
 
+            // Fork: a packet that ended exactly at the end of the previous frame is complete but has
+            // not been pushed yet (it used to be pushed further down, still before any other
+            // packet of this frame). Push it first, so the checks below only drop unfinished ones.
+            if (remainingPacketLength == 0 && workingOnPacket)
+                pushPacket();
+
+            // Fork: a lost frame went unnoticed, so the packet in progress was finished with
+            // bytes from a later frame. A demuxer sees one virtual channel, whose 24-bit frame
+            // counter goes up by 1 per frame (and wraps); any other step means frames are
+            // missing, so the packet in progress (or a header cut across frames) is dropped and
+            // the next packet that starts here is read normally.
+            // Only callers that ask for it (MetOp) get this check: other missions' counters,
+            // Meteor's included, were not checked against real recordings.
+            if (CHECK_FRAME_COUNTER)
+            {
+                const uint32_t vcdu_counter = parseVCDU(cadu).vcdu_counter;
+                if (lastVCDUCounter >= 0 && ((vcdu_counter - uint32_t(lastVCDUCounter)) & 0xFFFFFF) != 1)
+                {
+                    abortPacket();
+                    inHeader = false;
+                }
+                lastVCDUCounter = int(vcdu_counter);
+            }
+
             MPDU mpdu = parseMPDU(cadu, HAS_INSERT_ZONE, INSERT_ZONE_SIZE); // Parse M-PDU Header
 
             // Sanity check, if the first header point points outside the data payload
             if (mpdu.first_header_pointer < 2047 && mpdu.first_header_pointer >= MPDU_DATA_SIZE)
             {
+                // Fork: this frame's data cannot be used, so the packet in progress would miss
+                // it and be finished with bytes from the next frame: drop it, as for a lost frame
+                abortPacket();
+                inHeader = false;
                 return ccsdsBuffer;
             }
 
@@ -99,14 +131,24 @@ namespace ccsds
                 if (mpdu.first_header_pointer < 2047)
                 {
                     // Finish filling up that packet
-                    int toWrite = (remainingPacketLength + offset) > mpdu.first_header_pointer + 1 ? (mpdu.first_header_pointer + 1) - offset : remainingPacketLength;
-                    pushPayload(&mpdu.data[offset], toWrite);
-                    remainingPacketLength = 0;
+                    // Fork: the packet has to end before the new header. When it did not, the old
+                    // code wrote first_header_pointer + 1 - offset bytes (one byte of the new
+                    // header too, or a negative count when offset > first_header_pointer + 1) and
+                    // pushed the cut-off packet as if it were whole. Such a packet is dropped now;
+                    // one that fits is written in full, as before.
+                    if (remainingPacketLength <= int(mpdu.first_header_pointer) - offset)
+                        pushPayload(&mpdu.data[offset], remainingPacketLength);
+                    else
+                        abortPacket();
                 }
                 else
                 {
                     // Write what we have
-                    int toWrite = (remainingPacketLength + offset) > MPDU_DATA_SIZE - offset ? MPDU_DATA_SIZE - offset : remainingPacketLength;
+                    // Fork: offset was counted twice here, so after a header cut across frames
+                    // up to 4 bytes past the end of the packet could be written. The remaining
+                    // length went below 0, the packet was never pushed, and its bytes were put in
+                    // front of the next packet. The space left in this frame is MPDU_DATA_SIZE - offset.
+                    int toWrite = std::min(remainingPacketLength, MPDU_DATA_SIZE - offset);
                     pushPayload(&mpdu.data[offset], toWrite);
                 }
             }

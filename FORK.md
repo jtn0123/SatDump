@@ -32,6 +32,9 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Start-up | A crash ends with its real signal (so a service manager sees it), and an error that nothing handled is printed before the stop | 2026-11-11 |
 | Bug fix | Background updates (orbit data, Earth-orientation data) waited for the task listed last, not the one due first; a "never" interval no longer overflows | 2026-11-11 |
 | Bug fix | Memory leaks: picture metadata whenever a picture was reassigned, every composite picture (and all of it after an expression error), and the old database when a damaged one is replaced | 2026-11-11 |
+| Bug fix | CCSDS AOS packet splitter: a packet cut short by a new packet header (damaged frame) is dropped instead of being passed on cut off, one byte of the next header included, or empty | 2026-11-11 |
+| Bug fix | CCSDS AOS packet splitter: after a packet header cut across two frames, a damaged frame could make it write past the end of the packet, lose that packet and put its bytes in front of the next one | 2026-11-11 |
+| Bug fix | CCSDS AOS packet splitter: in the MetOp decoder, a lost frame (found from the virtual channel's frame counter) drops the packet in progress; in every AOS decoder, a frame with an impossible packet pointer does too. Before, that packet was finished with bytes from a later frame | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -162,6 +165,9 @@ errors), `cli_rust` (no Rust symbols exported, no extra libraries needed, the sw
   the products of the test recordings are not affected.
 - `crcCheckHLDC32` (GK-2A only) compares with `crc ^ 0xFFFFFFFF == crc2`, which C++
   reads as `crc ^ (0xFFFFFFFF == crc2)`. Fixing it safely needs GK-2A recordings to test with.
+- The Meteor LRPT decoder does not yet use the frame counter to notice lost frames (the
+  MetOp decoder does): a packet that spans a lost frame can still be finished with bytes from
+  a later one. It stays off until it has been checked on a real Meteor recording.
 
 ## Staying current
 

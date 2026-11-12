@@ -14,6 +14,7 @@ add_executable(satdump-unit-tests
     unit/test_filestream.cpp
     unit/test_image.cpp
     unit/test_task_scheduler.cpp
+    unit/test_aos_demuxer.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
 )

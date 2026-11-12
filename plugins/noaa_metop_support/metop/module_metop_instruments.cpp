@@ -40,13 +40,13 @@ namespace metop
             uint8_t cadu[1024];
 
             // Demuxers
-            ccsds::ccsds_aos::Demuxer demuxer_vcid3(882, true);
-            ccsds::ccsds_aos::Demuxer demuxer_vcid9(882, true);
-            ccsds::ccsds_aos::Demuxer demuxer_vcid10(882, true);
-            ccsds::ccsds_aos::Demuxer demuxer_vcid12(882, true);
-            ccsds::ccsds_aos::Demuxer demuxer_vcid15(882, true);
-            ccsds::ccsds_aos::Demuxer demuxer_vcid24(882, true);
-            ccsds::ccsds_aos::Demuxer demuxer_vcid34(882, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid3(882, true, 2, false, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid9(882, true, 2, false, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid10(882, true, 2, false, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid12(882, true, 2, false, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid15(882, true, 2, false, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid24(882, true, 2, false, true);
+            ccsds::ccsds_aos::Demuxer demuxer_vcid34(882, true, 2, false, true);
 
             // Setup Admin Message
             {
