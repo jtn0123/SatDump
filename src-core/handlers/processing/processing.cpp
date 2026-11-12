@@ -43,56 +43,76 @@ namespace satdump
                 proc_thread.join();
         }
 
+        // Fork: this runs in its own thread, and everything that can throw is now inside the try. An
+        // error outside it (an output folder that cannot be made, a missing setting, an error that is
+        // not a std::exception) used to end the program; now it is logged, and the handler always
+        // reports that processing is done
         void OffProcessingHandler::process(pipeline::Pipeline downlink_pipeline, std::string input_level, std::string input_file, std::string output_file, nlohmann::json parameters)
         {
-            eventBus->fire_event<SetIsProcessingEvent>({});
+            try
+            {
+                eventBus->fire_event<SetIsProcessingEvent>({});
 
-            pipeline_name = downlink_pipeline.name;
+                pipeline_name = downlink_pipeline.name;
 
-            logger->info("Starting processing pipeline " + downlink_pipeline.id + "...");
-            logger->debug("Input file (" + input_level + ") : " + input_file);
-            logger->debug("Output file : " + output_file);
+                logger->info("Starting processing pipeline " + downlink_pipeline.id + "...");
+                logger->debug("Input file (" + input_level + ") : " + input_file);
+                logger->debug("Output file : " + output_file);
 
-            if (!std::filesystem::exists(output_file))
-                std::filesystem::create_directories(output_file);
+                if (!std::filesystem::exists(output_file))
+                    std::filesystem::create_directories(output_file);
 
-            ui_call_list_mutex->lock();
-            ui_call_list->clear();
-            ui_call_list_mutex->unlock();
+                ui_call_list_mutex->lock();
+                ui_call_list->clear();
+                ui_call_list_mutex->unlock();
 
-            std::string final_file;
+                std::string final_file;
+
+                downlink_pipeline.run(input_file, output_file, parameters, input_level, true, ui_call_list, ui_call_list_mutex, &final_file);
+
+                logger->info("Done! Goodbye");
+
+                logger->critical("FINAL FILE : " + final_file); // TODOREWORK!
+
+                // TODOREWORKUI
+                try
+                {
+                    if (satdump_cfg.main_cfg["user_interface"]["open_explorer_post_processing"]["value"].get<bool>())
+                    {
+                        if (std::filesystem::exists(output_file + "/dataset.json"))
+                        {
+                            logger->info("Opening explorer!");
+                            eventBus->fire_event<TryOpenFileInMainExplorerEvent>({output_file + "/dataset.json"}); // TODOREWORK Maybe just try to open the final file produced?
+                        }
+                        else if (std::filesystem::exists(final_file))
+                        {
+                            logger->info("Opening explorer!");
+                            eventBus->fire_event<TryOpenFileInMainExplorerEvent>({final_file}); // TODOREWORK Maybe just try to open the final file produced?
+                        }
+                    }
+                }
+                catch (const std::exception &e)
+                {
+                    logger->warn("Could not open the explorer: %s", e.what());
+                }
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Fatal error running pipeline : %s", e.what());
+            }
+            catch (...)
+            {
+                logger->error("Fatal error running pipeline : unknown error");
+            }
 
             try
             {
-                downlink_pipeline.run(input_file, output_file, parameters, input_level, true, ui_call_list, ui_call_list_mutex, &final_file);
+                eventBus->fire_event<SetIsDoneProcessingEvent>({});
             }
-            catch (std::exception &e)
+            catch (const std::exception &e)
             {
-                logger->error("Fatal error running pipeline : " + std::string(e.what()));
-                goto exit_handler;
+                logger->error("Could not report the end of processing: %s", e.what());
             }
-
-            logger->info("Done! Goodbye");
-
-            logger->critical("FINAL FILE : " + final_file); // TODOREWORK!
-
-            // TODOREWORKUI
-            if (satdump_cfg.main_cfg["user_interface"]["open_explorer_post_processing"]["value"].get<bool>())
-            {
-                if (std::filesystem::exists(output_file + "/dataset.json"))
-                {
-                    logger->info("Opening explorer!");
-                    eventBus->fire_event<TryOpenFileInMainExplorerEvent>({output_file + "/dataset.json"}); // TODOREWORK Maybe just try to open the final file produced?
-                }
-                else if (std::filesystem::exists(final_file))
-                {
-                    logger->info("Opening explorer!");
-                    eventBus->fire_event<TryOpenFileInMainExplorerEvent>({final_file}); // TODOREWORK Maybe just try to open the final file produced?
-                }
-            }
-
-        exit_handler:
-            eventBus->fire_event<SetIsDoneProcessingEvent>({});
             pipeline_name = "PROCESSING_DONE"; // TODOREWORK MASSIVE HACK!
         }
 

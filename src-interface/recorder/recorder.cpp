@@ -57,9 +57,9 @@ namespace satdump
                         sdr_select_id = i;
                         break;
                     }
-                    catch (std::runtime_error &e)
+                    catch (const std::exception &e) // Fork: any error, not only runtime_error (others ended the program)
                     {
-                        logger->error(e.what());
+                        logger->error("%s", e.what());
                     }
                 }
             }
@@ -81,9 +81,9 @@ namespace satdump
                     sdr_select_id = i;
                     break;
                 }
-                catch (std::runtime_error &e)
+                catch (const std::exception &e) // Fork: any error, not only runtime_error (others ended the program)
                 {
-                    logger->error(e.what());
+                    logger->error("%s", e.what());
                     break;
                 }
             }
@@ -98,9 +98,9 @@ namespace satdump
                 source_ptr->open();
                 sdr_select_id = i;
             }
-            catch (std::runtime_error &e)
+            catch (const std::exception &e) // Fork: any error, not only runtime_error (others ended the program)
             {
-                logger->error(e.what());
+                logger->error("%s", e.what());
             }
         }
 
@@ -267,7 +267,7 @@ namespace satdump
                     source_ptr = getSourceFromDescriptor(sources[sdr_select_id]);
                     source_ptr->open();
                 }
-                catch (std::runtime_error &e)
+                catch (const std::exception &e) // Fork: any error, not only runtime_error (others ended the program)
                 {
                     logger->error("Could not open device! %s", e.what());
 
@@ -281,9 +281,9 @@ namespace satdump
                             sdr_select_id = i;
                             break;
                         }
-                        catch (std::runtime_error &e)
+                        catch (const std::exception &e) // Fork: any error, not only runtime_error
                         {
-                            logger->error(e.what());
+                            logger->error("%s", e.what());
                         }
                     }
                 }
@@ -508,7 +508,23 @@ namespace satdump
             else
             {
                 if (ImGui::Button(_("Stop##stopprocessing")))
-                    ui_thread_pool.push([=](int) { stop_processing(); });
+                    ui_thread_pool.push(
+                        [=](int)
+                        {
+                            // Fork: an error here was kept in a result nobody reads, so it was lost without a word
+                            try
+                            {
+                                stop_processing();
+                            }
+                            catch (const std::exception &e)
+                            {
+                                logger->error("Could not stop processing: %s", e.what());
+                            }
+                            catch (...)
+                            {
+                                logger->error("Could not stop processing: unknown error");
+                            }
+                        });
             }
 
             error.draw();

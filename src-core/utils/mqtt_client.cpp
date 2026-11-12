@@ -2,6 +2,7 @@
 #include "core/exception.h"
 #include "libs/mqttc/mqtt.h"
 #include "libs/mqttc/posix_sockets.h"
+#include "logger.h"
 #include <chrono>
 #include <thread>
 
@@ -10,7 +11,20 @@ namespace satdump
     void MQTTClient::publish_callback(void **publish_response_callback_state, struct mqtt_response_publish *published)
     {
         auto tthis = (MQTTClient *)(*publish_response_callback_state);
-        tthis->callback(std::string((char *)published->topic_name, published->topic_name_size), (uint8_t *)published->application_message, published->application_message_size);
+        // Fork: this runs in the refresh thread, called from the MQTT library's C code. An error in
+        // the user's callback used to leave that thread, which ended the whole program; it is logged
+        try
+        {
+            tthis->callback(std::string((char *)published->topic_name, published->topic_name_size), (uint8_t *)published->application_message, published->application_message_size);
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("MQTT message handler failed: %s", e.what());
+        }
+        catch (...)
+        {
+            logger->error("MQTT message handler failed with an unknown error");
+        }
     }
 
     void *MQTTClient::client_refresher(void *client)

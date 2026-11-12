@@ -2,6 +2,10 @@
 
 #include "libs/ctpl/ctpl_stl.h"
 #include "pipeline.h"
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
 
 namespace satdump
 {
@@ -17,8 +21,19 @@ namespace satdump
         private:
             std::vector<std::future<void>> module_futs;
 
+            // Fork: errors of the modules that failed in their thread, by position in the module list.
+            // Shared with the module tasks, so a task never needs the LivePipeline itself
+            struct Failures
+            {
+                std::mutex mtx;
+                std::map<size_t, std::string> errors;
+            };
+            std::shared_ptr<Failures> failures;
+
             void prepare_modules(std::vector<int> mods);
             void prepare_module(std::string id);
+            void start_modules(ctpl::thread_pool &tp);
+            static void module_failed(ProcessingModule &mod, Failures &fails, size_t index, std::string error);
 
         public:
             LivePipeline(Pipeline pipeline, nlohmann::json parameters, std::string output_dir);
@@ -33,6 +48,10 @@ namespace satdump
             std::string getOutputFile();
 
             nlohmann::json getModulesStats();
+
+            // Fork: true once any module has failed in its thread; getFailures() says which and why
+            bool has_failed();
+            std::string getFailures();
 
             void drawUIs();
         };

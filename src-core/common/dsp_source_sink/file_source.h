@@ -29,6 +29,7 @@ protected:
     bool should_run = true;
     std::thread work_thread;
     void run_thread();
+    void run_loop();
 
     float file_progress = 0;
 

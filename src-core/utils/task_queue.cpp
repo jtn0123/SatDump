@@ -1,4 +1,5 @@
 #include "task_queue.h"
+#include "logger.h"
 
 namespace satdump
 {
@@ -12,31 +13,37 @@ namespace satdump
 
     void TaskQueue::threadFunc()
     {
-    recheck:
-        queue_mtx.lock();
-        bool queue_has_data = task_queue.size() > 0;
-        queue_mtx.unlock();
-
-        if (queue_has_data)
+        while (true)
         {
-            queue_mtx.lock();
-            auto task = task_queue.front();
-            task_queue.pop();
-            queue_mtx.unlock();
+            std::function<void()> task;
+            {
+                // Fork: the queue is checked and the thread marked as ended under one lock. It used to
+                // be marked after the lock was let go, and a task pushed in between was not run
+                std::lock_guard<std::mutex> lock(queue_mtx);
+                if (task_queue.size() == 0)
+                {
+                    thread_exited = true;
+                    return;
+                }
+                task = task_queue.front();
+                task_queue.pop();
+            }
 
+            // Fork: a task that fails is logged (it was dropped without a word), and one that throws
+            // something other than a std::exception no longer ends the program
             try
             {
                 task();
             }
-            catch (std::exception &e)
+            catch (const std::exception &e)
             {
-                // TODOREWORK?
+                logger->error("Background task failed: %s", e.what());
             }
-
-            goto recheck;
+            catch (...)
+            {
+                logger->error("Background task failed with an unknown error");
+            }
         }
-
-        thread_exited = true;
     }
 
     void TaskQueue::push(std::function<void()> task)

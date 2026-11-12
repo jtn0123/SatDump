@@ -5,6 +5,7 @@
  */
 
 #include "handler.h"
+#include "logger.h"
 #include <thread>
 
 namespace satdump
@@ -57,7 +58,17 @@ namespace satdump
                 is_processing_mtx.lock();
                 is_processing = true;
                 is_processing_mtx.unlock();
-                do_process();
+                // Fork: the status is cleared when processing throws too (it stayed "processing" for
+                // ever, so the controls stayed disabled); the error still goes to the caller
+                try
+                {
+                    do_process();
+                }
+                catch (...)
+                {
+                    set_is_processing(false);
+                    throw;
+                }
                 is_processing_mtx.lock();
                 is_processing = false;
                 is_processing_mtx.unlock();
@@ -100,18 +111,42 @@ namespace satdump
                 }
                 is_processing_mtx.unlock();
 
-                try
+                // Fork: only a thread that was started is joined (joining one that never was threw, and
+                // the error was dropped without a word). A join that still fails is logged, and no new
+                // thread is started over the old one (that would end the program)
+                if (async_thread.joinable())
                 {
-                    async_thread.join();
-                }
-                catch (std::exception &e)
-                {
+                    try
+                    {
+                        async_thread.join();
+                    }
+                    catch (const std::exception &e)
+                    {
+                        logger->error("Could not wait for the previous processing to end: %s", e.what());
+                        return;
+                    }
                 }
 
                 is_processing_mtx.lock();
                 is_processing = true;
                 is_processing_mtx.unlock();
-                auto fun = [this]() { process(); };
+                // Fork: an error in processing used to leave the thread and end the program
+                // (std::terminate); now it is logged and the program carries on
+                auto fun = [this]()
+                {
+                    try
+                    {
+                        process();
+                    }
+                    catch (const std::exception &e)
+                    {
+                        logger->error("Processing failed: %s", e.what());
+                    }
+                    catch (...)
+                    {
+                        logger->error("Processing failed with an unknown error");
+                    }
+                };
                 async_thread = std::thread(fun);
             }
         };

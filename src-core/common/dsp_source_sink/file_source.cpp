@@ -44,6 +44,24 @@ nlohmann::json FileSource::get_settings()
 
 void FileSource::run_thread()
 {
+    // Fork: an error while reading the file is logged and the source stops sending. It used to leave
+    // this thread, which ended the whole program
+    try
+    {
+        run_loop();
+    }
+    catch (const std::exception &e)
+    {
+        logger->error("File source failed: %s", e.what());
+    }
+    catch (...)
+    {
+        logger->error("File source failed with an unknown error");
+    }
+}
+
+void FileSource::run_loop()
+{
     while (should_run)
     {
         if (is_started)

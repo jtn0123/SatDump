@@ -1,0 +1,214 @@
+#pragma once
+
+// Fork test support: a pipeline module that fails on purpose. Used by the unit tests in
+// test_thread_faults.cpp and, through fault_plugin.cpp, by tests/cli/thread_faults.sh.
+//
+// Parameters:
+//   fail_after  chunks to process before throwing (-1, the default: never; 0: at once)
+//   fail_init   true to throw from init()
+//   fail_with   "std" (the default) throws a std::exception, "other" throws an int
+//   out_factor  bytes written per byte read (default 1)
+//   with_block  true to start a DSP block in process() and stop it in stop(), as demodulators do
+
+#include "common/dsp/block.h"
+#include "core/exception.h"
+#include "logger.h"
+#include "pipeline/module.h"
+#include <atomic>
+#include <cstdint>
+#include <fstream>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace fork_test
+{
+    // How many FaultModule::process() calls are running right now
+    inline std::atomic<int> &running_modules()
+    {
+        static std::atomic<int> count(0);
+        return count;
+    }
+
+    // How many FaultBlocks were destroyed while still running (nobody had stopped them)
+    inline std::atomic<int> &blocks_destroyed_running()
+    {
+        static std::atomic<int> count(0);
+        return count;
+    }
+
+    // A DSP block like the ones a demodulator starts in process(); it waits for samples that never
+    // come until it is stopped
+    class FaultBlock : public dsp::Block<complex_t, complex_t>
+    {
+    private:
+        void work() override
+        {
+            if (input_stream->read() > 0)
+                input_stream->flush();
+        }
+
+    public:
+        FaultBlock() : dsp::Block<complex_t, complex_t>(std::make_shared<dsp::stream<complex_t>>(4096)) {}
+
+        ~FaultBlock()
+        {
+            // Left to the base destructor, a running block is stopped once this part is gone, and
+            // its thread can then end the program ("pure virtual method called"). It is counted
+            // and stopped here instead, so a test can check for it without crashing
+            if (should_run)
+            {
+                blocks_destroyed_running()++;
+                logger->error("Fault test block destroyed while running");
+                stop();
+            }
+        }
+    };
+
+    class FaultModule : public satdump::pipeline::ProcessingModule
+    {
+    private:
+        std::string d_id;
+        int d_fail_after = -1;
+        bool d_fail_init = false;
+        std::string d_fail_with = "std";
+        int d_out_factor = 1;
+        bool d_with_block = false;
+        std::shared_ptr<FaultBlock> d_block;
+
+        struct Running
+        {
+            Running() { running_modules()++; }
+            ~Running() { running_modules()--; }
+        };
+
+        void fail()
+        {
+            if (d_fail_with == "other")
+                throw 42;
+            throw satdump_exception("failure on purpose");
+        }
+
+    public:
+        std::atomic<uint64_t> bytes_in{0}, bytes_out{0};
+
+        FaultModule(std::string id, std::string input_file, std::string output_file_hint, nlohmann::json parameters)
+            : ProcessingModule(input_file, output_file_hint, parameters), d_id(id)
+        {
+            if (parameters.contains("fail_after"))
+                d_fail_after = parameters["fail_after"].get<int>();
+            if (parameters.contains("fail_init"))
+                d_fail_init = parameters["fail_init"].get<bool>();
+            if (parameters.contains("fail_with"))
+                d_fail_with = parameters["fail_with"].get<std::string>();
+            if (parameters.contains("out_factor"))
+                d_out_factor = parameters["out_factor"].get<int>();
+            if (parameters.contains("with_block"))
+                d_with_block = parameters["with_block"].get<bool>();
+        }
+
+        std::vector<satdump::pipeline::ModuleDataType> getInputTypes() override { return {satdump::pipeline::DATA_FILE, satdump::pipeline::DATA_STREAM, satdump::pipeline::DATA_DSP_STREAM}; }
+        std::vector<satdump::pipeline::ModuleDataType> getOutputTypes() override { return {satdump::pipeline::DATA_FILE, satdump::pipeline::DATA_STREAM}; }
+
+        void init() override
+        {
+            if (d_fail_init)
+                throw satdump_exception("init failure on purpose");
+            if (d_with_block)
+                d_block = std::make_shared<FaultBlock>();
+        }
+
+        // Stops the block, as a demodulator's stop() does
+        void stop() override
+        {
+            if (d_block)
+                d_block->stop();
+        }
+
+        void process() override
+        {
+            Running running;
+
+            if (d_block) // Like a demodulator, which starts its blocks here
+                d_block->start();
+
+            std::ifstream in;
+            std::ofstream out;
+            if (input_data_type == satdump::pipeline::DATA_FILE)
+                in.open(d_input_file, std::ios::binary);
+            if (output_data_type == satdump::pipeline::DATA_FILE)
+            {
+                d_output_file = d_output_file_hint + ".out";
+                out.open(d_output_file, std::ios::binary);
+            }
+
+            std::vector<uint8_t> buf(4096);
+            std::vector<uint8_t> obuf;
+            int chunks = 0;
+            while (true)
+            {
+                if (d_fail_after >= 0 && chunks >= d_fail_after)
+                    fail();
+
+                int got = 0;
+                if (input_data_type == satdump::pipeline::DATA_FILE)
+                {
+                    in.read((char *)buf.data(), buf.size());
+                    got = in.gcount();
+                    if (got <= 0)
+                        break;
+                }
+                else if (input_data_type == satdump::pipeline::DATA_STREAM)
+                {
+                    got = input_fifo->read(buf.data(), buf.size());
+                    if (got <= 0) // The buffer was stopped
+                        break;
+                }
+                else
+                {
+                    got = input_stream->read();
+                    input_stream->flush();
+                    if (got < 0) // The stream was stopped
+                        break;
+                    if (got == 0)
+                        continue;
+                }
+
+                chunks++;
+                bytes_in += got;
+
+                obuf.assign((size_t)got * d_out_factor, (uint8_t)chunks);
+                if (output_data_type == satdump::pipeline::DATA_FILE)
+                    out.write((char *)obuf.data(), obuf.size());
+                else
+                    output_fifo->write(obuf.data(), obuf.size());
+                bytes_out += obuf.size();
+            }
+
+            // Like a demodulator reading a file, which stops its blocks itself at the end
+            if (input_data_type == satdump::pipeline::DATA_FILE)
+                stop();
+        }
+
+        void drawUI(bool) override {}
+
+        nlohmann::json getModuleStats() override
+        {
+            nlohmann::json v;
+            v["bytes_in"] = (uint64_t)bytes_in;
+            v["bytes_out"] = (uint64_t)bytes_out;
+            return v;
+        }
+
+        std::string getIDM() override { return d_id; }
+    };
+
+    // Registers fork_fault_a and fork_fault_b (the same module under two names)
+    inline void register_modules(std::vector<satdump::pipeline::ModuleEntry> &registry)
+    {
+        for (std::string id : {"fork_fault_a", "fork_fault_b"})
+            registry.push_back(satdump::pipeline::ModuleEntry{
+                id, nlohmann::json::object(), [id](std::string input_file, std::string output_file_hint, nlohmann::json parameters)
+                { return std::shared_ptr<satdump::pipeline::ProcessingModule>(std::make_shared<FaultModule>(id, input_file, output_file_hint, parameters)); }});
+    }
+} // namespace fork_test

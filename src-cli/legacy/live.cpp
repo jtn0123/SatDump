@@ -5,6 +5,7 @@
 #include "common/dsp/path/splitter.h"
 #include "common/dsp/path/splitter_vfo.h"
 #include "common/dsp_source_sink/dsp_sample_source.h"
+#include "core/exception.h"
 #include "init.h"
 #include "logger.h"
 #include "pipeline/live_pipeline.h"
@@ -21,6 +22,23 @@ void sig_handler_live(int signo)
 }
 
 // TODOREWORK the timeout and stats are partially broken here now!
+
+// Fork: a live module that failed during the run is reported once everything has stopped, and the
+// command ends with exit code 2 (it used to end with 0, or not end at all)
+static void throw_if_failed(std::map<std::string, satdump::pipeline::LivePipeline *> pipelines)
+{
+    std::string failures;
+    for (auto &p : pipelines)
+    {
+        if (!p.second->has_failed())
+            continue;
+        if (failures.size() > 0)
+            failures += "; ";
+        failures += (p.first.size() > 0 ? p.first + ": " : "") + p.second->getFailures();
+    }
+    if (failures.size() > 0)
+        throw satdump_exception("Live pipeline failed: " + failures);
+}
 
 int main_live(int argc, char *argv[])
 {
@@ -62,10 +80,12 @@ int main_live(int argc, char *argv[])
             return 1;
         }
 
+        // Fork: the thread pool is made before the pipeline, so it goes after it. It went first, and
+        // waited for ever on the modules still running in it when an error left this block early
+        ctpl::thread_pool live_thread_pool(8);
+
         // Init pipeline
         std::unique_ptr<satdump::pipeline::LivePipeline> live_pipeline = std::make_unique<satdump::pipeline::LivePipeline>(pipeline.value(), parameters, output_file);
-
-        ctpl::thread_pool live_thread_pool(8);
 
         // Attempt to start the source and pipeline
         try
@@ -78,36 +98,51 @@ int main_live(int argc, char *argv[])
             return 1;
         }
 
-        // If requested, boot up webserver
-        if (parameters.contains("http_server"))
+        // Fork: an error once the pipeline runs stops it (and the webserver) before it is reported
+        bool webserver_started = false;
+        try
         {
-            std::string http_addr = parameters["http_server"].get<std::string>();
-            webserver::handle_callback = [&live_pipeline]() { return live_pipeline->getModulesStats().dump(4); };
-            logger->info("Start webserver on %s", http_addr.c_str());
-            webserver::start(http_addr);
-        }
-
-        // Attach signal
-        signal(SIGINT, sig_handler_live);
-        signal(SIGTERM, sig_handler_live);
-
-        // Now, we wait
-        while (1)
-        {
-            if (live_should_exit)
+            // If requested, boot up webserver
+            if (parameters.contains("http_server"))
             {
-                logger->warn("Signal Received. Stopping.");
-                break;
+                std::string http_addr = parameters["http_server"].get<std::string>();
+                webserver::handle_callback = [&live_pipeline]() { return live_pipeline->getModulesStats().dump(4); };
+                logger->info("Start webserver on %s", http_addr.c_str());
+                webserver::start(http_addr);
+                webserver_started = true;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // Attach signal
+            signal(SIGINT, sig_handler_live);
+            signal(SIGTERM, sig_handler_live);
+
+            // Now, we wait
+            while (1)
+            {
+                if (live_should_exit)
+                {
+                    logger->warn("Signal Received. Stopping.");
+                    break;
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+
+            // Stop cleanly
+            live_pipeline->stop();
+        }
+        catch (...)
+        {
+            live_pipeline->stop();
+            if (webserver_started)
+                webserver::stop();
+            throw;
         }
 
-        // Stop cleanly
-        live_pipeline->stop();
-
-        if (parameters.contains("http_server"))
+        if (webserver_started)
             webserver::stop();
+
+        throw_if_failed({{"", live_pipeline.get()}});
     }
     else
     {
@@ -195,11 +230,13 @@ int main_live(int argc, char *argv[])
             nlohmann::json multi_cfg = loadJsonFile(parameters["multi_vfo"].get<std::string>());
 
             std::unique_ptr<dsp::VFOSplitterBlock> splitter_vfo;
+            bool radio_started = false;
 
             // Attempt to start the source and pipeline
             try
             {
                 satdump::start_radio(source_ptr);
+                radio_started = true;
                 splitter_vfo = std::make_unique<dsp::VFOSplitterBlock>(source_ptr->output_stream);
                 splitter_vfo->set_main_enabled(false);
                 splitter_vfo->start();
@@ -211,108 +248,141 @@ int main_live(int argc, char *argv[])
             }
             catch (std::exception &e)
             {
+                if (radio_started) // Fork: the radio is not left running
+                    source_ptr->stop();
                 logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
                 return 1;
             }
 
-            std::map<std::string, std::shared_ptr<satdump::pipeline::LivePipeline>> all_pipelines;
+            // Fork: the thread pool is made before the pipelines, so it goes after them. It went first,
+            // and waited for ever on the modules still running in it when an error left this block early
             ctpl::thread_pool live_thread_pool(128);
+            std::map<std::string, std::shared_ptr<satdump::pipeline::LivePipeline>> all_pipelines;
+            bool webserver_started = false;
 
-            for (auto cfg : multi_cfg.items())
+            // Fork: stops the radio, the splitter and the pipelines started so far. Used when the run
+            // ends and on any error once the radio runs (a VFO that cannot start, a bad setting): it
+            // used to leave them running, and the program then crashed or waited for ever
+            auto stop_running = [&]()
             {
-                double vfrequency = cfg.value()["frequency"];
-                std::string vpipeline = cfg.value()["pipeline"];
-                nlohmann::json vparams = cfg.value()["parameters"];
+                if (radio_started)
+                    source_ptr->stop();
+                radio_started = false;
+                splitter_vfo->stop();
+                for (auto &e : all_pipelines)
+                    e.second->stop();
+            };
 
-                double final_shift = double(frequency) - vfrequency;
-
-                if (abs(final_shift) > (samplerate / 2))
+            try
+            {
+                for (auto cfg : multi_cfg.items())
                 {
-                    logger->error("Frequency shift for VFO %s is outside of samplerate range!", cfg.key().c_str());
-                    exit(1);
+                    double vfrequency = cfg.value()["frequency"];
+                    std::string vpipeline = cfg.value()["pipeline"];
+                    nlohmann::json vparams = cfg.value()["parameters"];
+
+                    double final_shift = double(frequency) - vfrequency;
+
+                    if (abs(final_shift) > (samplerate / 2))
+                    {
+                        logger->error("Frequency shift for VFO %s is outside of samplerate range!", cfg.key().c_str());
+                        exit(1);
+                    }
+
+                    std::optional<satdump::pipeline::Pipeline> pipeline = satdump::pipeline::getPipelineFromID(vpipeline);
+                    vparams["baseband_format"] = "cf32";
+                    vparams["buffer_size"] = dsp::STREAM_BUFFER_SIZE; // This is required, as we WILL go over the (usually) default 8192 size
+                    vparams["start_timestamp"] = (double)time(0);     // Some pipelines need this
+                    vparams["samplerate"] = samplerate;
+
+                    std::string path = output_file + "/" + cfg.key();
+                    if (!std::filesystem::exists(path))
+                        std::filesystem::create_directories(path);
+
+                    std::shared_ptr<satdump::pipeline::LivePipeline> live_pipeline = std::make_shared<satdump::pipeline::LivePipeline>(pipeline.value(), vparams, path);
+
+                    bool server_mode = vparams.contains("server_address") || vparams.contains("server_port");
+
+                    splitter_vfo->add_vfo(cfg.key(), samplerate, final_shift);
+                    live_pipeline->start(splitter_vfo->get_vfo_output(cfg.key()), live_thread_pool, server_mode);
+                    splitter_vfo->set_vfo_enabled(cfg.key(), true);
+
+                    all_pipelines.emplace(cfg.key(), live_pipeline);
+                    logger->info("Added VFO for " + cfg.key() + " at %f", final_shift);
                 }
 
-                std::optional<satdump::pipeline::Pipeline> pipeline = satdump::pipeline::getPipelineFromID(vpipeline);
-                vparams["baseband_format"] = "cf32";
-                vparams["buffer_size"] = dsp::STREAM_BUFFER_SIZE; // This is required, as we WILL go over the (usually) default 8192 size
-                vparams["start_timestamp"] = (double)time(0);     // Some pipelines need this
-                vparams["samplerate"] = samplerate;
-
-                std::string path = output_file + "/" + cfg.key();
-                if (!std::filesystem::exists(path))
-                    std::filesystem::create_directories(path);
-
-                std::shared_ptr<satdump::pipeline::LivePipeline> live_pipeline = std::make_shared<satdump::pipeline::LivePipeline>(pipeline.value(), vparams, path);
-
-                bool server_mode = vparams.contains("server_address") || vparams.contains("server_port");
-
-                splitter_vfo->add_vfo(cfg.key(), samplerate, final_shift);
-                live_pipeline->start(splitter_vfo->get_vfo_output(cfg.key()), live_thread_pool, server_mode);
-                splitter_vfo->set_vfo_enabled(cfg.key(), true);
-
-                all_pipelines.emplace(cfg.key(), live_pipeline);
-                logger->info("Added VFO for " + cfg.key() + " at %f", final_shift);
-            }
-
-            // If requested, boot up webserver
-            if (parameters.contains("http_server"))
-            {
-                std::string http_addr = parameters["http_server"].get<std::string>();
-                // if (!webserver_already_set)
-                webserver::handle_callback = [&all_pipelines]()
+                // If requested, boot up webserver
+                if (parameters.contains("http_server"))
                 {
-                    nlohmann::json stats;
-                    for (auto &e : all_pipelines)
+                    std::string http_addr = parameters["http_server"].get<std::string>();
+                    // if (!webserver_already_set)
+                    webserver::handle_callback = [&all_pipelines]()
                     {
-                        stats[e.first] = e.second->getModulesStats();
+                        nlohmann::json stats;
+                        for (auto &e : all_pipelines)
+                        {
+                            stats[e.first] = e.second->getModulesStats();
+                        }
+                        return stats.dump(4);
+                    };
+                    logger->info("Start webserver on %s", http_addr.c_str());
+                    webserver::start(http_addr);
+                    webserver_started = true;
+                }
+
+                // Attach signal
+                signal(SIGINT, sig_handler_live);
+                signal(SIGTERM, sig_handler_live);
+
+                // Now, we wait
+                uint64_t start_time = time(0);
+                while (1)
+                {
+                    if (timeout > 0)
+                    {
+                        uint64_t elapsed_time = time(0) - start_time;
+                        if (elapsed_time >= timeout)
+                        {
+                            logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                            break;
+                        }
+
+                        // live_pipeline->stats["timeout_left"] = timeout - elapsed_time;
                     }
-                    return stats.dump(4);
-                };
-                logger->info("Start webserver on %s", http_addr.c_str());
-                webserver::start(http_addr);
-            }
 
-            // Attach signal
-            signal(SIGINT, sig_handler_live);
-            signal(SIGTERM, sig_handler_live);
-
-            // Now, we wait
-            uint64_t start_time = time(0);
-            while (1)
-            {
-                if (timeout > 0)
-                {
-                    uint64_t elapsed_time = time(0) - start_time;
-                    if (elapsed_time >= timeout)
+                    if (live_should_exit)
                     {
-                        logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                        logger->warn("Signal Received. Stopping.");
                         break;
                     }
 
-                    // live_pipeline->stats["timeout_left"] = timeout - elapsed_time;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
 
-                if (live_should_exit)
+                if (webserver_started)
+                    webserver::stop();
+                webserver_started = false;
+
+                // Stop cleanly
+                stop_running();
+                for (auto &e : all_pipelines)
                 {
-                    logger->warn("Signal Received. Stopping.");
-                    break;
+                    splitter_vfo->del_vfo(e.first);
+                    logger->info("Stopped VFO " + e.first);
                 }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
-
-            if (parameters.contains("http_server"))
-                webserver::stop();
-
-            // Stop cleanly
-            source_ptr->stop();
-            splitter_vfo->stop();
-            for (auto &e : all_pipelines)
+            catch (...)
             {
-                e.second->stop();
-                splitter_vfo->del_vfo(e.first);
-                logger->info("Stopped VFO " + e.first);
+                if (webserver_started)
+                    webserver::stop();
+                stop_running();
+                throw;
             }
+
+            std::map<std::string, satdump::pipeline::LivePipeline *> vfo_pipelines;
+            for (auto &e : all_pipelines)
+                vfo_pipelines.emplace(e.first, e.second.get());
+            throw_if_failed(vfo_pipelines);
         }
         else
         {
@@ -325,26 +395,46 @@ int main_live(int argc, char *argv[])
                 return 1;
             }
 
+            // Fork: the thread pool is made before the pipeline, so it goes after it. It went first, and
+            // waited for ever on the modules still running in it when an error left this block early
+            ctpl::thread_pool live_thread_pool(8);
+
             // Init pipeline
             parameters["baseband_format"] = "cf32";
             parameters["buffer_size"] = dsp::STREAM_BUFFER_SIZE; // This is required, as we WILL go over the (usually) default 8192 size
             parameters["start_timestamp"] = (double)time(0);     // Some pipelines need this
             std::unique_ptr<satdump::pipeline::LivePipeline> live_pipeline = std::make_unique<satdump::pipeline::LivePipeline>(pipeline.value(), parameters, output_file);
 
-            ctpl::thread_pool live_thread_pool(8);
-
             bool server_mode = parameters.contains("server_address") || parameters.contains("server_port");
 
             std::unique_ptr<dsp::SplitterBlock> splitter;
             std::unique_ptr<dsp::FFTPanBlock> fft;
             bool webserver_already_set = false;
+            bool radio_started = false;
+            bool webserver_started = false;
 
             nlohmann::json live_pipeline_stats;
+
+            // Fork: stops the radio, the FFT blocks and the pipeline, whichever were started. Used when
+            // the run ends and on any error once the radio runs: an error used to leave them running,
+            // so the FFT blocks were destroyed while still running and the program waited for ever
+            auto stop_running = [&]()
+            {
+                if (radio_started)
+                    source_ptr->stop();
+                radio_started = false;
+                if (splitter)
+                    splitter->stop();
+                if (fft)
+                    fft->stop();
+                live_pipeline->stop();
+            };
 
             // Attempt to start the source and pipeline
             try
             {
                 satdump::start_radio(source_ptr);
+                radio_started = true;
 
                 std::shared_ptr<dsp::stream<complex_t>> final_stream = source_ptr->output_stream;
 
@@ -385,82 +475,92 @@ int main_live(int argc, char *argv[])
             }
             catch (std::exception &e)
             {
+                stop_running();
                 logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
                 return 1;
             }
 
-            // If requested, boot up webserver
-            if (parameters.contains("http_server"))
+            try
             {
-                std::string http_addr = parameters["http_server"].get<std::string>();
-                if (!webserver_already_set)
-                    webserver::handle_callback = [&live_pipeline]() { return live_pipeline->getModulesStats().dump(4); };
-                logger->info("Start webserver on %s", http_addr.c_str());
-                webserver::start(http_addr);
-            }
-
-            // Attach signal
-            signal(SIGINT, sig_handler_live);
-            signal(SIGTERM, sig_handler_live);
-
-            // Now, we wait
-            uint64_t start_time = time(0);
-            while (1)
-            {
-                if (timeout > 0)
+                // If requested, boot up webserver
+                if (parameters.contains("http_server"))
                 {
-                    uint64_t elapsed_time = time(0) - start_time;
-                    if (elapsed_time >= timeout)
+                    std::string http_addr = parameters["http_server"].get<std::string>();
+                    if (!webserver_already_set)
+                        webserver::handle_callback = [&live_pipeline]() { return live_pipeline->getModulesStats().dump(4); };
+                    logger->info("Start webserver on %s", http_addr.c_str());
+                    webserver::start(http_addr);
+                    webserver_started = true;
+                }
+
+                // Attach signal
+                signal(SIGINT, sig_handler_live);
+                signal(SIGTERM, sig_handler_live);
+
+                // Now, we wait
+                uint64_t start_time = time(0);
+                while (1)
+                {
+                    if (timeout > 0)
                     {
-                        logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                        uint64_t elapsed_time = time(0) - start_time;
+                        if (elapsed_time >= timeout)
+                        {
+                            logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                            break;
+                        }
+
+                        live_pipeline_stats["timeout_left"] = timeout - elapsed_time;
+                    }
+
+                    if (live_should_exit)
+                    {
+                        logger->warn("Signal Received. Stopping.");
                         break;
                     }
 
-                    live_pipeline_stats["timeout_left"] = timeout - elapsed_time;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
 
-                if (live_should_exit)
+                // Stop cleanly
+                stop_running();
+
+                if ((parameters.contains("finish_processing") ? parameters["finish_processing"].get<bool>() : false) && !server_mode)
                 {
-                    logger->warn("Signal Received. Stopping.");
-                    break;
-                }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-
-            // Stop cleanly
-            source_ptr->stop();
-            if (parameters.contains("fft_enable"))
-            {
-                splitter->stop();
-                fft->stop();
-            }
-            live_pipeline->stop();
-
-            if ((parameters.contains("finish_processing") ? parameters["finish_processing"].get<bool>() : false) && !server_mode)
-            {
-                if (live_pipeline->getOutputFile().size() > 0 || std::filesystem::exists(output_file + "/dataset.json"))
-                {
-                    std::optional<satdump::pipeline::Pipeline> pipeline = satdump::pipeline::getPipelineFromID(downlink_pipeline);
-                    std::string input_file = live_pipeline->getOutputFile().size() > 0 ? live_pipeline->getOutputFile() : (output_file + "/dataset.json");
-                    int start_level = pipeline->live_cfg.normal_live[pipeline->live_cfg.normal_live.size() - 1];
-                    std::string input_level = pipeline->steps[start_level].level;
-
-                    logger->critical(input_level);
-
-                    try
+                    if (live_pipeline->getOutputFile().size() > 0 || std::filesystem::exists(output_file + "/dataset.json"))
                     {
-                        pipeline.value().run(input_file, output_file, parameters, input_level);
-                    }
-                    catch (std::exception &e)
-                    {
-                        logger->error("Fatal error running pipeline : " + std::string(e.what()));
+                        std::optional<satdump::pipeline::Pipeline> pipeline = satdump::pipeline::getPipelineFromID(downlink_pipeline);
+                        std::string input_file = live_pipeline->getOutputFile().size() > 0 ? live_pipeline->getOutputFile() : (output_file + "/dataset.json");
+                        int start_level = pipeline->live_cfg.normal_live[pipeline->live_cfg.normal_live.size() - 1];
+                        std::string input_level = pipeline->steps[start_level].level;
+
+                        logger->critical(input_level);
+
+                        try
+                        {
+                            pipeline.value().run(input_file, output_file, parameters, input_level);
+                        }
+                        catch (std::exception &e)
+                        {
+                            logger->error("Fatal error running pipeline : " + std::string(e.what()));
+                        }
                     }
                 }
             }
+            catch (...)
+            {
+                // Fork: an error once everything runs (a bad setting such as --http_server given as a
+                // number) stops it all before it is reported. It used to hang the program for ever
+                stop_running();
+                if (webserver_started)
+                    webserver::stop();
+                throw;
+            }
 
-            if (parameters.contains("http_server"))
+            if (webserver_started)
                 webserver::stop();
+
+            throw_if_failed({{"", live_pipeline.get()}});
         }
     }
 

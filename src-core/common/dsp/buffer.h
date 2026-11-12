@@ -7,6 +7,7 @@
 #include <string.h>
 #include "common/dsp/complex.h"
 #include "dll_export.h"
+#include <atomic>
 
 namespace dsp
 {
@@ -432,16 +433,25 @@ namespace dsp
             return std::max<int>(std::min<int>(_w, maxLatency - _r), 0);
         }
 
+        // Fork: the flag is set under the lock the other side waits with. Set without it, the
+        // wake-up could come between the other side's check and its wait, and that side then waited
+        // for ever (a pipeline that never stopped)
         void stopReader()
         {
-            _stopReader = true;
-            canReadVar.notify_one();
+            {
+                std::lock_guard<std::mutex> lck(_readable_mtx);
+                _stopReader = true;
+            }
+            canReadVar.notify_all();
         }
 
         void stopWriter()
         {
-            _stopWriter = true;
-            canWriteVar.notify_one();
+            {
+                std::lock_guard<std::mutex> lck(_writable_mtx);
+                _stopWriter = true;
+            }
+            canWriteVar.notify_all();
         }
 
         bool getReadStop() { return _stopReader; }
@@ -458,8 +468,8 @@ namespace dsp
         int readable;
         int writable;
         int maxLatency;
-        bool _stopReader;
-        bool _stopWriter;
+        std::atomic<bool> _stopReader; // Fork: atomic, as they are also read without the lock
+        std::atomic<bool> _stopWriter;
         std::mutex _readable_mtx;
         std::mutex _writable_mtx;
         std::condition_variable canReadVar;

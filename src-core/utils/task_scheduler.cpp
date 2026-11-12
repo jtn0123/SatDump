@@ -1,5 +1,6 @@
 #include "task_scheduler.h"
 #include "core/plugin.h"
+#include "logger.h"
 #include <chrono>
 #include <limits>
 #include <thread>
@@ -17,6 +18,7 @@ namespace satdump
             time_t sleep_for = MAX_SLEEP;
             time_t wait_began = time(0);
             ScheduledTask *task_to_run = nullptr;
+            std::string task_name;
 
             // Look for next task to run
             for (auto &this_task : scheduled_tasks)
@@ -31,6 +33,7 @@ namespace satdump
                 if (next_run <= wait_began)
                 {
                     task_to_run = &this_task.second;
+                    task_name = this_task.first;
                     sleep_for = 0;
                     break;
                 }
@@ -41,6 +44,7 @@ namespace satdump
                 {
                     sleep_for = next_run - wait_began;
                     task_to_run = &this_task.second;
+                    task_name = this_task.first;
                 }
             }
 
@@ -56,8 +60,21 @@ namespace satdump
                 wait_began + sleep_for > time(NULL)) // Spurious wake
                 continue;
 
-            // Run the task that should be due now, and mark it for next run
-            eventBus->fire_event(task_to_run->evt.get(), task_to_run->evt_name);
+            // Run the task that should be due now, and mark it for next run. Fork: a task that throws
+            // is logged and tried again at its next run. The error used to leave this thread, which
+            // ended the whole program (a failed Kepler or IERS update could do that during a pass)
+            try
+            {
+                eventBus->fire_event(task_to_run->evt.get(), task_to_run->evt_name);
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Scheduled task %s failed: %s", task_name.c_str(), e.what());
+            }
+            catch (...)
+            {
+                logger->error("Scheduled task %s failed with an unknown error", task_name.c_str());
+            }
             task_to_run->last_run = time(NULL);
         }
     }

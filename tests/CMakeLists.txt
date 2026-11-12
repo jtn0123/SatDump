@@ -13,6 +13,8 @@ add_executable(satdump-unit-tests
     unit/test_admin_msg.cpp
     unit/test_filestream.cpp
     unit/test_image.cpp
+    unit/test_logger.cpp
+    unit/test_logged_fallbacks.cpp
     unit/test_task_scheduler.cpp
     unit/test_aos_demuxer.cpp
     unit/test_metop_instruments.cpp
@@ -23,6 +25,8 @@ add_executable(satdump-unit-tests
     unit/test_temp_file.cpp
     unit/test_ggak_merger.cpp
     unit/test_msugs_vis.cpp
+    unit/test_thread_faults.cpp
+    unit/test_autotrack_faults.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp
@@ -63,6 +67,11 @@ if(Python3_FOUND)
     set_tests_properties(theme_lint PROPERTIES LABELS lint)
 endif()
 
+# Logger calls: every form the code base uses compiles cleanly, printf-style calls with
+# arguments are checked by the compiler, and a format built at run time with arguments is refused
+add_test(NAME logger_format_check COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/compile/logger_format.sh ${CMAKE_CXX_COMPILER} ${PROJECT_SOURCE_DIR}/src-core)
+set_tests_properties(logger_format_check PROPERTIES LABELS lint)
+
 add_test(NAME cli_exit_codes COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/exit_codes.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_exit_codes PROPERTIES LABELS cli)
 
@@ -71,6 +80,20 @@ set_tests_properties(cli_short_inputs PROPERTIES LABELS cli)
 
 add_test(NAME cli_startup COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/startup.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_startup PROPERTIES LABELS cli)
+
+# Modules that fail on purpose (tests/unit/fault_module.h), as a plugin for the cli test only;
+# never installed
+add_library(fork_fault_test_plugin SHARED unit/fault_plugin.cpp)
+target_include_directories(fork_fault_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(fork_fault_test_plugin PRIVATE satdump_core)
+add_test(NAME cli_thread_faults
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/thread_faults.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_fault_test_plugin>)
+set_tests_properties(cli_thread_faults PROPERTIES LABELS cli)
+
+if(Python3_FOUND)
+    add_test(NAME thread_catches_lint COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lint/thread_catches.py ${PROJECT_SOURCE_DIR})
+    set_tests_properties(thread_catches_lint PROPERTIES LABELS lint)
+endif()
 
 # Synthetic MetOp and NOAA recordings must give exactly the known-good pictures. Sanitizer
 # builds compare only which pictures are made (their compiler settings differ).

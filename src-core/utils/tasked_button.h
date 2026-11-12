@@ -2,6 +2,7 @@
 
 #include "core/style.h"
 #include "imgui/imgui.h"
+#include "logger.h"
 #include <functional>
 #include <string>
 #include <thread>
@@ -38,7 +39,20 @@ namespace satdump
                         [this, func]()
                         {
                             is_running = true;
-                            func();
+                            // Fork: a task that throws is logged and the button comes back. The error
+                            // used to leave this thread, which ended the whole program
+                            try
+                            {
+                                func();
+                            }
+                            catch (const std::exception &e)
+                            {
+                                logger->error("Task failed: %s", e.what());
+                            }
+                            catch (...)
+                            {
+                                logger->error("Task failed with an unknown error");
+                            }
                             is_running = false;
                         });
                 }

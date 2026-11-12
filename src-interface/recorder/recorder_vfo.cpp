@@ -10,7 +10,8 @@ namespace satdump
 {
     void RecorderApplication::add_vfo_live(std::string id, std::string name, double freq, pipeline::Pipeline vpipeline, nlohmann::json vpipeline_params)
     {
-        vfos_mtx.lock();
+        // Fork: the lock is let go on every way out (an error that was not a std::exception left it taken)
+        std::lock_guard<std::mutex> lock(vfos_mtx);
 
         try
         {
@@ -44,13 +45,12 @@ namespace satdump
         {
             logger->error("Error adding VFO : %s", e.what());
         }
-
-        vfos_mtx.unlock();
     }
 
     void RecorderApplication::add_vfo_reco(std::string id, std::string name, double freq, dsp::BasebandType type, int decimation)
     {
-        vfos_mtx.lock();
+        // Fork: the lock is let go on every way out (an error that was not a std::exception left it taken)
+        std::lock_guard<std::mutex> lock(vfos_mtx);
 
         try
         {
@@ -85,13 +85,11 @@ namespace satdump
         {
             logger->error("Error adding VFO : %s", e.what());
         }
-
-        vfos_mtx.unlock();
     }
 
     void RecorderApplication::del_vfo(std::string id)
     {
-        vfos_mtx.lock();
+        std::lock_guard<std::mutex> lock(vfos_mtx); // Fork: let go also when something below throws
         auto it = std::find_if(vfo_list.begin(), vfo_list.end(), [&id](VFOInfo &c) { return c.id == id; });
         if (it != vfo_list.end())
         {
@@ -140,6 +138,5 @@ namespace satdump
         if (vfo_list.size() == 0)
             if (fft)
                 fft_plot->vfo_freqs.clear();
-        vfos_mtx.unlock();
     }
 } // namespace satdump

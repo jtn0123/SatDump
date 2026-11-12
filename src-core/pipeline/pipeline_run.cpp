@@ -5,12 +5,138 @@
 #include "core/exception.h"
 #include "logger.h"
 #include "pipeline/module.h"
+#include <atomic>
+#include <exception>
+#include <mutex>
 #include <thread>
 
 namespace satdump
 {
     namespace pipeline
     {
+        namespace
+        {
+            // Fork: puts modules on the UI's list and always takes them off again, also when a module
+            // throws (a failed module used to stay on the list)
+            class UiCallListScope
+            {
+            private:
+                bool d_ui;
+                std::shared_ptr<std::vector<std::shared_ptr<ProcessingModule>>> d_list;
+                std::shared_ptr<std::mutex> d_mtx;
+
+            public:
+                UiCallListScope(bool ui, std::shared_ptr<std::vector<std::shared_ptr<ProcessingModule>>> list, std::shared_ptr<std::mutex> mtx,
+                                std::vector<std::shared_ptr<ProcessingModule>> mods)
+                    : d_ui(ui), d_list(list), d_mtx(mtx)
+                {
+                    if (!d_ui)
+                        return;
+                    std::lock_guard<std::mutex> lock(*d_mtx);
+                    for (auto &m : mods)
+                        d_list->push_back(m);
+                }
+
+                ~UiCallListScope()
+                {
+                    if (!d_ui)
+                        return;
+                    std::lock_guard<std::mutex> lock(*d_mtx);
+                    d_list->clear();
+                }
+
+                UiCallListScope(const UiCallListScope &) = delete;
+                UiCallListScope &operator=(const UiCallListScope &) = delete;
+            };
+
+            // Fork: the first error thrown in a module thread, kept so it can be thrown again on the
+            // calling thread once both threads are joined
+            class ThreadErrors
+            {
+            private:
+                std::mutex d_mtx;
+                std::exception_ptr d_first;
+
+            public:
+                void keep(std::exception_ptr e)
+                {
+                    std::lock_guard<std::mutex> lock(d_mtx);
+                    if (!d_first)
+                        d_first = e;
+                }
+
+                bool any()
+                {
+                    std::lock_guard<std::mutex> lock(d_mtx);
+                    return (bool)d_first;
+                }
+
+                void rethrow_first()
+                {
+                    std::lock_guard<std::mutex> lock(d_mtx);
+                    if (d_first)
+                        std::rethrow_exception(d_first);
+                }
+            };
+
+            // Fork: runs a module in its own thread. An exception leaving the thread used to end the
+            // whole program (std::terminate); now it is logged and kept. Returns false when it failed
+            bool run_module(ProcessingModule &mod, ThreadErrors &errors)
+            {
+                try
+                {
+                    mod.process();
+                    return true;
+                }
+                catch (const std::exception &e)
+                {
+                    logger->error("Module %s failed: %s", mod.getIDM().c_str(), e.what());
+                    errors.keep(std::current_exception());
+                }
+                catch (...)
+                {
+                    logger->error("Module %s failed with an unknown error", mod.getIDM().c_str());
+                    errors.keep(std::make_exception_ptr(satdump_exception("Module " + mod.getIDM() + " failed with an unknown error")));
+                }
+                return false;
+            }
+
+            // Fork: stops a module whose process() failed. Demodulators start their own DSP blocks in
+            // process() and only stop them at its end, so a failed one used to be destroyed with its
+            // blocks still running, which still ended the program ("pure virtual method called").
+            // An error while stopping is logged; the first error is the one reported
+            void stop_after_failure(ProcessingModule &mod)
+            {
+                try
+                {
+                    mod.stop();
+                }
+                catch (const std::exception &e)
+                {
+                    logger->error("Module %s failed to stop after its error: %s", mod.getIDM().c_str(), e.what());
+                }
+                catch (...)
+                {
+                    logger->error("Module %s failed to stop after its error, with an unknown error", mod.getIDM().c_str());
+                }
+            }
+
+            // Fork: runs a module on the calling thread; when it fails it is stopped before the error
+            // goes on to the caller (see stop_after_failure)
+            void process_or_stop(ProcessingModule &mod)
+            {
+                try
+                {
+                    mod.process();
+                }
+                catch (...)
+                {
+                    stop_after_failure(mod);
+                    throw;
+                }
+            }
+        } // namespace
+
         void Pipeline::run(std::string input_file, std::string output_directory, nlohmann::json parameters, std::string input_level, bool ui,
                            std::shared_ptr<std::vector<std::shared_ptr<ProcessingModule>>> uiCallList, std::shared_ptr<std::mutex> uiCallListMutex, std::string *final_file)
         {
@@ -81,34 +207,57 @@ namespace satdump
                     m1->init();
                     m2->init();
 
-                    if (ui)
-                    {
-                        uiCallListMutex->lock();
-                        uiCallList->push_back(m1);
-                        uiCallList->push_back(m2);
-                        uiCallListMutex->unlock();
-                    }
+                    UiCallListScope ui_list(ui, uiCallList, uiCallListMutex, {m1, m2});
 
-                    std::thread module1_thread([&m1]() { m1->process(); });
-                    std::thread module2_thread([&m2]() { m2->process(); });
+                    // Fork: an exception in either module thread used to end the program. Now it is kept,
+                    // the other module is stopped and joined, and the error is thrown again here
+                    ThreadErrors errors;
+                    std::atomic<bool> m2_finished(false);
+
+                    std::thread module1_thread(
+                        [&m1, &errors]()
+                        {
+                            // Fork: nothing else stops module 1, so a failed one is stopped here
+                            if (!run_module(*m1, errors))
+                                stop_after_failure(*m1);
+                        });
+                    std::thread module2_thread(
+                        [&m2, &errors, &m2_finished]()
+                        {
+                            // Fork: nobody reads the buffer any more, so writes into it return at once
+                            // instead of leaving module 1 waiting on a full buffer forever
+                            if (!run_module(*m2, errors))
+                                m2->input_fifo->stopWriter();
+                            m2_finished = true;
+                        });
 
                     if (module1_thread.joinable())
                         module1_thread.join();
-                    while (m2->input_fifo->getReadable() > 0)
+                    // Fork: stop waiting for module 2 to empty the buffer once it has ended or a module
+                    // failed (this loop used to wait forever when module 2 was gone)
+                    while (!m2_finished && !errors.any() && m2->input_fifo->getReadable() > 0)
                         std::this_thread::sleep_for(std::chrono::seconds(1));
                     m2->input_active = false;
                     m2->input_fifo->stopReader();
                     m2->input_fifo->stopWriter();
-                    m2->stop();
+                    try // Fork: a throwing stop() used to skip the join below, which ended the program
+                    {
+                        m2->stop();
+                    }
+                    catch (const std::exception &e)
+                    {
+                        logger->error("Module %s failed to stop: %s", m2->getIDM().c_str(), e.what());
+                        errors.keep(std::current_exception());
+                    }
+                    catch (...)
+                    {
+                        logger->error("Module %s failed to stop with an unknown error", m2->getIDM().c_str());
+                        errors.keep(std::make_exception_ptr(satdump_exception("Module " + m2->getIDM() + " failed to stop")));
+                    }
                     if (module2_thread.joinable())
                         module2_thread.join();
 
-                    if (ui)
-                    {
-                        uiCallListMutex->lock();
-                        uiCallList->clear();
-                        uiCallListMutex->unlock();
-                    }
+                    errors.rethrow_first();
 
                     lastFile = m2->getOutput();
                     currentStep += 2;
@@ -147,20 +296,9 @@ namespace satdump
 
                     module->init();
 
-                    if (ui)
                     {
-                        uiCallListMutex->lock();
-                        uiCallList->push_back(module);
-                        uiCallListMutex->unlock();
-                    }
-
-                    module->process();
-
-                    if (ui)
-                    {
-                        uiCallListMutex->lock();
-                        uiCallList->clear();
-                        uiCallListMutex->unlock();
+                        UiCallListScope ui_list(ui, uiCallList, uiCallListMutex, {module});
+                        process_or_stop(*module);
                     }
 
                     lastFile = module->getOutput();
@@ -187,20 +325,9 @@ namespace satdump
 
                 module->init();
 
-                if (ui)
                 {
-                    uiCallListMutex->lock();
-                    uiCallList->push_back(module);
-                    uiCallListMutex->unlock();
-                }
-
-                module->process();
-
-                if (ui)
-                {
-                    uiCallListMutex->lock();
-                    uiCallList->clear();
-                    uiCallListMutex->unlock();
+                    UiCallListScope ui_list(ui, uiCallList, uiCallListMutex, {module});
+                    process_or_stop(*module);
                 }
 
                 module.reset();

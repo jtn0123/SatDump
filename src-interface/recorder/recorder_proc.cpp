@@ -109,10 +109,10 @@ namespace satdump
             splitter->start();
             is_started = true;
         }
-        catch (std::runtime_error &e)
+        catch (const std::exception &e) // Fork: any error, not only runtime_error (others ended the program)
         {
             sdr_error.set_message(style::theme.red, e.what());
-            logger->error(e.what());
+            logger->error("%s", e.what());
         }
     }
 
@@ -151,8 +151,9 @@ namespace satdump
                     {
                         source_ptr->set_samplerate(cfg["samplerate"]);
                     }
-                    catch (std::exception &)
+                    catch (const std::exception &e) // Fork: said nothing before; the radio keeps its own samplerate
                     {
+                        logger->warn("Could not restore the last samplerate: %s", e.what());
                     }
                 }
                 if (cfg.contains("frequency"))
@@ -197,10 +198,10 @@ namespace satdump
 
                 is_processing = true;
             }
-            catch (std::runtime_error &e)
+            catch (const std::exception &e) // Fork: any error, not only runtime_error (others ended the program)
             {
                 error.set_message(style::theme.red, e.what());
-                logger->error(e.what());
+                logger->error("%s", e.what());
             }
         }
         else
@@ -219,15 +220,24 @@ namespace satdump
             live_pipeline->stop();
             is_stopping_processing = is_processing = false;
 
-            if (satdump_cfg.main_cfg["user_interface"]["finish_processing_after_live"]["value"].get<bool>() && live_pipeline->getOutputFile().size() > 0)
+            // Fork: an error starting the processing that follows is logged, and the live pipeline is
+            // still let go (an error used to skip that)
+            try
             {
-                pipeline::Pipeline pipeline = pipeline_selector.selected_pipeline;
-                std::string input_file = live_pipeline->getOutputFile();
-                logger->critical(input_file);
-                int start_level = pipeline.live_cfg.normal_live[pipeline.live_cfg.normal_live.size() - 1];
-                std::string input_level = pipeline.steps[start_level].level;
-                eventBus->fire_event<explorer::ExplorerAddHandlerEvent>(
-                    {std::make_shared<handlers::OffProcessingHandler>(pipeline, input_level, input_file, pipeline_output_dir, pipeline_params), false, true});
+                if (satdump_cfg.main_cfg["user_interface"]["finish_processing_after_live"]["value"].get<bool>() && live_pipeline->getOutputFile().size() > 0)
+                {
+                    pipeline::Pipeline pipeline = pipeline_selector.selected_pipeline;
+                    std::string input_file = live_pipeline->getOutputFile();
+                    logger->critical(input_file);
+                    int start_level = pipeline.live_cfg.normal_live[pipeline.live_cfg.normal_live.size() - 1];
+                    std::string input_level = pipeline.steps[start_level].level;
+                    eventBus->fire_event<explorer::ExplorerAddHandlerEvent>(
+                        {std::make_shared<handlers::OffProcessingHandler>(pipeline, input_level, input_file, pipeline_output_dir, pipeline_params), false, true});
+                }
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Could not start processing the live output: %s", e.what());
             }
 
             live_pipeline.reset();

@@ -7,6 +7,28 @@
 
 namespace satdump
 {
+    namespace
+    {
+        // Fork: a callback or event handler that throws is logged and autotrack carries on with the
+        // pass. The error used to leave the autotrack thread, which ended the whole program
+        template <typename F>
+        void run_guarded(const char *what, int norad, F f)
+        {
+            try
+            {
+                f();
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Autotrack: %s for NORAD %d failed: %s", what, norad, e.what());
+            }
+            catch (...)
+            {
+                logger->error("Autotrack: %s for NORAD %d failed with an unknown error", what, norad);
+            }
+        }
+    } // namespace
+
     AutoTrackScheduler::AutoTrackScheduler()
     {
         auto &tle_registry = db_keplers->all_;
@@ -20,7 +42,7 @@ namespace satdump
         eventBus->register_handler<TLEsUpdatedEvent>(
             [this](TLEsUpdatedEvent)
             {
-                upcoming_satellite_passes_mtx.lock();
+                std::lock_guard<std::mutex> lock(upcoming_satellite_passes_mtx); // Fork: let go also on an error
 
                 auto &tle_registry = db_keplers->all_;
                 if (tle_registry.size() > 0)
@@ -29,8 +51,6 @@ namespace satdump
                 satoptions.clear();
                 for (auto &tle : tle_registry)
                     satoptions.push_back(tle.name);
-
-                upcoming_satellite_passes_mtx.unlock();
             });
     }
 
@@ -48,7 +68,8 @@ namespace satdump
     {
         if (autotrack_engaged)
         {
-            upcoming_satellite_passes_mtx.lock();
+            // Fork: a lock that is always let go, also when something below throws
+            std::lock_guard<std::mutex> lock(upcoming_satellite_passes_mtx);
 
             if (autotrack_cfg.multi_mode)
             {
@@ -64,12 +85,13 @@ namespace satdump
                             vfo_mode_norads_vis.insert({pass.norad, pass});
 
                             logger->critical("AOS!!!!!!!!!!!!!! %d", pass.norad);
-                            eventBus->fire_event<events::TrackingSchedulerAOSEvent>({upcoming_satellite_passes_sel[0]});
+                            // Fork: the event is for this pass (it carried the first pass of the list)
+                            run_guarded("AOS event", pass.norad, [&]() { eventBus->fire_event<events::TrackingSchedulerAOSEvent>({pass}); });
                             TrackedObject obj;
                             for (auto &v : enabled_satellites)
                                 if (v.norad == pass.norad)
                                     obj = v;
-                            aos_callback(autotrack_cfg, pass, obj);
+                            run_guarded("AOS callback", pass.norad, [&]() { aos_callback(autotrack_cfg, pass, obj); });
                         }
                     }
                 }
@@ -80,12 +102,14 @@ namespace satdump
                     if (curr_time > p.second.los_time)
                     {
                         logger->critical("LOS!!!!!!!!!!!!!! %d ", p.first);
-                        eventBus->fire_event<events::TrackingSchedulerLOSEvent>({upcoming_satellite_passes_sel[0]});
+                        // Fork: the event is for this pass (it carried the first pass of the list, which
+                        // may be empty by now)
+                        run_guarded("LOS event", p.first, [&]() { eventBus->fire_event<events::TrackingSchedulerLOSEvent>({p.second}); });
                         TrackedObject obj;
                         for (auto &v : enabled_satellites)
                             if (v.norad == p.first)
                                 obj = v;
-                        los_callback(autotrack_cfg, p.second, obj);
+                        run_guarded("LOS callback", p.first, [&]() { los_callback(autotrack_cfg, p.second, obj); });
 
                         vfo_mode_norads_vis.erase(p.first);
                         update = true;
@@ -93,14 +117,16 @@ namespace satdump
                     }
                 }
 
+                // Fork: only when there is a next pass (with none, this read past the end of the list)
                 if (update)
-                {
                     updateAutotrackPasses(curr_time);
+                if (update && upcoming_satellite_passes_sel.size() > 0)
+                {
                     TrackedObject obj;
                     for (auto &v : enabled_satellites)
                         if (v.norad == upcoming_satellite_passes_sel[0].norad)
                             obj = v;
-                    eng_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj);
+                    run_guarded("engage callback", upcoming_satellite_passes_sel[0].norad, [&]() { eng_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj); });
                 }
             }
             else
@@ -110,42 +136,45 @@ namespace satdump
                     if (!autotrack_pass_has_started && curr_time > upcoming_satellite_passes_sel[0].aos_time)
                     {
                         logger->critical("AOS!!!!!!!!!!!!!! %d", upcoming_satellite_passes_sel[0].norad);
-                        eventBus->fire_event<events::TrackingSchedulerAOSEvent>({upcoming_satellite_passes_sel[0]});
+                        SatellitePass pass = upcoming_satellite_passes_sel[0];
+                        run_guarded("AOS event", pass.norad, [&]() { eventBus->fire_event<events::TrackingSchedulerAOSEvent>({pass}); });
                         TrackedObject obj;
                         for (auto &v : enabled_satellites)
-                            if (v.norad == upcoming_satellite_passes_sel[0].norad)
+                            if (v.norad == pass.norad)
                                 obj = v;
-                        aos_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj);
+                        run_guarded("AOS callback", pass.norad, [&]() { aos_callback(autotrack_cfg, pass, obj); });
                         autotrack_pass_has_started = true;
                     }
                 }
 
-                if (curr_time > upcoming_satellite_passes_sel[0].los_time && upcoming_satellite_passes_sel.size() > 0)
+                // Fork: the list is checked before its first pass is read (once it was empty, this
+                // read past its end, and the program crashed on the next check)
+                if (upcoming_satellite_passes_sel.size() > 0 && curr_time > upcoming_satellite_passes_sel[0].los_time)
                 {
                     if (autotrack_pass_has_started)
                     {
                         logger->critical("LOS!!!!!!!!!!!!!! %d", upcoming_satellite_passes_sel[0].norad);
-                        eventBus->fire_event<events::TrackingSchedulerLOSEvent>({upcoming_satellite_passes_sel[0]});
+                        SatellitePass pass = upcoming_satellite_passes_sel[0];
+                        run_guarded("LOS event", pass.norad, [&]() { eventBus->fire_event<events::TrackingSchedulerLOSEvent>({pass}); });
                         TrackedObject obj;
                         for (auto &v : enabled_satellites)
-                            if (v.norad == upcoming_satellite_passes_sel[0].norad)
+                            if (v.norad == pass.norad)
                                 obj = v;
-                        los_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj);
+                        run_guarded("LOS callback", pass.norad, [&]() { los_callback(autotrack_cfg, pass, obj); });
                     }
                     autotrack_pass_has_started = false;
                     updateAutotrackPasses(curr_time);
 
+                    if (upcoming_satellite_passes_sel.size() > 0) // Fork: there may be no next pass
                     {
                         TrackedObject obj;
                         for (auto &v : enabled_satellites)
                             if (v.norad == upcoming_satellite_passes_sel[0].norad)
                                 obj = v;
-                        eng_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj);
+                        run_guarded("engage callback", upcoming_satellite_passes_sel[0].norad, [&]() { eng_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj); });
                     }
                 }
             }
-
-            upcoming_satellite_passes_mtx.unlock();
         }
     }
 
@@ -201,17 +230,18 @@ namespace satdump
 
     void AutoTrackScheduler::setQTH(double qth_lon, double qth_lat, double qth_alt)
     {
-        upcoming_satellite_passes_mtx.lock();
+        std::lock_guard<std::mutex> lock(upcoming_satellite_passes_mtx);
         this->qth_lon = qth_lon;
         this->qth_lat = qth_lat;
         this->qth_alt = qth_alt;
         // backend_needs_update = true;
-        upcoming_satellite_passes_mtx.unlock();
     }
 
     void AutoTrackScheduler::setEngaged(bool v, double curr_time)
     {
-        upcoming_satellite_passes_mtx.lock();
+        // Fork: a lock that is always let go. Working out the passes can throw, and that left it taken,
+        // so autotrack then waited on it for ever
+        std::lock_guard<std::mutex> lock(upcoming_satellite_passes_mtx);
         autotrack_engaged = v;
         updateAutotrackPasses(curr_time);
 
@@ -221,15 +251,14 @@ namespace satdump
             for (auto &v : enabled_satellites)
                 if (v.norad == upcoming_satellite_passes_sel[0].norad)
                     obj = v;
-            eng_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj);
+            // Fork: a throwing callback left the lock taken, and autotrack then waited on it for ever
+            run_guarded("engage callback", upcoming_satellite_passes_sel[0].norad, [&]() { eng_callback(autotrack_cfg, upcoming_satellite_passes_sel[0], obj); });
             autotrack_pass_has_started = false;
         }
         else
         {
             autotrack_engaged = false;
         }
-
-        upcoming_satellite_passes_mtx.unlock();
     }
 
     bool AutoTrackScheduler::getEngaged() { return autotrack_engaged; }
@@ -238,9 +267,8 @@ namespace satdump
 
     void AutoTrackScheduler::setTracked(std::vector<TrackedObject> tracked)
     {
-        upcoming_satellite_passes_mtx.lock();
+        std::lock_guard<std::mutex> lock(upcoming_satellite_passes_mtx);
         enabled_satellites = tracked;
-        upcoming_satellite_passes_mtx.unlock();
     }
 
     void AutoTrackScheduler::start()
@@ -253,7 +281,20 @@ namespace satdump
     {
         while (backend_should_run)
         {
-            processAutotrack(getTime());
+            // Fork: an error here used to leave the autotrack thread and end the program; it is
+            // logged and autotrack tries again on the next round
+            try
+            {
+                processAutotrack(getTime());
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Autotrack failed: %s", e.what());
+            }
+            catch (...)
+            {
+                logger->error("Autotrack failed with an unknown error");
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
@@ -262,8 +303,7 @@ namespace satdump
 
     void AutoTrackScheduler::setAutoTrackCfg(AutoTrackCfg v)
     {
-        upcoming_satellite_passes_mtx.lock();
+        std::lock_guard<std::mutex> lock(upcoming_satellite_passes_mtx);
         autotrack_cfg = v;
-        upcoming_satellite_passes_mtx.unlock();
     }
 } // namespace satdump

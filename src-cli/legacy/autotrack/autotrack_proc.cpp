@@ -9,7 +9,9 @@ void AutoTrackApp::start_processing()
     if (is_processing)
         return;
 
-    live_pipeline_mtx.lock();
+    // Fork: the lock is let go on every way out. An error that was not a runtime_error left it
+    // taken, and the next pass then waited on it for ever
+    std::lock_guard<std::mutex> lock(live_pipeline_mtx);
     logger->trace("Start pipeline...");
     pipeline_params["samplerate"] = get_samplerate();
     pipeline_params["baseband_format"] = "cf32";
@@ -26,19 +28,21 @@ void AutoTrackApp::start_processing()
 
         is_processing = true;
     }
-    catch (std::runtime_error &e)
+    catch (const std::exception &e) // Fork: any error, not only runtime_error (others left the lock taken)
     {
-        logger->error(e.what());
+        logger->error("Could not start the live pipeline: %s", e.what());
     }
-
-    live_pipeline_mtx.unlock();
+    catch (...)
+    {
+        logger->error("Could not start the live pipeline: unknown error");
+    }
 }
 
 void AutoTrackApp::stop_processing()
 {
     if (is_processing)
     {
-        live_pipeline_mtx.lock();
+        std::lock_guard<std::mutex> lock(live_pipeline_mtx); // Fork: also let go when something below throws
         logger->trace("Stop pipeline...");
         is_processing = false;
         splitter->set_enabled("live", false);
@@ -53,17 +57,28 @@ void AutoTrackApp::stop_processing()
             auto fun = [selected_pipeline_, pipeline_output_dir_, input_file, pipeline_params_](int)
             {
                 satdump::setLowestThreadPriority(); // TODOREWORK namespace remove
-                satdump::pipeline::Pipeline pipeline = selected_pipeline_;
-                int start_level = pipeline.live_cfg.normal_live[pipeline.live_cfg.normal_live.size() - 1];
-                std::string input_level = pipeline.steps[start_level].level;
-                pipeline.run(input_file, pipeline_output_dir_, pipeline_params_, input_level);
-                logger->info("Pipeline Processing Done!");
+                // Fork: an error here was kept in a result nobody reads, so it was lost without a word
+                try
+                {
+                    satdump::pipeline::Pipeline pipeline = selected_pipeline_;
+                    int start_level = pipeline.live_cfg.normal_live[pipeline.live_cfg.normal_live.size() - 1];
+                    std::string input_level = pipeline.steps[start_level].level;
+                    pipeline.run(input_file, pipeline_output_dir_, pipeline_params_, input_level);
+                    logger->info("Pipeline Processing Done!");
+                }
+                catch (const std::exception &e)
+                {
+                    logger->error("Processing after the pass failed: %s", e.what());
+                }
+                catch (...)
+                {
+                    logger->error("Processing after the pass failed with an unknown error");
+                }
             };
             main_thread_pool.push(fun);
         }
 
         live_pipeline.reset();
-        live_pipeline_mtx.unlock();
     }
 }
 

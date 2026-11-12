@@ -3,6 +3,7 @@
 #include "image.h"
 #include "io.h"
 #include "logger.h"
+#include <atomic>
 #include <mutex>
 #include <thread>
 
@@ -17,29 +18,47 @@ namespace satdump
             std::vector<std::pair<Image, std::string>> queue;
             std::mutex queue_mutex;
 
-            bool thread_should_run = true;
+            std::atomic<bool> thread_should_run{true}; // Fork: atomic, as the thread reads it without the lock
+
+            // Fork: an image that cannot be saved is logged and the next one is saved. The error used to
+            // leave this thread, which ended the whole program. The queued images are now taken all
+            // at once without copying them (a copy could itself fail, for want of memory), and the
+            // queue is only read under its lock
             void actual_saving_thread()
             {
-                while (thread_should_run || queue.size() > 0)
+                while (true)
                 {
-                    queue_mutex.lock();
-                    bool has_images = queue.size() > 0;
-                    queue_mutex.unlock();
-
-                    if (has_images)
+                    bool should_run = thread_should_run; // Read first, so images pushed before the end are still taken
+                    std::vector<std::pair<Image, std::string>> images;
                     {
-                        queue_mutex.lock();
-                        auto img = queue[0];
-                        queue.erase(queue.begin());
-                        queue_mutex.unlock();
+                        std::lock_guard<std::mutex> lock(queue_mutex);
+                        images.swap(queue);
+                    }
 
-                        // logger->debug("Queue length %d", queue.size());
-                        logger->info("Saving " + img.second);
-                        save_img(img.first, img.second);
+                    if (images.size() == 0)
+                    {
+                        if (!should_run)
+                            break;
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
                         continue;
                     }
 
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    for (auto &img : images)
+                    {
+                        try
+                        {
+                            logger->info("Saving " + img.second);
+                            save_img(img.first, img.second);
+                        }
+                        catch (const std::exception &e)
+                        {
+                            logger->error("Could not save %s: %s", img.second.c_str(), e.what());
+                        }
+                        catch (...)
+                        {
+                            logger->error("Could not save %s: unknown error", img.second.c_str());
+                        }
+                    }
                 }
             }
 
@@ -64,9 +83,8 @@ namespace satdump
             {
                 if (use_thread)
                 {
-                    queue_mutex.lock();
+                    std::lock_guard<std::mutex> lock(queue_mutex); // Fork: let go also when the copy fails
                     queue.push_back({img, path});
-                    queue_mutex.unlock();
                 }
                 else
                 {
