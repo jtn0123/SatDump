@@ -42,9 +42,18 @@ else
 fi
 
 # The cli tests run the installed program (in SATDUMP_CHECK_PREFIX), never the build tree.
-# Each run installs over the last one (files are replaced, nothing is deleted).
+# A prefix inside the build folder (the default, <build>/check-prefix) is emptied first, so it
+# holds this build only. Installing over the last run kept the files an earlier install had and
+# this one has not, such as libraries from an install with another libdir, and the cli tests
+# ran those (cli_install_fresh checks for them). A prefix elsewhere is installed over.
+BUILD=$(cd "$B" && pwd)
 PREFIX=$(sed -n 's/^SATDUMP_CHECK_PREFIX:PATH=//p' "$B/CMakeCache.txt")
-if ! cmake --install "$B" --prefix "${PREFIX:-$B/check-prefix}" > "$B/gate-install.log" 2>&1; then
+PREFIX=${PREFIX:-$BUILD/check-prefix}
+case "$PREFIX" in
+    *..*) ;;
+    "$BUILD"/?*) rm -rf "$PREFIX" ;;
+esac
+if ! cmake --install "$B" --prefix "$PREFIX" > "$B/gate-install.log" 2>&1; then
     tail -5 "$B/gate-install.log"
     echo "gate: install FAILED"
     exit 1
