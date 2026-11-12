@@ -49,6 +49,15 @@ api_value() {
 plain() { sed 's/\x1b\[[0-9;]*m//g' "$WORK/$1.log"; }
 logged() { plain "$1" | grep -q "$2"; }
 now_ms() { echo $(($(date +%s%N) / 1000000)); }
+# running <pid>: true only while the program runs. Its /proc/<pid>/stat can be read and does not
+# show state Z (exited, not yet waited for). The state is the first field after the command
+# name in brackets, which can itself hold spaces and brackets
+running() {
+    local stat
+    { read -r stat < "/proc/$1/stat"; } 2> /dev/null || return 1
+    stat=${stat##*) }
+    [ "${stat%% *}" != Z ]
+}
 # wait_exit <pid> <name> <SIGTERM time from now_ms>: after a SIGTERM, the exit code must be 0
 # within 10 s, the grace period FORK.md gives a station program before it sends SIGKILL. A run
 # still there 30 s after this is called is killed
@@ -108,13 +117,15 @@ check still-running kill -0 "$pid"
 sigterm_at=$(now_ms)
 kill -TERM "$pid"
 # The server must stop answering while the program still runs (it closes the port itself). Once
-# the program has exited the system closes the port anyway, so that would prove nothing: a
-# program that has exited, not yet waited for, shows as a zombie (state Z). Tried for 30 s at most
+# the program has exited the system closes the port anyway, so that would prove nothing. Bash
+# can wait for a background program as soon as it exits, and its /proc/<pid> is then gone, so a
+# missing /proc/<pid> proves nothing either. A refused connection counts only when the program
+# is seen running after it: then it was running when the port refused. Tried for 30 s at most
 server_closed=0
 poll_end=$((SECONDS + 30))
-while [ -e "/proc/$pid" ] && ! grep -q '^[0-9]* ([^)]*) Z' "/proc/$pid/stat" 2> /dev/null && [ $SECONDS -lt $poll_end ]; do
+while [ $SECONDS -lt $poll_end ] && running "$pid"; do
     if ! (exec 3<> "/dev/tcp/127.0.0.1/$PORT") 2> /dev/null; then
-        grep -q '^[0-9]* ([^)]*) Z' "/proc/$pid/stat" 2> /dev/null || server_closed=1
+        running "$pid" && server_closed=1
         break
     fi
 done
