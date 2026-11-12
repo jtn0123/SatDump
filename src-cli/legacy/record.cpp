@@ -205,7 +205,6 @@ int main_record(int argc, char *argv[])
     bool webserver_failed = false; // Fork: see below
     if (parameters.contains("http_server"))
     {
-        std::string http_addr = parameters["http_server"].get<std::string>();
         if (!webserver_already_set)
             webserver::handle_callback = [&file_sink]()
             {
@@ -214,10 +213,11 @@ int main_record(int argc, char *argv[])
                 stats["written_raw"] = file_sink->get_written_raw();
                 return stats.dump(4);
             };
-        logger->info("Start webserver on %s", http_addr.c_str());
         // Fork: a server that cannot start (the reason is logged) stops the recording at once,
-        // with exit code 1, as for live. The recording used to go on with no server
-        webserver_failed = !webserver::start(http_addr);
+        // with exit code 1, as for live. The recording used to go on with no server. That
+        // includes a value that is not an address and port (a number, or a flag given no
+        // value), which threw while the radio and the recording ran
+        webserver_failed = !webserver::start_from_flag(parameters["http_server"]);
     }
 
     // Attach signal

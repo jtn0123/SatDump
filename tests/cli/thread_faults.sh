@@ -158,10 +158,17 @@ run 2 live-block-fails legacy live fork_fault_live_blockfail out_live_blockfail 
 check live-block-fails-logged logged live-block-fails "Error running command : a DSP block failed.*block failure on purpose"
 run 2 legacy-block-fails legacy fork_fault_blockfail baseband in.bin out_legacy_blockfail
 check legacy-block-fails-logged logged legacy-block-fails "Error running command : a DSP block failed.*block failure on purpose"
-# An error once everything runs (here --http_server given as a number, which is not an address)
-# stops it all and is reported; it used to hang for ever, past --timeout. No server is started
-run 2 live-error-after-start legacy live fork_fault_live_good out_live_http "${LIVE[@]}" --http_server 8080
+# An error once everything runs (here --finish_processing given as a number, read when the run
+# ends) stops it all and is reported; it used to hang for ever, past --timeout
+run 2 live-error-after-start legacy live fork_fault_live_good out_live_error "${LIVE[@]}" --finish_processing 5
 check live-error-after-start-logged logged live-error-after-start "Error running command"
+# --http_server given as a number, or with no value, is not an address: like a server that cannot
+# start, it stops everything that runs and ends with exit code 1 (it threw, and ended with 2)
+run 1 live-http-number legacy live fork_fault_live_good out_live_http "${LIVE[@]}" --http_server 8080
+check live-http-number-logged logged live-http-number "Cannot start the web server on 8080: "
+check live-http-number-blocks-stopped not_logged live-http-number "BLOCK SHOULD BE STOPPED"
+run 1 live-http-no-value legacy live fork_fault_live_good out_live_http "${LIVE[@]}" --http_server
+check live-http-no-value-logged logged live-http-no-value "Cannot start the web server on true: "
 # A pipeline that cannot start stops the FFT blocks it started (they were destroyed running)
 run 1 live-cannot-start-fft legacy live fork_fault_live_badinit out_live_fft "${LIVE[@]}" --fft_enable
 check live-cannot-start-fft-blocks-stopped not_logged live-cannot-start-fft "BLOCK SHOULD BE STOPPED"
@@ -169,7 +176,7 @@ check live-cannot-start-fft-blocks-stopped not_logged live-cannot-start-fft "BLO
 # Multi VFO: a VFO that cannot start stops the ones already started, then the command ends
 run 2 live-vfo-cannot-start legacy live fork_fault_live_good out_vfo "${LIVE[@]}" --multi_vfo vfo.json
 check live-vfo-error-logged logged live-vfo-cannot-start "init failure on purpose"
-run 2 live-vfo-error-after-start legacy live fork_fault_live_good out_vfo_http "${LIVE[@]}" --multi_vfo vfo_good.json --http_server 8080
-check live-vfo-error-after-start-logged logged live-vfo-error-after-start "Error running command"
+run 1 live-vfo-http-number legacy live fork_fault_live_good out_vfo_http "${LIVE[@]}" --multi_vfo vfo_good.json --http_server 8080
+check live-vfo-http-number-logged logged live-vfo-http-number "Cannot start the web server on 8080: "
 
 exit $FAILED

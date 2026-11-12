@@ -137,7 +137,7 @@ namespace webserver
         int rv = nng_url_parse(&url, ("http://" + http_server_url).c_str());
         if (rv != 0)
         {
-            logger->error("Cannot start the web server: %s is not an address and port such as 127.0.0.1:8080 (%s)", http_server_url.c_str(), nng_strerror(rv));
+            logger->error("Cannot start the web server on %s: it is not an address and port such as 127.0.0.1:8080 (%s)", http_server_url.c_str(), nng_strerror(rv));
             return false;
         }
 
@@ -193,6 +193,24 @@ namespace webserver
 
         is_active = true;
         return true;
+    }
+
+    bool start_from_flag(const nlohmann::json &http_server)
+    {
+        if (!http_server.is_string())
+        {
+            // Fork: --http_server 8080 is read as a number, and a bare --http_server as true.
+            // Neither is an address; this threw, and the run ended with exit code 2
+            if (http_server.is_boolean())
+                logger->error("Cannot start the web server on %s: --http_server was given no address and port such as 127.0.0.1:8080", http_server.dump().c_str());
+            else
+                logger->error("Cannot start the web server on %s: it is not an address and port such as 127.0.0.1:8080", http_server.dump().c_str());
+            return false;
+        }
+
+        const std::string http_addr = http_server.get<std::string>();
+        logger->info("Start webserver on %s", http_addr.c_str());
+        return start(http_addr);
     }
 
     void stop()

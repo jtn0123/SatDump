@@ -24,16 +24,12 @@ static void sig_handler_live(int signo)
 }
 
 // Fork: starts the web server asked for with --http_server. False when it cannot start, most
-// often because another program uses the port (the reason is logged); the live run then stops
-// with exit code 1, so whatever watches it through /api learns at once that it cannot. The run
-// used to go on with nothing answering there. A value that is not text (--http_server 8080)
-// still throws, as before, and ends the run with exit code 2.
-static bool start_webserver(const nlohmann::json &parameters)
-{
-    std::string http_addr = parameters.at("http_server").get<std::string>();
-    logger->info("Start webserver on %s", http_addr.c_str());
-    return webserver::start(http_addr);
-}
+// often because another program uses the port, or the value is not an address and port (a
+// number, or a flag given no value); the reason is logged. The live run then stops with exit
+// code 1, so whatever watches it through /api learns at once that it cannot. The run used to go
+// on with nothing answering there, and a value that was not text threw, which ended the run
+// with exit code 2.
+static bool start_webserver(const nlohmann::json &parameters) { return webserver::start_from_flag(parameters.at("http_server")); }
 
 // TODOREWORK the timeout and stats are partially broken here now!
 
@@ -568,8 +564,9 @@ int main_live(int argc, char *argv[])
             }
             catch (...)
             {
-                // Fork: an error once everything runs (a bad setting such as --http_server given as a
-                // number) stops it all before it is reported. It used to hang the program for ever
+                // Fork: an error once everything runs (a bad setting such as --finish_processing given
+                // as a number, read when the run ends) stops it all before it is reported. It used to
+                // hang the program for ever
                 stop_running();
                 if (webserver_started)
                     webserver::stop();

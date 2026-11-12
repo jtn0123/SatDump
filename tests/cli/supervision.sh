@@ -4,9 +4,11 @@
 #   - SIGTERM ends it with exit code 0, and the .cadu written so far is kept: whole frames, each
 #     starting with the sync marker
 #   - SIGTERM while it is still starting (opening the radio) ends it the same way, once started
-#   - a port another program already listens on ends it at once with exit code 1, saying why
+#   - a port another program already listens on, or a value that is not an address and port,
+#     ends it at once with exit code 1, saying why ("Cannot start the web server on <value>:")
 #   - only the driver of the radio type asked for is asked for its radios (some drivers search
 #     the network for radios when asked: UHD, PlutoSDR, SoapySDR)
+# legacy record is checked for the same web server errors.
 # The radio is the file source playing a short made-up MetOp signal (cli/ahrpt_baseband.py) in a
 # loop, in real time, or the test-only radio driver of tests/unit/probe_source_plugin.cpp, its
 # file given as $2.
@@ -23,6 +25,9 @@ export no_proxy="" NO_PROXY=""
 # 150 frames: 0.35 s of signal, played over and over
 python3 -I -B "$TESTS/cli/ahrpt_baseband.py" "$WORK/ahrpt.cs8" 150 || exit 1
 LIVE=(legacy live metop_ahrpt --source file --file_path "$WORK/ahrpt.cs8" --baseband_type cs8
+    --samplerate 6000000 --frequency 1701300000)
+# legacy record of the same signal; its output name goes after the first two
+REC=(legacy record --source file --file_path "$WORK/ahrpt.cs8" --baseband_type cs8 --baseband_format cs8
     --samplerate 6000000 --frequency 1701300000)
 
 free_port() {
@@ -113,9 +118,16 @@ if [ "$got" = 1 ]; then echo "ok   port-taken (exit 1)"; else echo "FAIL port-ta
 check port-taken-reported logged port-taken "Cannot start the web server on 127.0.0.1:$PORT: the address is in use"
 check port-taken-quick [ $(($(date +%s) - start)) -lt 20 ]
 
-# 3. An address that is not host:port is the same error
+# 3. A value that is not an address and port is the same error: one with no number for the port,
+# one that cannot be read as an address at all ("[::1"), and one that is not text (a number)
 run 1 bad-address "${LIVE[@]:0:3}" "$WORK/live-3" "${LIVE[@]:3}" --http_server "127.0.0.1:notaport" --timeout 20
-check bad-address-reported logged bad-address "Cannot start the web server"
+check bad-address-reported logged bad-address "Cannot start the web server on 127.0.0.1:notaport: "
+run 1 unreadable-address "${LIVE[@]:0:3}" "$WORK/live-3" "${LIVE[@]:3}" --http_server "[::1" --timeout 20
+check unreadable-address-reported logged unreadable-address "Cannot start the web server on \[::1: it is not an address and port"
+run 1 number-address "${LIVE[@]:0:3}" "$WORK/live-3" "${LIVE[@]:3}" --http_server 8080 --timeout 20
+check number-address-reported logged number-address "Cannot start the web server on 8080: it is not an address and port"
+run 1 record-number-address "${REC[@]:0:2}" "$WORK/rec-3" "${REC[@]:2}" --http_server 8080 --timeout 20
+check record-number-address-reported logged record-number-address "Cannot start the web server on 8080: it is not an address and port"
 
 # The probe radio driver is loaded from ./plugins, as well as the installed ones
 mkdir -p "$WORK/probe/plugins"
