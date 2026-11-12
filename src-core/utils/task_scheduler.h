@@ -5,7 +5,9 @@
  * @brief Time-based task scheduler
  */
 
+#include <atomic>
 #include <condition_variable>
+#include <ctime>
 #include <map>
 #include <mutex>
 #include <string>
@@ -50,8 +52,9 @@ namespace satdump
     class TaskScheduler
     {
     private:
-        bool running = true;
+        std::atomic<bool> running{true}; // Fork: read by the thread outside the lock
         bool needs_update = false;
+        static constexpr time_t MAX_SLEEP = 24 * 3600; // Fork: longest single wait, in seconds
         std::map<std::string, ScheduledTask> scheduled_tasks;
         std::thread task_thread;
         std::mutex task_mtx;

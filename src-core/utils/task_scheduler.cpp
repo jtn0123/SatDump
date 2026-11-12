@@ -12,15 +12,22 @@ namespace satdump
         {
             // Lock the mutex and set up
             std::unique_lock<std::mutex> lock(task_mtx);
-            time_t sleep_for = std::numeric_limits<time_t>::max();
+            // Fork: wake at least once a day. An unbounded wait (time_t max seconds) overflowed
+            // when std::chrono converted it to nanoseconds; with no task due, the loop just repeats.
+            time_t sleep_for = MAX_SLEEP;
             time_t wait_began = time(0);
             ScheduledTask *task_to_run = nullptr;
 
             // Look for next task to run
             for (auto &this_task : scheduled_tasks)
             {
+                // Fork: an interval too large to add is never due (no signed overflow)
+                const ScheduledTask &t = this_task.second;
+                if (t.run_interval > std::numeric_limits<time_t>::max() - t.last_run)
+                    continue;
+
                 // This task is already due! Run it
-                time_t next_run = this_task.second.last_run + this_task.second.run_interval;
+                time_t next_run = t.last_run + t.run_interval;
                 if (next_run <= wait_began)
                 {
                     task_to_run = &this_task.second;
@@ -28,8 +35,9 @@ namespace satdump
                     break;
                 }
 
-                // This task is the next one to run
-                else if (sleep_for > wait_began - next_run)
+                // This task is the next one to run. Fork: compare with the time left until it
+                // (it compared with a negative number, so the last task listed won, not the soonest)
+                else if (next_run - wait_began < sleep_for)
                 {
                     sleep_for = next_run - wait_began;
                     task_to_run = &this_task.second;
@@ -60,7 +68,11 @@ namespace satdump
 
     TaskScheduler::~TaskScheduler()
     {
-        running = false;
+        {
+            // Fork: under the lock, so the thread cannot miss the wake-up between its check and its wait
+            std::lock_guard<std::mutex> lock(task_mtx);
+            running = false;
+        }
         cv.notify_one();
         if (task_thread.joinable())
             task_thread.join();
