@@ -252,6 +252,14 @@ struct jpeg_color_quantizer {
 #define RIGHT_SHIFT(x,shft)	((x) >> (shft))
 #endif
 
+/* Fork: shifting a negative value left, or shifting bits past the top of a signed
+ * type, is undefined behaviour in C (UBSan stops on it), and the decoder and encoder
+ * do both on ordinary pictures. LEFT_SHIFT shifts as unsigned and converts back,
+ * which gives the same bits on every two's-complement machine (libjpeg-turbo does
+ * the same, and so does the 8-bit copy), so pictures and files are unchanged.
+ */
+#define LEFT_SHIFT(x,shft)	((IJG_INT32) ((unsigned long) (x) << (shft)))
+
 
 /* Short forms of external names for systems with brain-damaged linkers. */
 

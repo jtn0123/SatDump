@@ -66,6 +66,19 @@ endif()
 # Fork: composite expressions give the same results with Debian's muparser (Linux) as with the
 # bundled copy, and the bundled 8-bit libjpeg's results are pinned; Linux builds link libmuparser
 target_sources(satdump-unit-tests PRIVATE unit/test_composite_expressions.cpp unit/test_jpeg8.cpp)
+# Fork: decompress_jpeg and decompress_jpeg12 on good and damaged streams made with the bundled
+# 8-bit and 12-bit libjpeg encoders
+target_sources(satdump-unit-tests PRIVATE unit/test_jpeg8_decompress.cpp unit/test_jpeg12.cpp)
+# Fork: MSG and Elektro-L xRIT JPEG segments (the one caller of decompress_jpeg with ignore_errors);
+# its file also holds the wavelet decompression, so DecompWT comes along
+file(GLOB _satdump_test_decompwt CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/plugins/xrit_support/DecompWT/*.cpp)
+target_sources(satdump-unit-tests PRIVATE
+    unit/test_xrit_msg_jpeg.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/xrit_support/xrit/msg/decomp.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/xrit_support/xrit/xrit_file.cpp
+    ${_satdump_test_decompwt})
+target_include_directories(satdump-unit-tests PRIVATE ${PROJECT_SOURCE_DIR}/plugins/xrit_support)
+unset(_satdump_test_decompwt)
 target_compile_definitions(satdump-unit-tests PRIVATE SATDUMP_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME cli_system_libs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/system_libs.sh ${SATDUMP_CHECK_PREFIX})

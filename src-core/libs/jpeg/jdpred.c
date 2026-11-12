@@ -249,9 +249,12 @@ predict_start_pass (j_decompress_ptr cinfo)
    *
    * Al specifies the point transform (Pt).  Legal values are: 0 <= Pt <= 15.
    */
+  /* Fork: and Pt must be below the precision. A larger one shifted the first row's
+   * predictor 1 << (P - Pt - 1) by a negative number */
   if (cinfo->Ss < 1 || cinfo->Ss > 7 ||
       cinfo->Se != 0 || cinfo->Ah != 0 ||
-      cinfo->Al > 15)               /* need not check for < 0 */
+      cinfo->Al > 15 ||             /* need not check for < 0 */
+      cinfo->Al >= cinfo->data_precision)
     ERREXIT4(cinfo, JERR_BAD_LOSSLESS,
          cinfo->Ss, cinfo->Se, cinfo->Ah, cinfo->Al);
 

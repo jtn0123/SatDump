@@ -254,7 +254,7 @@ emit_bits (phuff_entropy_ptr entropy, unsigned int code, int size)
     if (c == 0xFF) {        /* need to stuff a zero byte? */
       emit_byte(entropy, 0);
     }
-    put_buffer <<= 8;
+    put_buffer = LEFT_SHIFT(put_buffer, 8); /* Fork: no signed overflow */
     put_bits -= 8;
   }
 

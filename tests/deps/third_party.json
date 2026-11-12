@@ -199,7 +199,8 @@
       "upstream": "https://www.ijg.org/ (this copy is DCMTK's dcmjpeg/libijg8)",
       "license": "IJG licence",
       "debian": "libjpeg62-turbo-dev 1:2.1.5-4",
-      "sha256": "b12974ac363baddef30968eb125ed3eee2065917cbb2927fd643422446c1136e"
+      "debian_note": "not used: the Pi build compiles this copy too. Debian 13's libjpeg-turbo 2.1.5 cannot decode lossless (SOF3) streams, and decodes 4:4:0, cut-off progressive and damaged streams differently. Revisit when Debian ships libjpeg-turbo 3.x",
+      "sha256": "9906091916fe48c7846833988da0a360f4fc88c87c069e390d9b914d2d2f1ab8"
     },
     {
       "name": "IJG libjpeg (12-bit)",
@@ -216,7 +217,7 @@
       "upstream": "https://github.com/DCMTK/dcmtk/tree/master/dcmjpeg/libijg12",
       "license": "IJG licence",
       "debian": null,
-      "sha256": "6b39d8f75bd6696d77c84b1af50f5dd4370880ae4b07b75b18437714d60f4142"
+      "sha256": "941b37e739f7231884fb90d391350aebc5e6968050fd15c2ac09c38984f1070c"
     },
     {
       "name": "libintl-tiny (libintl-lite)",

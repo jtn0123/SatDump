@@ -2,7 +2,8 @@
 #   cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -DSATDUMP_FUZZ=ON \
 #         -DSATDUMP_SANITIZERS=address,undefined -DSATDUMP_CPU_FLAGS= -DBUILD_GUI=OFF \
 #         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -S . -B build-fuzz -G Ninja
-#   ninja -C build-fuzz fuzz_aos_demux fuzz_msumr_lrpt fuzz_admin_msg fuzz_reedsolomon fuzz_j2k
+#   ninja -C build-fuzz fuzz_aos_demux fuzz_msumr_lrpt fuzz_admin_msg fuzz_reedsolomon fuzz_j2k \
+#         fuzz_jpeg fuzz_jpeg12
 #   ctest --test-dir build-fuzz -L fuzz      # a short, repeatable run of each
 #   tests/fuzz/run.sh build-fuzz/tests/fuzz/fuzz_msumr_lrpt 600   # fuzz for 10 minutes
 set(_plugins ${PROJECT_SOURCE_DIR}/plugins)
@@ -29,3 +30,9 @@ satdump_fuzz(admin_msg ${_plugins}/noaa_metop_support/metop/instruments/admin_ms
 satdump_fuzz(msumr_lrpt ${_msumr}/lrpt_msumr_reader.cpp ${_msumr}/lrpt/segment.cpp ${_msumr}/lrpt/huffman.cpp ${_msumr}/lrpt/idct.cpp)
 # Fork: J2K decoding through the system OpenJPEG (src-core/image/j2k_stream.h)
 satdump_fuzz(j2k)
+# Fork: 8-bit and 12-bit JPEG decoding through the bundled libjpeg copies (src-core/image/jpeg_utils.h,
+# jpeg12_utils.h); the good streams they start from are made with the unit tests' encoder
+satdump_fuzz(jpeg)
+satdump_fuzz(jpeg12)
+target_include_directories(fuzz_jpeg PRIVATE ${PROJECT_SOURCE_DIR}/tests/unit)
+target_include_directories(fuzz_jpeg12 PRIVATE ${PROJECT_SOURCE_DIR}/tests/unit)

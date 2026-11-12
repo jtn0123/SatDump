@@ -1,0 +1,23 @@
+# libFuzzer dictionary for fuzz_jpeg12: JPEG markers (ITU-T T.81 Table B.1), and the start of
+# each kind of frame header with 12-bit samples
+"\xFF\xD8"
+"\xFF\xD9"
+"\xFF\xDA"
+"\xFF\xDB"
+"\xFF\xC4"
+"\xFF\xDD"
+"\xFF\xD0"
+"\xFF\xD7"
+"\xFF\xE0"
+"\xFF\xEE"
+"\xFF\xFE"
+"\xFF\x00"
+"\xFF\xFF"
+"JFIF\x00"
+"Adobe"
+# SOF1 (extended), SOF2 (progressive), SOF3 (lossless): length, precision
+"\xFF\xC1\x00\x0B\x0C"
+"\xFF\xC2\x00\x0B\x0C"
+"\xFF\xC3\x00\x0B\x0C"
+# SOS of one component: length, 1 component, id 1, tables 0
+"\xFF\xDA\x00\x08\x01\x01\x00"

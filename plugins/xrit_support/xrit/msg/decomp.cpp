@@ -48,7 +48,12 @@ namespace satdump
                 {
                     logger->info("Decompressing JPEG...");
                     image::Image img = image::decompress_jpeg(&file.lrit_data[primary_header.total_header_length], file.lrit_data.size() - primary_header.total_header_length, true);
-                    if (img.depth() != 8)
+                    // Fork: a segment libjpeg gave no picture for (decompress_jpeg logs why) was
+                    // reported as "Depth should be 8"; it is now a warning saying so, and the
+                    // segment keeps no image data, as before
+                    if (img.size() == 0)
+                        logger->warn("xRIT JPEG segment %s not decoded, it has no image data", file.filename.c_str());
+                    else if (img.depth() != 8)
                         logger->error("ELEKTRO xRIT JPEG Depth should be 8!");
 
                     file.lrit_data.erase(file.lrit_data.begin() + primary_header.total_header_length, file.lrit_data.end());

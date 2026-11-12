@@ -469,15 +469,18 @@ get_dht (j_decompress_ptr cinfo)
 
     length -= count;
 
+    /* Fork: the table number (up to 239 in a damaged stream) is checked before it indexes
+     * the 4 tables; the address of a table past their end was taken first */
     if (idx & 0x10) {       /* AC table definition */
       idx -= 0x10;
+      if (idx < 0 || idx >= NUM_HUFF_TBLS)
+        ERREXIT1(cinfo, JERR_DHT_INDEX, idx);
       htblptr = &cinfo->ac_huff_tbl_ptrs[idx];
     } else {            /* DC table definition */
+      if (idx < 0 || idx >= NUM_HUFF_TBLS)
+        ERREXIT1(cinfo, JERR_DHT_INDEX, idx);
       htblptr = &cinfo->dc_huff_tbl_ptrs[idx];
     }
-
-    if (idx < 0 || idx >= NUM_HUFF_TBLS)
-      ERREXIT1(cinfo, JERR_DHT_INDEX, idx);
 
     if (*htblptr == NULL)
       *htblptr = jpeg_alloc_huff_table((j_common_ptr) cinfo);

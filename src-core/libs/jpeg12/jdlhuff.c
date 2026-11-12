@@ -245,6 +245,13 @@ decode_mcus (j_decompress_ptr cinfo, JDIFFIMAGE diff_buf,
 
     /* Section H.2.2: decode the sample difference */
     HUFF_DECODE(s, br_state, dctbl, return mcu_num, label1);
+    /* Fork: a difference has at most 16 bits. This copy accepts larger symbols in a table,
+     * and decoding one shifted past the bit buffer and read past the end of the 16-entry
+     * tables below; it is now a bad Huffman code, as an impossible code is: a warning, and 0. */
+    if (s > 16) {
+      WARNMS(cinfo, JWRN_HUFF_BAD_CODE);
+      s = 0;
+    }
     if (s) {
       if (s == 16)  /* special case: always output 32768 */
         s = 32768;

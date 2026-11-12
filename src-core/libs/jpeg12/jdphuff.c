@@ -167,11 +167,18 @@ start_pass_phuff_decoder (j_decompress_ptr cinfo)
     if (is_DC_band) {
       if (cinfo->Ah == 0) { /* DC refinement needs no table */
     tbl = compptr->dc_tbl_no;
+    /* Fork: the table number comes from the stream (0 to 15), and indexed the 4 tables
+     * below before jpeg_make_d_derived_tbl checked it; now it is checked first, with the
+     * same error */
+    if (tbl < 0 || tbl >= NUM_HUFF_TBLS)
+      ERREXIT1(cinfo, JERR_NO_HUFF_TABLE, tbl);
     jpeg_make_d_derived_tbl(cinfo, TRUE, tbl,
                 & entropy->derived_tbls[tbl]);
       }
     } else {
       tbl = compptr->ac_tbl_no;
+      if (tbl < 0 || tbl >= NUM_HUFF_TBLS) /* Fork: the same for the AC table */
+        ERREXIT1(cinfo, JERR_NO_HUFF_TABLE, tbl);
       jpeg_make_d_derived_tbl(cinfo, FALSE, tbl,
                   & entropy->derived_tbls[tbl]);
       /* remember the single active table */
@@ -331,6 +338,13 @@ decode_mcu_DC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
 
       /* Section F.2.2.1: decode the DC coefficient difference */
       HUFF_DECODE(s, br_state, tbl, return FALSE, label1);
+      /* Fork: a DC difference has at most 15 bits. A table may hold larger symbols (this
+       * copy accepts up to 255), and decoding one read past the end of the 16-entry tables
+       * below; it is now a bad Huffman code, as an impossible code is: a warning, and 0. */
+      if (s > 15) {
+        WARNMS(cinfo, JWRN_HUFF_BAD_CODE);
+        s = 0;
+      }
       if (s) {
     CHECK_BIT_BUFFER(br_state, s, return FALSE);
     r = GET_BITS(s);
@@ -341,7 +355,7 @@ decode_mcu_DC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
       s += state.last_dc_val[ci];
       state.last_dc_val[ci] = s;
       /* Scale and output the coefficient (assumes jpeg_natural_order[0]=0) */
-      (*block)[0] = (JCOEF) (s << Al);
+      (*block)[0] = (JCOEF) LEFT_SHIFT(s, Al); /* Fork: LEFT_SHIFT, s may be negative */
     }
 
     /* Completed MCU, so update state */
@@ -410,7 +424,7 @@ decode_mcu_AC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
       r = GET_BITS(s);
       s = HUFF_EXTEND(r, s);
       /* Scale and output coefficient in natural (dezigzagged) order */
-      (*block)[jpeg_natural_order[k]] = (JCOEF) (s << Al);
+      (*block)[jpeg_natural_order[k]] = (JCOEF) LEFT_SHIFT(s, Al); /* Fork: s may be negative */
     } else {
       if (r == 15) {    /* ZRL */
         k += 15;        /* skip 15 zeroes in band */

@@ -104,8 +104,15 @@ start_pass_huff_decoder (j_decompress_ptr cinfo)
     actbl = compptr->ac_tbl_no;
     /* Compute derived values for Huffman tables */
     /* We may do this more than once for a table, but it's not expensive */
+    /* Fork: the table number comes from the stream (0 to 15), and indexed the 4 tables
+     * below before jpeg_make_d_derived_tbl checked it; now it is checked first, with the
+     * same error */
+    if (dctbl < 0 || dctbl >= NUM_HUFF_TBLS)
+      ERREXIT1(cinfo, JERR_NO_HUFF_TABLE, dctbl);
     jpeg_make_d_derived_tbl(cinfo, TRUE, dctbl,
                 & entropy->dc_derived_tbls[dctbl]);
+    if (actbl < 0 || actbl >= NUM_HUFF_TBLS) /* Fork: the same for the AC table */
+      ERREXIT1(cinfo, JERR_NO_HUFF_TABLE, actbl);
     jpeg_make_d_derived_tbl(cinfo, FALSE, actbl,
                 & entropy->ac_derived_tbls[actbl]);
     /* Initialize DC predictions to 0 */
@@ -262,6 +269,13 @@ decode_mcu (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
 
       /* Section F.2.2.1: decode the DC coefficient difference */
       HUFF_DECODE(s, br_state, dctbl, return FALSE, label1);
+      /* Fork: a DC difference has at most 15 bits. A table may hold larger symbols (this
+       * copy accepts up to 16), and decoding one read past the end of the 16-entry tables
+       * below; it is now a bad Huffman code, as an impossible code is: a warning, and 0. */
+      if (s > 15) {
+        WARNMS(cinfo, JWRN_HUFF_BAD_CODE);
+        s = 0;
+      }
       if (s) {
     CHECK_BIT_BUFFER(br_state, s, return FALSE);
     r = GET_BITS(s);

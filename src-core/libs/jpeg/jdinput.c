@@ -49,6 +49,11 @@ initial_setup (j_decompress_ptr cinfo)
     ERREXIT1(cinfo, JERR_IMAGE_TOO_BIG, (unsigned int) JPEG_MAX_DIMENSION);
 
   if (cinfo->process == JPROC_LOSSLESS) {
+    /* Fork: lossless JPEG has 2 to 16 bits per sample. Any precision was accepted,
+     * and the predictor and scaler then shifted by a negative number or by more
+     * than an int holds; it is refused as lossy JPEG refuses one it cannot decode */
+    if (cinfo->data_precision < 2 || cinfo->data_precision > 16)
+      ERREXIT1(cinfo, JERR_BAD_PRECISION, cinfo->data_precision);
     /* If precision > compiled-in value, we must downscale */
     if (cinfo->data_precision > BITS_IN_JSAMPLE)
       WARNMS2(cinfo, JWRN_MUST_DOWNSCALE,
