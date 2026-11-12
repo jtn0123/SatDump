@@ -25,10 +25,13 @@ int main(int argc, char *argv[])
                                                                                { evt.cmd_handlers.push_back(std::make_shared<satdump::LegacyCmdHandler>()); });
 
     satdump::cli::CommandHandler h;
-    int v = h.parse(argc, argv);
-    if (v != 0)
-        return v;
-    // Exit codes: 0 = success, 1 = usage or configuration error (from parse), 2 = the command failed
+    // Exit codes: 0 = success, 1 = usage error, 2 = the command failed
+    if (h.parse(argc, argv) != 0)
+    {
+        // CLI11 has already printed the reason; its own codes (105-115) are folded into 1
+        satdump::exitSatDump();
+        return 1;
+    }
     const bool failed = h.run();
 
     satdump::exitSatDump();
