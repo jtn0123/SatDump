@@ -21,6 +21,7 @@ add_executable(satdump-unit-tests
     unit/test_hirs_iasi.cpp
     unit/test_init_ub.cpp
     unit/test_block_lifetime.cpp
+    unit/test_block_start_stop.cpp
     unit/test_cc_decoder.cpp
     unit/test_temp_file.cpp
     unit/test_ggak_merger.cpp

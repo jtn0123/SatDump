@@ -72,6 +72,15 @@ namespace dsp
         }
 
     private:
+        // Fork: held across the whole of start() and of stop(), so they run one at a time. A
+        // stop() on one thread could clear should_run, then a start() on another thread (a live
+        // module's task starting its blocks while a SIGTERM stops the run) set it again and
+        // made a new thread, which stop() then joined: that thread never ends, as its input was
+        // just stopped, so SatDump hung. The thread object was also written and joined at once
+        // (a data race). Neither start() nor stop() calls the other or itself while holding it,
+        // and the block's own thread never takes it.
+        std::mutex d_start_stop_mtx;
+
         std::atomic<bool> d_failed{false};
         std::mutex d_failure_mtx;
         std::string d_failure;
@@ -150,6 +159,8 @@ namespace dsp
         }
         virtual void start()
         {
+            std::lock_guard<std::mutex> start_stop(d_start_stop_mtx); // Fork: see d_start_stop_mtx
+
             // Fork: a block started again begins without a failure, with its output open
             d_failed = false;
             {
@@ -163,6 +174,8 @@ namespace dsp
         }
         virtual void stop()
         {
+            std::lock_guard<std::mutex> start_stop(d_start_stop_mtx); // Fork: see d_start_stop_mtx
+
             should_run = false;
 
             if (d_got_input)

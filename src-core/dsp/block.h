@@ -180,6 +180,12 @@ namespace satdump
             // Fork: blk_should_run and work_should_exit are written by stop() and read by the
             // block's thread. They were plain bools (a data race); they are now atomic.
             std::atomic<bool> blk_should_run;
+            // Fork: held across the whole of start() and across the join in stop(), so a start()
+            // on one thread and a stop() on another (a live module's task starting its blocks
+            // while the run is stopped) no longer write and join blk_th at once (a data race),
+            // and a stop() that came while start() ran still stops the run that start() began.
+            // Neither start() nor stop() calls the other or itself while holding it, and the
+            // block's own thread never takes it.
             std::mutex blk_th_mtx;
             std::thread blk_th;
 
@@ -537,6 +543,8 @@ namespace satdump
              */
             virtual void start()
             {
+                std::lock_guard<std::mutex> lg(blk_th_mtx); // Fork: see blk_th_mtx
+
                 if (blk_should_run || blk_th.joinable())
                     throw satdump_exception("Block wasn't properly stopped before start() was called again!");
 
@@ -574,16 +582,25 @@ namespace satdump
              */
             virtual void stop(bool stop_now = false, bool force = false)
             { // TODOREWORK allow sending terminator in this function?
+                // Fork: set before the lock too, so they also reach a thread that another stop()
+                // is already waiting for
                 if (stop_now)
                     work_should_exit = true;
                 if (force)
                     blk_should_run = false;
 
-                {
-                    std::lock_guard<std::mutex> lg(blk_th_mtx);
-                    if (blk_th.joinable())
-                        blk_th.join();
-                }
+                std::lock_guard<std::mutex> lg(blk_th_mtx); // Fork: see blk_th_mtx
+
+                // Fork: set once more under the lock. A start() on another thread since the lines
+                // above cleared them for the run it began, and the join below would then wait for
+                // a thread that was never told to end
+                if (stop_now)
+                    work_should_exit = true;
+                if (force)
+                    blk_should_run = false;
+
+                if (blk_th.joinable())
+                    blk_th.join();
                 blk_should_run = false;
             }
         };
