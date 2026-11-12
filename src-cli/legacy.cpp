@@ -1,4 +1,5 @@
 #include "legacy.h"
+#include "init.h"
 #include "logger.h"
 
 int main_old(int argc, char *argv[]);
@@ -21,6 +22,9 @@ namespace satdump
         for (auto &a : args)
             vec.push_back((char *)a.c_str());
 
-        exit(main_old(vec.size(), vec.data()));
+        // exit() skips main()'s cleanup, so shut SatDump down first
+        const int code = main_old(vec.size(), vec.data());
+        satdump::exitSatDump();
+        exit(code);
     }
 } // namespace satdump

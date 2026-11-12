@@ -28,8 +28,9 @@ int main(int argc, char *argv[])
     int v = h.parse(argc, argv);
     if (v != 0)
         return v;
-    h.run();
+    // Exit codes: 0 = success, 1 = usage or configuration error (from parse), 2 = the command failed
+    const bool failed = h.run();
 
     satdump::exitSatDump();
-    return 0;
+    return failed ? 2 : 0;
 }
