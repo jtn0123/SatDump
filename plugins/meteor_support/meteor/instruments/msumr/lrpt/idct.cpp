@@ -42,7 +42,7 @@ namespace meteor
                     if (src[y8 + 1] == 0 && src[y8 + 2] == 0 && src[y8 + 3] == 0 &&
                         src[y8 + 4] == 0 && src[y8 + 5] == 0 && src[y8 + 6] == 0 && src[y8 + 7] == 0)
                     {
-                        int64_t dc = src[y8 + 0] << 3;
+                        int64_t dc = src[y8 + 0] * 8; // Fork: multiply, not <<, which is undefined for negative values in C++17
                         src[y8 + 0] = dc;
                         src[y8 + 1] = dc;
                         src[y8 + 2] = dc;
@@ -55,8 +55,8 @@ namespace meteor
                     }
 
                     // Prescale.
-                    int64_t x0 = (src[y8 + 0] << 11) + 128;
-                    int64_t x1 = src[y8 + 4] << 11;
+                    int64_t x0 = src[y8 + 0] * 2048 + 128; // Fork: * 2048 for << 11 (see above)
+                    int64_t x1 = src[y8 + 4] * 2048;
                     int64_t x2 = src[y8 + 6];
                     int64_t x3 = src[y8 + 2];
                     int64_t x4 = src[y8 + 1];
@@ -110,8 +110,8 @@ namespace meteor
                     // we do not bother to check for the all-zero case.
 
                     // Prescale.
-                    int64_t y0 = (src[8 * 0 + x] << 8) + 8192;
-                    int64_t y1 = src[8 * 4 + x] << 8;
+                    int64_t y0 = src[8 * 0 + x] * 256 + 8192; // Fork: * 256 for << 8
+                    int64_t y1 = src[8 * 4 + x] * 256;
                     int64_t y2 = src[8 * 6 + x];
                     int64_t y3 = src[8 * 2 + x];
                     int64_t y4 = src[8 * 1 + x];
