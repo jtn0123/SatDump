@@ -349,7 +349,7 @@
       "upstream": "https://github.com/la1k/libpredict",
       "license": "GPL-2.0",
       "debian": null,
-      "sha256": "c54be7da5fd64f9454e3105b6ba1382f9f84b3dc593fbbe99880c4974c100e43"
+      "sha256": "4e7224605b3a6674ff32623821dbd0623af12979cd8b90479c3bdc3216589334"
     },
     {
       "name": "SuperNOVAS",

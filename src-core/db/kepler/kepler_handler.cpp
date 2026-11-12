@@ -204,6 +204,7 @@ namespace satdump
     void KeplerDBHandler::putKepler(KeplerData kep)
     {
         replaceAllStr(kep.name, "'", "''");
+        replaceAllStr(kep.designator, "'", "''"); // Fork: as the name is (an OMM designator is any text)
         std::string sql = "INSERT INTO kepler (id,"         //
                           " satellite_number,"              //
                           " element_number,"                //

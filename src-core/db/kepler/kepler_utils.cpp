@@ -7,6 +7,7 @@
 #include "utils/http.h"
 #include "utils/string.h"
 #include <cctype>
+#include <cstring>
 #include <exception>
 #include <sstream>
 #include <thread>
@@ -195,7 +196,9 @@ namespace satdump
         kep.satellite_number = tle_ephems->satellite_number; // Satellite number
         kep.element_number = tle_ephems->element_number;     // Element number
         kep.name = tle.name;                                 // Satellite Name
-        kep.designator = tle_ephems->designator;             // International designator
+        // International designator. Fork: 8 characters at most; a full one ("99025BGQ") has no NUL
+        // after it, and the copy read on into the bytes that follow
+        kep.designator = std::string(tle_ephems->designator, strnlen(tle_ephems->designator, 8));
 
         std::tm timeS;
         memset(&timeS, 0, sizeof(std::tm));

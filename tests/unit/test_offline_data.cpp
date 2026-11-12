@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -87,6 +88,33 @@ namespace
         REQUIRE(at != std::string::npos);
         text[at + 30] = text[at + 30] == '5' ? '6' : '5';
         return text;
+    }
+
+    // A TLE line from its first 68 characters, with its checksum added
+    std::string tle_line(const std::string &first68)
+    {
+        REQUIRE(first68.size() == 68);
+        int sum = 0;
+        for (char ch : first68)
+            sum += ch == '-' ? 1 : (ch >= '0' && ch <= '9' ? ch - '0' : 0);
+        return first68 + char('0' + sum % 10);
+    }
+
+    // OMM CSV as the default sources send it: the header line, then METOP-B and NOAA 19 (the
+    // columns are those of the header)
+    const std::string OMM_HEADER = "OBJECT_NAME,OBJECT_ID,EPOCH,MEAN_MOTION,ECCENTRICITY,INCLINATION,RA_OF_ASC_NODE,ARG_OF_PERICENTER,MEAN_ANOMALY,"
+                                   "EPHEMERIS_TYPE,CLASSIFICATION_TYPE,NORAD_CAT_ID,ELEMENT_SET_NO,REV_AT_EPOCH,BSTAR,MEAN_MOTION_DOT,MEAN_MOTION_DDOT\n";
+    const std::string OMM_METOP = "METOP-B,2012-049A,2025-11-10T12:00:00.000000,14.21512345,.00015,98.69,10.1234,90.1,270.05,0,U,38771,999,67890,.00005,.000001,0";
+    const std::string OMM_NOAA = "NOAA 19,2009-005A,2025-11-10T12:00:00.000000,14.13,.00014,99.05,40.5,100.2,260,0,U,33591,999,86543,.00005,.000001,0";
+
+    // An OMM CSV line with one column replaced
+    std::string omm_with(const std::string &line, size_t column, const std::string &value)
+    {
+        size_t start = 0;
+        for (size_t i = 0; i < column; i++)
+            start = line.find(',', start) + 1;
+        size_t end = line.find(',', start);
+        return line.substr(0, start) + value + (end == std::string::npos ? "" : line.substr(end));
     }
 } // namespace
 
@@ -173,6 +201,61 @@ TEST_CASE("Orbit elements: the TLE given out for elements read from TLE text is 
     REQUIRE(elements != nullptr);
     CHECK(elements->satellite_number == 38771);
     predict_destroy_orbital_elements(elements);
+}
+
+TEST_CASE("Orbit elements: a designator that fills all 8 columns is read as it is")
+{
+    // A debris piece with a three-letter designator. The orbit library copied the 8 characters
+    // with no NUL after them, and the designator SatDump stored read on into the bytes that follow
+    const std::string line1 = tle_line("1 31141U 99025BGQ 25314.50000000  .00000100  00000-0  50000-4 0  999");
+    const std::string line2 = tle_line("2 31141  98.6900  10.1234 0001500  90.1000 270.0500 14.2151234567890");
+
+    // The memory the library is about to get is filled first, so bytes left unset show: blocks of
+    // its size are filled and freed, and the allocator hands the last ones freed out first. A few,
+    // as the reading below takes one or two for its own text first. (Called through volatile
+    // pointers, so the compiler cannot drop them)
+    const auto fill_freed_memory = []
+    {
+        void *(*volatile allocate)(size_t) = std::malloc;
+        void (*volatile release)(void *) = std::free;
+        std::vector<void *> blocks;
+        for (int i = 0; i < 8; i++)
+            if (void *block = allocate(sizeof(predict_orbital_elements_t)))
+                blocks.push_back(std::memset(block, 0xA5, sizeof(predict_orbital_elements_t)));
+        for (void *block : blocks)
+            release(block);
+        return blocks.size();
+    };
+    REQUIRE(fill_freed_memory() == 8);
+    predict_orbital_elements_t *elements = predict_parse_tle(line1.c_str(), line2.c_str());
+    REQUIRE(elements != nullptr);
+    CHECK(strnlen(elements->designator, sizeof(elements->designator)) == 8);
+    predict_destroy_orbital_elements(elements);
+
+    // SatDump's copy stops at 8 characters on its own, even if the library left no NUL
+    const std::string text = "DEBRIS\n" + line1 + "\n" + line2 + "\n";
+    int bad = -1;
+    REQUIRE(fill_freed_memory() == 8);
+    std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(text, bad);
+    CHECK(bad == 0);
+    REQUIRE(keps.size() == 1);
+    CHECK(keps[0].designator == "99025BGQ");
+    CHECK(satdump::keplerToTle(keps[0]).line1.substr(9, 8) == "99025BGQ");
+}
+
+TEST_CASE("Orbit elements: a designator with a quote is stored, with the rest of its file")
+{
+    // It went into the database's SQL as it was, so that entry failed while the rest of the file
+    // was stored
+    TempDir dir;
+    dir.write("elements.csv", OMM_HEADER + OMM_METOP + "\n" + omm_with(OMM_NOAA, 1, "2009-005'A") + "\n");
+    LogCapture c;
+    test_rig::OfflineRig rig(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.csv")}));
+    satdump::KeplerData kep;
+    REQUIRE(rig.keplers->getKepler(kep, 33591));
+    CHECK(kep.designator == "2009-005'A");
+    CHECK(rig.keplers->getAllNewestKepler().size() == 2);
+    CHECK_FALSE(c.has(slog::LOG_ERROR, "Error inserting"));
 }
 
 TEST_CASE("Orbit elements: a local file is read at start-up, before init() returns")
