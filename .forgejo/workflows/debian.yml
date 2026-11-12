@@ -24,7 +24,8 @@ jobs:
         run: apt update
 
       - name: Install dependencies
-        run: apt install -y sudo libdbus-1-dev libcurl4-openssl-dev libglfw3-dev libfftw3-dev libvolk2-dev build-essential cmake pkgconf libjpeg-dev libpng-dev libtiff-dev libairspy-dev libairspyhf-dev libhackrf-dev librtlsdr-dev libomp-dev libnng-dev libiio-dev libzstd-dev libad9361-dev libbladerf-dev libuhd-dev liblimesuite-dev ocl-icd-opencl-dev libjemalloc-dev portaudio19-dev libhdf5-dev
+        # Fork: bzip2, OpenJPEG, libaec and muparser come from Debian on Linux (the build stops without them)
+        run: apt install -y sudo libdbus-1-dev libcurl4-openssl-dev libglfw3-dev libfftw3-dev libvolk2-dev build-essential cmake pkgconf libjpeg-dev libpng-dev libtiff-dev libairspy-dev libairspyhf-dev libhackrf-dev librtlsdr-dev libomp-dev libnng-dev libiio-dev libzstd-dev libad9361-dev libbladerf-dev libuhd-dev liblimesuite-dev ocl-icd-opencl-dev libjemalloc-dev portaudio19-dev libhdf5-dev libbz2-dev libopenjp2-7-dev libaec-dev libmuparser-dev
 
       - name: Create Build Environment
         # Some projects don't allow in-source building, so create a separate build directory

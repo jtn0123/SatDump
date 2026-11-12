@@ -47,8 +47,7 @@ up to date by hand, as step 5 of the review routine says.
    - Debian's security announcements are at <https://www.debian.org/security/>.
    - One library's open problems are at
      `https://security-tracker.debian.org/tracker/source-package/<name>`. Use the source
-     package name, for example `openjpeg2`, `libaec`, `bzip2`, `muparser` or
-     `libjpeg-turbo`.
+     package name, for example `openjpeg2`, `libaec`, `bzip2` or `muparser`.
 2. **Bundled copies.**
    - Compare the version in Table 1 with the releases page at the upstream link.
    - Search for the library's name in the Debian security tracker and at
@@ -73,10 +72,20 @@ After the M4 changes, the Pi (Linux) build behaves like this:
   | OpenJPEG | libopenjp2-7-dev 2.5.3-2.1~deb13u2 | libopenjp2-7 |
   | libaec | libaec-dev 1.1.3-1 | libaec0, libsz2 |
   | muparser | libmuparser-dev 2.3.4-1 | libmuparser2v5 |
-  | 8-bit libjpeg | libjpeg62-turbo-dev 1:2.1.5-4 | libjpeg62-turbo |
 
   SatDump's own "read a JPEG 2000 picture from memory" function used to live inside the
   bundled OpenJPEG. It now lives in SatDump's own code.
+- **Not switched: 8-bit libjpeg.** Taking it from Debian was planned, and dropped. The Pi build
+  compiles the bundled copy, as every other build does, so libjpeg62-turbo-dev (to build) and
+  libjpeg62-turbo (to run) are not needed. Debian 13's libjpeg-turbo 2.1.5 does not decode the
+  same pictures:
+  - it cannot decode lossless JPEG (SOF3) at all, which the bundled copy can;
+  - it decodes pictures with 4:4:0 colour sampling, progressive streams cut off part way, and
+    damaged streams differently, and radio data is often cut off or damaged.
+
+  Revisit when Debian ships libjpeg-turbo 3.x, which decodes lossless JPEG; the pictures it
+  gives must then be checked against the bundled copy's again. The 12-bit libjpeg stays bundled
+  too: Debian has no stand-alone 12-bit libjpeg.
 - **Bundled but never compiled.**
   - muparserx: its 39 files were compiled, but nothing called them.
   - fkYAML: nothing includes it.
@@ -113,8 +122,8 @@ version number.
 | deepspace-turbo | `src-core/libs/deepspace-turbo` | unversioned (2017) | <https://github.com/geeanlooca/deepspace-turbo> | MIT | warning fixes |
 | dlfcn-win32 | `src-core/libs/dlfcn` | unversioned | <https://github.com/dlfcn-win32/dlfcn-win32> | MIT | Windows fixes (2024) |
 | fkYAML | `src-core/libs/fkyaml` | 0.4.3 (`node.hpp`, `FK_YAML_MAJOR/MINOR/PATCH_VERSION`) | <https://github.com/fktn-k/fkYAML> | MIT | none |
-| IJG libjpeg, 8-bit | `src-core/libs/jpeg` | 6b (27-Mar-1998), in `jversion.h` (`JVERSION`) | <https://www.ijg.org/>; this copy is DCMTK's `libijg8` | IJG licence | symbols renamed so the 8- and 12-bit copies can coexist; Android tweaks in `jinclude.h` and `jdatasrc.c` |
-| IJG libjpeg, 12-bit | `src-core/libs/jpeg12` | 6b (27-Mar-1998), in `jversion12.h` (`JVERSION`) | <https://github.com/DCMTK/dcmtk/tree/master/dcmjpeg/libijg12> | IJG licence | as DCMTK ships it |
+| IJG libjpeg, 8-bit | `src-core/libs/jpeg` | 6b (27-Mar-1998), in `jversion.h` (`JVERSION`) | <https://www.ijg.org/>; this copy is DCMTK's `libijg8` | IJG licence | symbols renamed so the 8- and 12-bit copies can coexist; Android tweaks in `jinclude.h` and `jdatasrc.c`; left shifts of negative numbers and bit-buffer shifts that overflowed now done as unsigned, in the decoder and encoder *(fork)*; a DC Huffman symbol over 15 and a table number over 3, in a scan or in a Huffman table definition, are bad data instead of a read past the end of a table *(fork)*; a lossless stream's precision must be 2 to 16 and its point transform below it *(fork)* |
+| IJG libjpeg, 12-bit | `src-core/libs/jpeg12` | 6b (27-Mar-1998), in `jversion12.h` (`JVERSION`) | <https://github.com/DCMTK/dcmtk/tree/master/dcmjpeg/libijg12> | IJG licence | DCMTK's copy, with the same shift fixes as the 8-bit copy *(fork)*; a DC Huffman symbol over 15 (16 in a lossless scan) and a table number over 3, in a scan or in a Huffman table definition, are bad data instead of a read past the end of a table *(fork)*; a lossless stream's precision must be 2 to 16 and its point transform below it *(fork)* |
 | libintl-tiny | `src-core/libs/libintl-tiny` | unversioned | libintl-lite; maintained fork <https://github.com/j-jorge/libintl-lite> | BSL-1.0 | none |
 | libOpenCL_loader | `src-core/libs/libopencl_loader` | unversioned (2019) | Guohui Wang's loader; `CL/` headers from <https://github.com/KhronosGroup/OpenCL-Headers> | loader: no licence stated; headers: Apache-2.0 | none |
 | miniz | `src-core/libs/miniz` | 10.2.0, which is release 2.2.0 (`miniz.h`, `MZ_VERSION`) | <https://github.com/richgel999/miniz> | MIT | none |
@@ -197,8 +206,8 @@ version number.
 | deepspace-turbo | none | Yes | CCSDS turbo decoder (deep-space missions) | Radio | None known |
 | dlfcn-win32 | not needed | Compiled, but empty outside Windows | Loading plugins on Windows | No | None known |
 | fkYAML | none | No: nothing includes it | nothing | No | None known |
-| IJG libjpeg, 8-bit | libjpeg62-turbo-dev 1:2.1.5-4 | No: Debian's copy | JPEG pictures: xRIT (MSG, GK-2A, FY-4, Elektro), Proba SWAP, image loading, and map tiles downloaded for the GUI map | Radio and network (map tiles over HTTP) | Debian's libjpeg-turbo: none open. The bundled 1998 code gets no security maintenance |
-| IJG libjpeg, 12-bit | none usable | Yes | 12-bit JPEG in GK-2A, FY-4, DSCOVR EPIC, MATS and Hinode | Radio | None tracked; 1998 code with no security maintenance |
+| IJG libjpeg, 8-bit | libjpeg62-turbo-dev 1:2.1.5-4, not used: it cannot decode lossless JPEG and decodes damaged streams differently (see "What this step changed") | Yes | JPEG pictures: xRIT (MSG, GK-2A, Elektro), Proba SWAP, cubesat pictures (Geoscan, Lucky-7, UVSQ), image loading, and map tiles downloaded for the GUI map | Radio and network (map tiles over HTTP) | None tracked; 1998 code with no security maintenance. The fork's unit tests and fuzz harness (`tests/fuzz/fuzz_jpeg.cpp`) check it on damaged streams through `decompress_jpeg` (xRIT and SWAP). The cubesat pictures and map tiles go through `load_jpeg`, which uses the same fixed library but does not yet have `decompress_jpeg`'s size limit and error handling |
+| IJG libjpeg, 12-bit | none usable | Yes | 12-bit JPEG in GK-2A, DSCOVR EPIC, MATS and Hinode | Radio | None tracked; 1998 code with no security maintenance. The fork's unit tests and fuzz harness (`tests/fuzz/fuzz_jpeg12.cpp`) check it on damaged streams |
 | libintl-tiny | not needed (glibc has gettext) | Compiled, but empty on Linux | Translations on macOS, Windows and Android | No | None known |
 | libOpenCL_loader | not needed | Compiled, but empty outside Android | OpenCL on Android | No | None known |
 | miniz | none | Yes | ZIP and zlib: GOES LRIT, GK-2A (also a ZIP fetched over plain HTTP), ZIP file readers | Radio and network | None known (CVE-2018-12913 affected 2.0.7 only) |
@@ -307,7 +316,6 @@ default.
 | libopenjp2-7-dev | 2.5.3-2.1~deb13u2 | JPEG 2000 (since this step) | Required |
 | libaec-dev | 1.1.3-1 | Rice decompression (since this step) | Required |
 | libmuparser-dev | 2.3.4-1 | formulas (since this step) | Required |
-| libjpeg62-turbo-dev | 1:2.1.5-4 | 8-bit JPEG (since this step) | Required |
 | libglfw3-dev, libgl-dev | 3.4-3, 1.7.0-1 | the GUI window and OpenGL | Required for the GUI |
 | libdbus-1-dev | 1.16.2-2 | GUI file dialogs through the desktop portal | Required for the GUI |
 | libxrandr-dev and the X11 headers (libx11-dev, libxcursor-dev, libxext-dev, libxi-dev, libxinerama-dev) | trixie | GLFW's build files | Required for the GUI |
@@ -333,7 +341,7 @@ default.
 | Package | Needed for | Required? |
 |---|---|---|
 | libvolk3.2, libfftw3-single3, libpng16-16t64, libtiff6, libjemalloc2, libnng1, libzstd1, libcurl4t64, libsqlite3-0 | the core library | Required |
-| libbz2-1.0, libopenjp2-7, libaec0, libsz2, libmuparser2v5, libjpeg62-turbo | the libraries this step takes from Debian | Required |
+| libbz2-1.0, libopenjp2-7, libaec0, libsz2, libmuparser2v5 | the libraries this step takes from Debian | Required |
 | libgomp1 | OpenMP | Required with the Pi preset |
 | libglfw3, libgl1 / libopengl0, libdbus-1-3 | the GUI | Required for the GUI |
 | xdg-desktop-portal with a backend such as xdg-desktop-portal-gtk | GUI file dialogs (Linux has not used zenity since 2025) | Recommended for the GUI |
@@ -368,12 +376,14 @@ default.
 
 ### Monthly
 
-1. For each Debian-provided library (bzip2, OpenJPEG, libaec, muparser, libjpeg-turbo), check
-   its page in the Debian security tracker. On the Pi, run `apt list --upgradable`.
+1. For each Debian-provided library (bzip2, OpenJPEG, libaec, muparser), check its page in the
+   Debian security tracker. On the Pi, run `apt list --upgradable`. Also check whether Debian
+   now ships libjpeg-turbo 3.x: the 8-bit libjpeg switch waits for it (see "What this step
+   changed").
 2. For the bundled libraries that radio or network data reaches, look for new releases and
    CVEs. Table 2 says which ones:
-   - libcorrect, deepspace-turbo, the bit plane encoder, 12-bit libjpeg, miniz, MQTT-C, libpredict
-     and RapidXml;
+   - libcorrect, deepspace-turbo, the bit plane encoder, 8-bit and 12-bit libjpeg, miniz,
+     MQTT-C, libpredict and RapidXml;
    - nlohmann json, LibTomCrypt, libacars and mbelib;
    - the SDR++ and SpyServer clients, PublicDecompWT, the SOHO Rice decompressor, the
      libdc1394 Bayer decoder, and the LDPC and BCH decoders.
