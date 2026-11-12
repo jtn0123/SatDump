@@ -119,13 +119,14 @@ add_test(NAME cli_thread_faults
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/thread_faults.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_fault_test_plugin>)
 set_tests_properties(cli_thread_faults PROPERTIES LABELS cli)
 
-# Fork: orbit elements and Earth orientation data read from local files (file://) and pass
-# prediction with the station height in metres (unit); SatDump run the way the Controller runs
-# it, with no network (in a network namespace where the system allows one), and the live
-# command watched through --http_server (cli). cli_offline ends with 77 (skipped) when the
-# system allows no network namespace; its checks have still run. The probe radio driver
+# Fork: orbit elements and Earth orientation data read from local files (file://), the TLE
+# lines written for stored elements, and pass prediction with the station height in metres
+# (unit); SatDump run the way the Controller runs it, with no network (in a network namespace
+# where the system allows one), and the live command watched through --http_server (cli).
+# cli_offline ends with 77 (skipped) when the system allows no network namespace; its checks
+# have still run. The probe radio driver
 # (tests/unit/probe_source_plugin.cpp) is for cli_supervision only, never installed
-target_sources(satdump-unit-tests PRIVATE unit/test_passes.cpp unit/test_offline_data.cpp)
+target_sources(satdump-unit-tests PRIVATE unit/test_passes.cpp unit/test_offline_data.cpp unit/test_tle_lines.cpp)
 add_test(NAME cli_offline COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/offline.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_offline PROPERTIES LABELS cli SKIP_RETURN_CODE 77)
 add_library(fork_probe_source_test_plugin SHARED unit/probe_source_plugin.cpp)

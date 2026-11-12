@@ -414,10 +414,10 @@ TEST_CASE("Orbit elements: an entry a TLE cannot be made from cannot be read, so
     CHECK(bad == 0);
 
     // One value changed in each. They were read, stored, and making the TLE then threw (a drag
-    // term of 1 or more), never finished (a tiny one) or was undefined (a catalogue number too
-    // big for an int)
+    // term of 1 or more, or one that rounds to 1) or was undefined (a catalogue number too big
+    // for an int)
     const std::vector<std::pair<size_t, std::string>> changes = {
-        {14, "1.2"},  {14, "-1"},   {14, "1e-300"}, {14, "nan"},  {16, "1"},    {16, "-inf"}, {3, "inf"},
+        {14, "1.2"},  {14, "-1"},   {14, "0.999995"}, {14, "nan"},  {16, "1"},    {16, "-inf"}, {3, "inf"},
         {4, "nan"},   {11, "1e20"}, {11, "nan"},    {11, "-5"},   {12, "1e10"}, {13, "-1"},
         {2, "2025-11-10T12:00:nan"}, {2, "2025-11-10T12:00:1e300"}, {2, "1999-12-31T23:59:59"}, {2, "2100-01-01T00:00:00"},
     };
@@ -429,6 +429,13 @@ TEST_CASE("Orbit elements: an entry a TLE cannot be made from cannot be read, so
         CHECK(bad == 1);
         CHECK(keps.size() == 1);
     }
+
+    // A tiny drag term made making the TLE go round a loop for ever, so it was refused; it is
+    // now written as the 0 a TLE holds for it (test_tle_lines.cpp)
+    std::vector<satdump::KeplerData> tiny = satdump::parseKeplerText(OMM_HEADER + omm_with(OMM_METOP, 14, "1e-300") + "\n", bad);
+    CHECK(bad == 0);
+    REQUIRE(tiny.size() == 1);
+    CHECK(satdump::keplerToTle(tiny[0]).line1.substr(53, 8) == " 00000-0");
 
     // TLE text: an exponent column that is not a digit gives a drag term of 5e15
     std::string tle = TLE_TEXT;
@@ -535,8 +542,9 @@ TEST_CASE("Orbit elements: making a TLE refuses values it cannot write, and neve
     kep.bstar_drag_term = -0.00012;
     CHECK(satdump::keplerTleProblem(kep) == "");
 
-    // strLE went round its loop for ever below about 1e-292, and threw at 1 and above
-    for (double v : {1e-300, -1e-300, 5e-324, 1e-15, 1.0, -1.0, 2.5})
+    // strLE threw at 1 and above (and went round its loop for ever below about 1e-292, so tiny
+    // values were refused too; they are now written as 0, see test_tle_lines.cpp)
+    for (double v : {0.999995, -0.999995, 1.0, -1.0, 2.5})
     {
         CAPTURE(v);
         kep = metop_elements();

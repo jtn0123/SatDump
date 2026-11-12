@@ -141,7 +141,6 @@
 2 src-core/core/cli/process.cpp -Wunused-parameter
 2 src-core/core/cli/run_as.cpp -Wunused-parameter
 1 src-core/db/kepler/kepler_handler.cpp -Wunused-parameter
-6 src-core/db/kepler/kepler_utils.cpp -Wsign-compare
 1 src-core/dsp/benchmark/helpers.h -Wdelete-non-virtual-dtor
 3 src-core/dsp/benchmark/render/imgui_sw.cpp -Wsign-compare
 1 src-core/dsp/channel_model/channel_model_simple.cpp -Wsign-compare

@@ -3,180 +3,363 @@
 #include "libs/predict/predict.h"
 #include "logger.h"
 #include "utils/file_url.h"
-#include "utils/format.h"
 #include "utils/http.h"
 #include "utils/string.h"
 #include <cctype>
 #include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <exception>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 #include "common/utils.h"
 
 namespace satdump
 {
-    template <typename T>
-    std::string strL(T val, int sz, bool leading_dec = false)
+    // Fork: the TLE lines are written field by field below, each value in its own columns of the
+    // TLE layout, rounded (halves away from zero) and checked to fit. The code before cut values
+    // off instead of rounding them (an inclination of 98.69 became "98.68999", a first derivative
+    // of 0.000001 ".000000999"), left no column for the sign of the first derivative, wrote spaces
+    // where a TLE has zeros (catalogue number 5 as "    5", the year 2005 as " 5"), wrote "C" for
+    // both checksums, and wrote the drag term (BSTAR) and second derivative wrong for most values
+    // (strLE)
+    namespace
     {
-        std::string str = to_string_with_precision(val, 30);
+        // Fork: a finite number above 0 as the shortest decimal that reads back as the same double,
+        // which is the number a TLE or OMM file gave: its significant digits, and the power of ten
+        // that puts the decimal point in front of them (0.00015 is "15" and -3). Rounding this
+        // decimal, rather than the binary value just under it, rounds 0.0000999995 up, as written
+        void shortestDecimal(double a, std::string &digits, int &exp10)
+        {
+            char text[64];
+            for (int precision = 0; precision <= 16; precision++) // 17 digits always read back
+            {
+                snprintf(text, sizeof(text), "%.*e", precision, a);
+                if (strtod(text, nullptr) == a)
+                    break;
+            }
+            // "d.dddde-05": the digits before the 'e', whatever decimal point the locale uses
+            const char *c = text;
+            digits.clear();
+            for (; *c != 'e' && *c != '\0'; c++)
+                if (isdigit((unsigned char)*c))
+                    digits += *c;
+            exp10 = (*c == 'e' ? atoi(c + 1) : 0) + 1;
+            while (digits.size() > 1 && digits.back() == '0')
+                digits.pop_back();
+        }
 
-        if (str.size() > 2 && str[0] == '0' && str[1] == '.')
-            str = leading_dec ? str.substr(2, str.size() - 2) : str.substr(1, str.size() - 1);
+        // Fork: a finite a >= 0 rounded to `decimals` places after the point, halves away from
+        // zero, as the digits of one whole number ("0" when it rounds to 0): 98.69 to 4 places is
+        // "986900", 0.00015 to 7 places is "1500". `decimals` may be negative
+        std::string roundedDigits(double a, int decimals)
+        {
+            if (a == 0)
+                return "0";
+            std::string digits;
+            int exp10;
+            shortestDecimal(a, digits, exp10);
 
-        if (str.size() > 3 && str[0] == '-' && str[1] == '0' && str[2] == '.')
-            str = leading_dec ? ("-" + str.substr(3, str.size() - 3)) : ("-" + str.substr(2, str.size() - 2));
+            // The digits that stay: those in front of the point, then `decimals` more
+            int keep = exp10 + decimals;
+            if (keep < 0)
+                return "0";
+            std::string result;
+            bool up = false;
+            if ((size_t)keep < digits.size())
+            {
+                result = digits.substr(0, keep);
+                up = digits[keep] >= '5';
+            }
+            else
+                result = digits + std::string(keep - digits.size(), '0');
+            if (up)
+            {
+                int i = (int)result.size() - 1;
+                while (i >= 0 && result[i] == '9')
+                    result[i--] = '0';
+                if (i >= 0)
+                    result[i]++;
+                else
+                    result.insert(result.begin(), '1');
+            }
+            size_t first = result.find_first_not_of('0');
+            return first == std::string::npos ? "0" : result.substr(first);
+        }
 
-        if (str.size() > sz)
-            str.resize(sz);
-        if (str.size() < sz)
-            while (str.size() < sz)
-                str = " " + str;
+        // Fork: v with `decimals` places after the point, right-aligned in a column `width` wide,
+        // with a '-' in front when it is below 0 (none for one that rounds to 0). False when it
+        // is wider than the column
+        bool fixedField(double v, int width, int decimals, std::string &out)
+        {
+            std::string n = roundedDigits(std::fabs(v), decimals);
+            if (n.size() < (size_t)decimals + 1)
+                n.insert(0, decimals + 1 - n.size(), '0');
+            std::string text = n.substr(0, n.size() - decimals) + "." + n.substr(n.size() - decimals);
+            if (v < 0 && n.find_first_not_of('0') != std::string::npos)
+                text.insert(0, "-");
+            if (text.size() > (size_t)width)
+                return false;
+            out += std::string(width - text.size(), ' ') + text;
+            return true;
+        }
 
-        return str;
-    }
+        // Fork: a whole number right-aligned in a column `width` wide, padded with zeros or
+        // spaces. False when it is wider than the column
+        bool wholeField(long long v, int width, bool zeros, std::string &out)
+        {
+            char text[64];
+            if (zeros)
+                snprintf(text, sizeof(text), "%0*lld", width, v);
+            else
+                snprintf(text, sizeof(text), "%*lld", width, v);
+            if (strlen(text) > (size_t)width)
+                return false;
+            out += text;
+            return true;
+        }
 
-    std::string strLE(double val, int sz)
+        // Fork: the first derivative of the mean motion: a sign column (' ' or '-'), then a
+        // point and 8 decimals. False when it rounds to 1 or more in size
+        bool firstDerivativeField(double v, std::string &out)
+        {
+            std::string n = roundedDigits(std::fabs(v), 8);
+            if (n.size() > 8)
+                return false;
+            out += (v < 0 && n != "0") ? "-." : " .";
+            out += std::string(8 - n.size(), '0') + n;
+            return true;
+        }
+
+        // Fork: the eccentricity as its 7 decimals, the point left out. False when it rounds to 1
+        // or more, or to less than 0 (the column has no sign)
+        bool eccentricityField(double v, std::string &out)
+        {
+            std::string n = roundedDigits(std::fabs(v), 7);
+            if (n.size() > 7 || (v < 0 && n != "0"))
+                return false;
+            out += std::string(7 - n.size(), '0') + n;
+            return true;
+        }
+
+        // Fork: the epoch: the last two digits of the year, then the day of the year with 8
+        // decimals (1.0 is 1 January, 00:00 UTC), rounded; a time that rounds to the next year
+        // is day 1.0 of that year. False when the year is not 2000 to 2099 once rounded, as a TLE
+        // year is read back as 20yy
+        bool epochField(double epoch, std::string &out)
+        {
+            // A day either side of those years, so the times below are those of a time_t
+            if (!(epoch >= 946684800.0 - 86400.0 && epoch < 4102444800.0 + 86400.0))
+                return false;
+            // Day 0 of January of a year: 31 December before it, so 1 January is day 1
+            auto day_zero = [](int tm_year) {
+                tm start; // timegm changes the tm it is given, so each call has a new one
+                memset(&start, 0, sizeof(start));
+                start.tm_year = tm_year;
+                return (double)timegm(&start);
+            };
+            // The year the epoch is in, found with timegm alone: gmtime, which the code before
+            // used, fills one tm shared by every thread. The guess from the mean length of a year
+            // is off by one year at most
+            int year = 100 + (int)std::floor((epoch - 946684800.0) / (365.2425 * 86400.0));
+            while (day_zero(year) + 86400.0 > epoch)
+                year--;
+            while (day_zero(year + 1) + 86400.0 <= epoch)
+                year++;
+            double day0 = day_zero(year);
+            long long year_days = std::llround((day_zero(year + 1) - day0) / 86400.0);
+
+            const long long unit = 100000000; // 1e-8 day, the last decimal of the day
+            long long day = std::stoll(roundedDigits((epoch - day0) / 86400.0, 8));
+            if (day >= (year_days + 1) * unit)
+            {
+                year++;
+                day -= year_days * unit;
+            }
+            if (year < 100 || year > 199)
+                return false;
+            char text[64];
+            snprintf(text, sizeof(text), "%02d%03lld.%08lld", year - 100, day / unit, day % unit);
+            out += text;
+            return true;
+        }
+
+        // Fork: the checksum of a TLE line: its digits added up, with 1 for each '-', modulo 10
+        char tleChecksum(const std::string &l)
+        {
+            int sum = 0;
+            for (size_t i = 0; i < l.size() && i < 68; i++)
+            {
+                if (l[i] == '-')
+                    sum++;
+                else if (isdigit((unsigned char)l[i]))
+                    sum += l[i] - '0';
+            }
+            return (char)('0' + sum % 10);
+        }
+
+        // Fork: whether a designator has the OMM form, YYYY-NNN then 1 to 3 letters for the piece
+        bool isOmmDesignator(const std::string &d)
+        {
+            if (d.size() < 9 || d.size() > 11 || d[4] != '-')
+                return false;
+            for (size_t i = 0; i < d.size(); i++)
+                if (i != 4 && !(i < 8 ? isdigit((unsigned char)d[i]) : isalpha((unsigned char)d[i])))
+                    return false;
+            return true;
+        }
+
+        // Fork: lines 1 and 2 of the TLE for these elements and "", or (the lines then unfinished)
+        // why a TLE cannot hold them. keplerTleProblem and keplerToTle both use it, so what is
+        // refused is exactly what cannot be written
+        std::string writeTleLines(const KeplerData &kep, std::string &line1, std::string &line2)
+        {
+            const std::pair<const char *, double> values[] = {{"epoch", kep.epoch},
+                                                              {"inclination", kep.inclination},
+                                                              {"right ascension", kep.right_ascension},
+                                                              {"eccentricity", kep.eccentricity},
+                                                              {"argument of perigee", kep.argument_of_perigee},
+                                                              {"mean anomaly", kep.mean_anomaly},
+                                                              {"mean motion", kep.mean_motion},
+                                                              {"first derivative of the mean motion", kep.derivative_mean_motion},
+                                                              {"second derivative of the mean motion", kep.second_derivative_mean_motion},
+                                                              {"drag term (BSTAR)", kep.bstar_drag_term}};
+            for (auto &v : values)
+                if (!std::isfinite(v.second))
+                    return std::string("the ") + v.first + " is not a finite number";
+
+            auto columns = [](const char *name, int width) { return std::string("the ") + name + " does not fit the " + std::to_string(width) + " columns a TLE gives it"; };
+
+            // Above 99999, the catalogue number is written as 99999, as it always was
+            std::string number;
+            if (!wholeField(kep.satellite_number > 99999 ? 99999 : kep.satellite_number, 5, true, number))
+                return columns("catalogue number", 5);
+
+            // An OMM designator ("2019-074AB") is written in TLE form ("19074AB "). Only the one
+            // with a one-letter piece was, and longer ones were cut to "2019-074". Every designator
+            // is padded with spaces to 8, as in a TLE; resize(8) padded the shorter ones TLE text
+            // gives ("12049A") with NUL characters
+            std::string des = kep.designator;
+            if (isOmmDesignator(des))
+                des = des.substr(2, 2) + des.substr(5, 3) + des.substr(8);
+            des.resize(8, ' ');
+
+            line1 = "1 " + number + "U " + des + " ";
+            if (!epochField(kep.epoch, line1))
+                return "the epoch is not in the years 2000 to 2099";
+            line1 += " ";
+            if (!firstDerivativeField(kep.derivative_mean_motion, line1))
+                return "the first derivative of the mean motion is 1 or more in size once rounded to 8 decimals, more than a TLE holds";
+            const std::pair<const char *, double> exponent_values[] = {{"second derivative of the mean motion", kep.second_derivative_mean_motion},
+                                                                       {"drag term (BSTAR)", kep.bstar_drag_term}};
+            for (auto &v : exponent_values)
+            {
+                std::optional<std::string> field = strLE(v.second);
+                if (!field)
+                    return std::string("the ") + v.first + " is 1 or more in size once rounded to five digits, more than a TLE holds";
+                line1 += " " + *field;
+            }
+            line1 += " 0 "; // the ephemeris type, always 0
+            // The element set number and revolution number are counters: their last digits are kept
+            if (!wholeField(kep.element_number % 10000, 4, false, line1))
+                return columns("element set number", 4);
+            line1 += tleChecksum(line1);
+
+            line2 = "2 " + number;
+            const std::pair<const char *, double> angles[] = {{"inclination", kep.inclination}, {"right ascension", kep.right_ascension}};
+            for (auto &a : angles)
+            {
+                line2 += " ";
+                if (!fixedField(a.second, 8, 4, line2))
+                    return columns(a.first, 8);
+            }
+            line2 += " ";
+            if (!eccentricityField(kep.eccentricity, line2))
+                return "the eccentricity is not from 0 to 0.9999999 once rounded to 7 decimals, as a TLE holds it";
+            const std::pair<const char *, double> more_angles[] = {{"argument of perigee", kep.argument_of_perigee}, {"mean anomaly", kep.mean_anomaly}};
+            for (auto &a : more_angles)
+            {
+                line2 += " ";
+                if (!fixedField(a.second, 8, 4, line2))
+                    return columns(a.first, 8);
+            }
+            line2 += " ";
+            if (!fixedField(kep.mean_motion, 11, 8, line2))
+                return columns("mean motion", 11);
+            if (!wholeField(kep.revolutions_at_epoch % 100000, 5, false, line2))
+                return columns("revolution number", 5);
+            line2 += tleChecksum(line2);
+            return "";
+        }
+    } // namespace
+
+    // Fork: see kepler_handler.h. It wrote "12345-15" for 1.2345e-05 and "    5--1" for 0.0005:
+    // it multiplied by 10 until no fraction was left, which for most doubles only happens near
+    // 2^53, and threw at 1 and above
+    std::optional<std::string> strLE(double val)
     {
-        if (val == 0)
+        if (!std::isfinite(val))
+            return std::nullopt;
+        std::string mantissa = "00000";
+        int exponent = 0;
+        if (val != 0)
         {
-            std::string res(sz - 2, '0');
-            return res + "-0";
+            std::string digits;
+            int exp10; // |val| = 0.digits x 10^exp10
+            shortestDecimal(std::fabs(val), digits, exp10);
+            std::string five = roundedDigits(std::fabs(val), 5 - exp10);
+            if (five.size() > 5) // 0.999995 rounds to 1.0000: one more digit
+            {
+                five.resize(5);
+                exp10++;
+            }
+            if (exp10 > 0)
+                return std::nullopt; // 1 or more
+            if (exp10 >= -9)
+            {
+                mantissa = five;
+                exponent = -exp10;
+            }
+            else
+            {
+                // Below 1e-10 the exponent stays at 9 and the digits move right, down to 00001-9
+                // (1e-14); what is smaller than half of that is 0
+                std::string units = roundedDigits(std::fabs(val), 14);
+                if (units != "0")
+                {
+                    mantissa = std::string(5 - units.size(), '0') + units;
+                    exponent = 9;
+                }
+            }
         }
-        else if (val < 1)
-        {
-            int mult = 0;
-            while (fmod(val * pow(10, mult), 1) != 0)
-                mult++;
-
-            // logger->critical("%d %d", mult, mult - (sz - 3));
-
-            int coef = mult - (sz - 3);
-
-            int coefflen = std::to_string(coef).size();
-
-            // Fork: a long long, not an int. The loop above ends by 10 x 2^53 at the latest, which
-            // can be past an int: the cast was then undefined
-            std::string res = std::to_string((long long)(val * pow(10, mult)));
-
-            if (res.size() > sz - 1 - coefflen)
-                res.resize(sz - 1 - coefflen);
-            if (res.size() < sz - 1 - coefflen)
-                while (res.size() < sz - 1 - coefflen)
-                    res = " " + res;
-
-            res += "-";
-            res += std::to_string(coef);
-
-            return res;
-        }
-        else
-            throw satdump_exception("Error, value must be below 1!");
+        std::string sign = val < 0 && mantissa != "00000" ? "-" : " ";
+        return sign + mantissa + "-" + std::to_string(exponent);
     }
 
     // Fork: see kepler_handler.h
     std::string keplerTleProblem(const KeplerData &kep)
     {
-        const std::pair<const char *, double> values[] = {{"epoch", kep.epoch},
-                                                          {"inclination", kep.inclination},
-                                                          {"right ascension", kep.right_ascension},
-                                                          {"eccentricity", kep.eccentricity},
-                                                          {"argument of perigee", kep.argument_of_perigee},
-                                                          {"mean anomaly", kep.mean_anomaly},
-                                                          {"mean motion", kep.mean_motion},
-                                                          {"first derivative of the mean motion", kep.derivative_mean_motion},
-                                                          {"second derivative of the mean motion", kep.second_derivative_mean_motion},
-                                                          {"drag term (BSTAR)", kep.bstar_drag_term}};
-        for (auto &v : values)
-            if (!std::isfinite(v.second))
-                return std::string("the ") + v.first + " is not a finite number";
-
-        // 2000-01-01 to 2100-01-01 UTC: the TLE gives the year in two digits, read back as 20yy
-        if (kep.epoch < 946684800.0 || kep.epoch >= 4102444800.0)
-            return "the epoch is not in the years 2000 to 2099";
-
-        // A TLE holds these as five digits and a one-digit exponent, so 0 or a size from 1e-14 to
-        // just under 1. strLE threw at 1 and above, and never finished below about 1e-292
-        const std::pair<const char *, double> exponent_values[] = {{"second derivative of the mean motion", kep.second_derivative_mean_motion},
-                                                                   {"drag term (BSTAR)", kep.bstar_drag_term}};
-        for (auto &v : exponent_values)
-            if (v.second != 0 && !(std::fabs(v.second) >= 1e-14 && std::fabs(v.second) < 1))
-                return std::string("the ") + v.first + " is not 0 or of a size from 1e-14 to 1";
-
-        return "";
-    }
-
-    // Fork: whether a designator has the OMM form, YYYY-NNN then 1 to 3 letters for the piece
-    static bool isOmmDesignator(const std::string &d)
-    {
-        if (d.size() < 9 || d.size() > 11 || d[4] != '-')
-            return false;
-        for (size_t i = 0; i < d.size(); i++)
-            if (i != 4 && !(i < 8 ? isdigit((unsigned char)d[i]) : isalpha((unsigned char)d[i])))
-                return false;
-        return true;
+        std::string line1, line2;
+        return writeTleLines(kep, line1, line2);
     }
 
     TLE keplerToTle(KeplerData kep)
     {
+        TLE tle;
         // Fork: values a TLE cannot hold are an error, never a hang or a wrong line (see above)
-        std::string problem = keplerTleProblem(kep);
+        std::string problem = writeTleLines(kep, tle.line1, tle.line2);
         if (!problem.empty())
             throw satdump_exception("the elements of satellite " + std::to_string(kep.satellite_number) + " cannot be written as a TLE: " + problem);
-
-        TLE tle;
         tle.name = kep.name;
         tle.norad = kep.satellite_number;
         tle.time = kep.epoch;
-
-        int tle_id = kep.satellite_number > 99999 ? 99999 : kep.satellite_number;
-
-        time_t tmptime = kep.epoch;
-        tm timeS = *gmtime(&tmptime);
-        int year = timeS.tm_year;
-        // logger->critical(year);
-        memset(&timeS, 0, sizeof(struct tm));
-        timeS.tm_year = year;
-        double yearT = timegm(&timeS);
-
-        double days = (kep.epoch - yearT) / (3600.0 * 24.0);
-
-        // Fork: an OMM designator ("2019-074AB") is written in TLE form ("19074AB "). Only the one
-        // with a one-letter piece was, and longer ones were cut to "2019-074". Every designator is
-        // padded with spaces to 8, as in a TLE; resize(8) padded the shorter ones TLE text gives
-        // ("12049A") with NUL characters
-        std::string des = kep.designator;
-        if (isOmmDesignator(des))
-            des = des.substr(2, 2) + des.substr(5, 3) + des.substr(8);
-        des.resize(8, ' ');
-
-        tle.line1 = "1 " +                                              // Line Number
-                    strL(tle_id, 5) +                                   // Satellite Number
-                    "U " +                                              // Classification
-                    des +                                               // International Designator
-                    " " + strL(year - 100, 2) +                         // EPoch Year (last 2)
-                    strL(days, 12) +                                    // Epoch DOY
-                    " " + strL(kep.derivative_mean_motion, 10) +        // First derivative mean motion
-                    " " + strLE(kep.second_derivative_mean_motion, 8) + // Second derivative mean motion
-                    " " + strLE(kep.bstar_drag_term, 8) +               // Drag term
-                    " 0 " +                                             // Ephemeris type
-                    strL(kep.element_number, 4) +                       // Element set number
-                    "C";                                                // Checksum
-
-        tle.line2 = "2 " +                                   // Line Number
-                    strL(tle_id, 5) +                        // Satellite Number
-                    " " + strL(kep.inclination, 8) +         // Inclination
-                    " " + strL(kep.right_ascension, 8) +     // Right Ascension
-                    " " + strL(kep.eccentricity, 7, 1) +     // Eccentricity
-                    " " + strL(kep.argument_of_perigee, 8) + // Arg of perigee
-                    " " + strL(kep.mean_anomaly, 8) +        // Mean anomaly
-                    " " + strL(kep.mean_motion, 11) +        // Mean motion
-                    strL(kep.revolutions_at_epoch, 5) +      // Revs at epoch
-                    "C";                                     // Checksum
-
         return tle;
     }
 
@@ -295,17 +478,7 @@ namespace satdump
     // Fork: whether a TLE line (1 or 2, as `number` says) has the right length and checksum
     static bool tleLineValid(const std::string &l, char number)
     {
-        if (l.size() != 69 || l[0] != number || l[1] != ' ' || !isdigit((unsigned char)l[68]))
-            return false;
-        int sum = 0;
-        for (size_t i = 0; i < 68; i++)
-        {
-            if (l[i] == '-')
-                sum++;
-            else if (isdigit((unsigned char)l[i]))
-                sum += l[i] - '0';
-        }
-        return l[68] - '0' == sum % 10;
+        return l.size() == 69 && l[0] == number && l[1] == ' ' && l[68] == tleChecksum(l);
     }
 
     // Fork: the lines of a text, without blank lines or the spaces (and \r) around each
