@@ -10,9 +10,10 @@
 # at 2 GB unless CCACHE_MAXSIZE says otherwise, and the gate's process id is in
 # $XDG_RUNTIME_DIR/satdump-gate.pid so a pass scheduler can stop it (kill -TERM).
 # SATDUMP_GUARD=off skips the two checks, for machines that never receive passes.
+# GUARD_NAME is the name its messages start with (default gate; scripts/build-deb.sh sets it).
 
 guard_fail() {
-    echo "gate: not starting: $*"
+    echo "${GUARD_NAME:-gate}: not starting: $*"
     exit 1
 }
 

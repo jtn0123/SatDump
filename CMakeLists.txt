@@ -377,9 +377,6 @@ if((NOT ANDROID) AND ENABLE_INSTALL)
     set(CPACK_PACKAGE_VENDOR "SatDump")
     set(CPACK_PACKAGE_CONTACT "Aang23")
 
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libfftw3-bin, libvolk-bin | libvolk2-bin, libpng16-16, libnng1, librtlsdr0 | librtlsdr2, libhackrf0, libairspy0, libairspyhf1, libglfw3 | libglfw3-wayland, libzstd1, libjemalloc2 | libjemalloc1, libportaudiocpp0, libhdf5-hl-100t64 | libhdf5-hl-100 | libhdf5-103 | libhdf5-100 | libhdf5-310, libdbus-1-dev, libsqlite3-0, libxrandr2, libuhd4.1.0 | libuhd4.6.0 | libuhd4.8.0 | libuhd4.9.0")
-    set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libomp5, ocl-icd-libopencl1, intel-opencl-icd, mesa-opencl-icd")
-
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
     set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
 
@@ -442,9 +439,65 @@ if((NOT ANDROID) AND ENABLE_INSTALL)
         )
     else()
         set(CPACK_GENERATOR DEB)
-        #set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
         set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
         set(CPACK_DEB_COMPONENT_INSTALL ON)
+    endif()
+
+    # Fork: the Debian package, set up on Linux only (scripts/build-deb.sh builds it,
+    # tests/package/check_deb.sh checks it; macOS, which has its own app bundle, no longer
+    # prints Debian settings when it configures). Upstream's package had a hand-written
+    # Depends list that mixed Debian releases and even named a -dev package, so on Debian 13
+    # it installed but could not run. Now dpkg-shlibdeps (package dpkg-dev) writes Depends
+    # from what every program, library and plugin links against, for the release the package
+    # is built on, and searches SatDump's own library and plugin folders (paths inside the
+    # package) for its private libraries. The package is called satdump-fork and takes the
+    # place of the upstream satdump package: apt removes that one when this one is installed.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(CPACK_DEBIAN_PACKAGE_NAME "satdump-fork")
+        set(CPACK_DEBIAN_PACKAGE_PROVIDES "satdump")
+        set(CPACK_DEBIAN_PACKAGE_CONFLICTS "satdump")
+        set(CPACK_DEBIAN_PACKAGE_REPLACES "satdump")
+        set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Unofficial SatDump fork <satdump-fork@invalid>")
+        set(CPACK_DEBIAN_PACKAGE_SECTION "hamradio")
+        set(CPACK_DEBIAN_PACKAGE_DESCRIPTION
+            "An unofficial fork of SatDump (https://github.com/SatDump/SatDump), not made or\nsupported by the SatDump project, built for a Raspberry Pi 5 weather-satellite\nstation. It replaces the satdump package.")
+        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+        string(REGEX REPLACE "^/" "" _satdump_deb_root "${CPACK_PACKAGING_INSTALL_PREFIX}")
+        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS
+            "${_satdump_deb_root}/${CMAKE_INSTALL_LIBDIR}"
+            "${_satdump_deb_root}/${CMAKE_INSTALL_LIBDIR}/satdump/plugins")
+        # Fork: dpkg-shlibdeps and the file program (which CPack uses to find the programs and
+        # libraries to pass it) are checked before anything is installed, and making the
+        # package stops with the Debian packages to install. Without dpkg-shlibdeps CPack made
+        # a package with an empty Depends; without file it stopped only after the whole install.
+        set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/fork/cpack_deb_tools.cmake")
+        # Nothing is needed by hand: SatDump runs no other program it cannot do without, and
+        # its data is in the package. Recommended: ca-certificates, for downloads over HTTPS
+        # (orbital elements, Earth-orientation data). Suggested, as they are only for the GUI
+        # or some radios, and some are large (zenity alone brings a desktop toolkit, about
+        # 120 packages, onto a headless Pi): zenity for the GUI's file and folder dialogs,
+        # xdg-utils to open links from it, an OpenCL driver for GPU speed-ups, and the USRP tools.
+        set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "ca-certificates")
+        set(CPACK_DEBIAN_PACKAGE_SUGGESTS "zenity, xdg-utils, mesa-opencl-icd, uhd-host")
+
+        # Fork: a Debian version that sorts by release stage, then by commit date. SatDump's
+        # own version (such as 2.0.0-alpha-1aedd60) has a hyphen that Debian reads as the
+        # package revision, so builds were ordered by commit hash. See
+        # cmake/fork/debian_version.cmake; for example 2.0.0~alpha+git20261111.230102.44f17297f-1.
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E env TZ=UTC0 git log -1 --format=%cd --date=format-local:%Y%m%d.%H%M%S
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            OUTPUT_VARIABLE _satdump_git_date
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        include(${CMAKE_CURRENT_LIST_DIR}/cmake/fork/debian_version.cmake)
+        satdump_debian_version(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}" "${SATDUMP_VERSION_TYPE}" "${_satdump_git_date}" "${GIT_HASH}")
+        set(CPACK_DEBIAN_PACKAGE_RELEASE 1)
+        if(NOT CPACK_DEBIAN_PACKAGE_VERSION MATCHES "\\+git")
+            message(STATUS "No git information: the Debian package version is ${CPACK_DEBIAN_PACKAGE_VERSION}-1, which sorts before every build made from a git clone")
+        endif()
+        message(STATUS "Debian package: ${CPACK_DEBIAN_PACKAGE_NAME} ${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}")
     endif()
 
     set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)

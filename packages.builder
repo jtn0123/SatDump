@@ -1,5 +1,7 @@
 build-essential
 cmake
+dpkg-dev
+file
 g++
 git
 libad9361-dev

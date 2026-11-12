@@ -139,6 +139,16 @@ endif()
 add_test(NAME cli_install_headers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_headers.sh ${CMAKE_BINARY_DIR})
 set_tests_properties(cli_install_headers PROPERTIES LABELS cli)
 
+# Fork: the Debian package settings (name, generated dependencies, version), checked without
+# building a package; tests/package/check_deb.sh checks a package built by scripts/build-deb.sh
+# (label cli: it also checks where the gate installed the libraries and plugins)
+find_program(SATDUMP_DPKG dpkg)
+if(SATDUMP_DPKG AND ENABLE_INSTALL AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME deb_settings
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/package/deb_settings.sh ${CMAKE_BINARY_DIR} ${PROJECT_SOURCE_DIR} ${SATDUMP_CHECK_PREFIX} ${CMAKE_COMMAND})
+    set_tests_properties(deb_settings PROPERTIES LABELS cli)
+endif()
+
 # Rust builds (-DSATDUMP_WITH_RUST=ON): the crate's own tests, clippy with warnings as errors,
 # the golden pictures once more with Rust switched off, and how the Rust code is linked
 if(SATDUMP_WITH_RUST)
