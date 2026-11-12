@@ -40,7 +40,8 @@ namespace satdump
 
             if (setjmp(jerr.setjmp_buffer))
             {
-                // Free memory
+                // Free memory. Fork: libjpeg's own memory too, which a picture it refused left behind
+                jpeg_destroy_decompress(&cinfo);
                 delete[] jpeg_decomp;
                 return img;
             }

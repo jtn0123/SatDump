@@ -42,7 +42,8 @@ namespace satdump
 
             if (setjmp(jerr.setjmp_buffer))
             {
-                // Free memory
+                // Free memory. Fork: libjpeg's own memory too, which a picture it refused left behind
+                jpeg_destroy_decompress(&cinfo);
                 delete[] jpeg_decomp[0];
                 fclose(fp);
                 return;
@@ -92,7 +93,8 @@ namespace satdump
 
             if (setjmp(jerr.setjmp_buffer))
             {
-                // Free memory
+                // Free memory. Fork: libjpeg's own memory too, which a picture it refused left behind
+                jpeg_destroy_decompress(&cinfo);
                 delete[] jpeg_decomp[0];
                 return;
             }
@@ -154,7 +156,8 @@ namespace satdump
 
             if (setjmp(jerr.setjmp_buffer))
             {
-                // Free memory
+                // Free memory. Fork: libjpeg's own memory too, which a picture it refused left behind
+                jpeg_destroy_compress(&cinfo);
                 delete[] jpeg_decomp;
                 fclose(fp);
                 return;
@@ -264,7 +267,10 @@ namespace satdump
 
             if (setjmp(jerr.setjmp_buffer))
             {
-                // Free memory
+                // Free memory. Fork: the output manager and libjpeg's own memory too, which a
+                // picture it refused left behind (jpeg_create_compress sets dest to NULL first)
+                free(cinfo.dest);
+                jpeg_destroy_compress(&cinfo);
                 delete[] jpeg_decomp;
                 jpeg_mem_mtex.unlock();
                 return std::vector<uint8_t>();

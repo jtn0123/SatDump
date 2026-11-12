@@ -2,7 +2,7 @@
 #include "utils/string.h"
 #include "core/exception.h"
 #include "image/meta.h"
-#include "libs/muparser/muParser.h"
+#include "utils/muparser.h" // Fork: the system's muparser on Linux, libs/muparser elsewhere
 
 namespace satdump
 {

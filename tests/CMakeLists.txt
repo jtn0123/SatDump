@@ -61,6 +61,14 @@ satdump_link_aec(satdump-unit-tests)
 if(SATDUMP_WITH_RUST)
     target_sources(satdump-unit-tests PRIVATE unit/test_rust_bridge.cpp)
 endif()
+# Fork: composite expressions give the same results with Debian's muparser (Linux) as with the
+# bundled copy, and the bundled 8-bit libjpeg's results are pinned; Linux builds link libmuparser
+target_sources(satdump-unit-tests PRIVATE unit/test_composite_expressions.cpp unit/test_jpeg8.cpp)
+target_compile_definitions(satdump-unit-tests PRIVATE SATDUMP_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME cli_system_libs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/system_libs.sh ${SATDUMP_CHECK_PREFIX})
+    set_tests_properties(cli_system_libs PROPERTIES LABELS cli)
+endif()
 
 add_test(NAME unit COMMAND satdump-unit-tests)
 set_tests_properties(unit PROPERTIES LABELS unit)

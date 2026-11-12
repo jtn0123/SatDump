@@ -5,7 +5,7 @@
 #include "image/image.h"
 #include "image/meta.h"
 #include "image/processing.h"
-#include "libs/muparser/muParser.h"
+#include "utils/muparser.h" // Fork: the system's muparser on Linux, libs/muparser elsewhere
 #include "logger.h"
 
 #include "products/image/image_calibrator.h"

@@ -18,6 +18,7 @@ libhdf5-dev
 libiio-dev
 libjemalloc-dev
 liblimesuite-dev
+libmuparser-dev
 libnng-dev
 libomp-dev
 libopenjp2-7-dev

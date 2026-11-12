@@ -341,7 +341,7 @@ decode_mcu_DC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
       s += state.last_dc_val[ci];
       state.last_dc_val[ci] = s;
       /* Scale and output the coefficient (assumes jpeg_natural_order[0]=0) */
-      (*block)[0] = (JCOEF) (s << Al);
+      (*block)[0] = (JCOEF) LEFT_SHIFT(s, Al); /* Fork: LEFT_SHIFT, s may be negative */
     }
 
     /* Completed MCU, so update state */
@@ -410,7 +410,7 @@ decode_mcu_AC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
       r = GET_BITS(s);
       s = HUFF_EXTEND(r, s);
       /* Scale and output coefficient in natural (dezigzagged) order */
-      (*block)[jpeg_natural_order[k]] = (JCOEF) (s << Al);
+      (*block)[jpeg_natural_order[k]] = (JCOEF) LEFT_SHIFT(s, Al); /* Fork: s may be negative */
     } else {
       if (r == 15) {    /* ZRL */
         k += 15;        /* skip 15 zeroes in band */

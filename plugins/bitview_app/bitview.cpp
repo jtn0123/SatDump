@@ -11,8 +11,7 @@
 #include <string>
 #include "i18n.h"
 
-#include "libs/muparser/muParser.h"
-#include "libs/muparser/muParserError.h"
+#include "utils/muparser.h" // Fork: the system's muparser on Linux, libs/muparser elsewhere
 #include "logger.h"
 #include "tools/ccsds_apid_demux/ccsds_apid_demux.h"
 #include "tools/ccsds_vcid_splitter/ccsds_vcid_splitter.h"

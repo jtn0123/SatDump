@@ -1,7 +1,7 @@
 #include "flowgraph.h"
 #include "core/exception.h"
 #include "dsp/flowgraph/missing_node.h"
-#include "libs/muparser/muParser.h"
+#include "utils/muparser.h" // Fork: the system's muparser on Linux, libs/muparser elsewhere
 #include "logger.h"
 #include <limits>
 #include <mutex>

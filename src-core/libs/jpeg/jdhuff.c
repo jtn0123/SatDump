@@ -232,7 +232,7 @@ jpeg_fill_bit_buffer (bitread_working_state * state,
       }
 
       /* OK, load c into get_buffer */
-      get_buffer = (get_buffer << 8) | c;
+      get_buffer = LEFT_SHIFT(get_buffer, 8) | c; /* Fork: no signed overflow */
       bits_left += 8;
     } /* end while */
   } else {
@@ -257,7 +257,7 @@ jpeg_fill_bit_buffer (bitread_working_state * state,
     huffd->insufficient_data = TRUE;
       }
       /* Fill the buffer with zero bits */
-      get_buffer <<= MIN_GET_BITS - bits_left;
+      get_buffer = LEFT_SHIFT(get_buffer, MIN_GET_BITS - bits_left); /* Fork: no signed overflow */
       bits_left = MIN_GET_BITS;
     }
   }
