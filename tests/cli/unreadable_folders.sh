@@ -22,7 +22,8 @@
 # Root can read a folder with mode 000. So as root (CI containers) SatDump runs as user nobody
 # (setpriv or runuser) or, failing that, without capabilities (unshare -U). When none of these
 # works, the runs that need an unreadable folder are not a real check: the test says so and
-# ends with exit code 77, which ctest shows as skipped.
+# ends with exit code 77, which ctest shows as skipped; with SATDUMP_REQUIRE_UNREADABLE=1 (set in
+# CI) that is a failure instead, so the check cannot quietly stop running there.
 . "$(dirname "$0")/common.sh"
 # Folders left with mode 000 could not be removed
 trap 'chmod -R u+rwX "$WORK" 2> /dev/null; rm -rf "$WORK"' EXIT
@@ -210,5 +211,9 @@ for log in "$WORK"/*.log; do
     check "$name-no-unhandled-error" not_logged "$name" "stopped on an error that was not handled"
 done
 
+if [ $EXERCISED = 0 ] && [ "${SATDUMP_REQUIRE_UNREADABLE:-0}" = 1 ]; then
+    echo "FAIL the unreadable-folder runs were not exercised (see above), and SATDUMP_REQUIRE_UNREADABLE=1 asks for them"
+    exit 1
+fi
 [ $FAILED = 0 ] && [ $EXERCISED = 0 ] && exit 77
 exit $FAILED

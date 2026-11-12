@@ -39,6 +39,8 @@ jobs:
     env:
       SATDUMP_GUARD: "off"  # the pass and disk checks are for receiving stations
       SATDUMP_REQUIRE_NETNS: "1"
+      # cli_unreadable_folders: as root it must manage to run SatDump as a user that file modes apply to
+      SATDUMP_REQUIRE_UNREADABLE: "1"
       CCACHE_MAXSIZE: 1500M
       CCACHE_COMPRESS: "true"
     steps:

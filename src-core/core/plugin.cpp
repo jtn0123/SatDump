@@ -71,8 +71,9 @@ void loadPlugins(std::map<std::string, std::shared_ptr<satdump::Plugin>> &loaded
     plugins_paths.push_back(android_plugins_dir + "/");
 #else
     // Fork: the check in the current folder never throws (existsInCurrentFolder()). absolute()
-    // of ./plugins needs the current folder and threw when it had been deleted; now it gives an
-    // empty path then, which matches nothing, so the installed plugins are loaded
+    // of ./plugins needs the current folder and threw when it had been deleted; now it sets the
+    // error instead, and its result is then not an absolute path (libstdc++ gives the relative
+    // path, libc++ an empty one), so it never equals the installed folder, which is loaded
     std::error_code cwd_error;
     if (satdump::existsInCurrentFolder("plugins")) // Try local plugins directory first
         plugins_paths.push_back("./plugins");
