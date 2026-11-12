@@ -31,7 +31,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Settings | `iers_auto_update` can switch off the Earth-orientation downloads at launch | 2026-11-11 |
 | Build | `SATDUMP_CPU_FLAGS` replaces the hard-wired `-march=native`; warnings are no longer dropped | 2026-11-11 |
 | Build | `cmake/fork/pi.cmake` preset: all decoders, NEON, no network radio server (it has no password) | 2026-11-11 |
-| Build | Linux installs are relocatable: they find their files and libraries next to the program | 2026-11-11 |
+| Build | Linux installs are relocatable (`SATDUMP_RELOCATABLE`, on in the preset): they find their files and libraries wherever they are unpacked | 2026-11-11 |
 | Security | The experimental TestRemoteRec server listens on 127.0.0.1 only | 2026-11-11 |
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |

@@ -60,6 +60,14 @@ if(UNIX)
     endif(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
+# Fork: a relocatable install (cmake/fork/pi.cmake turns it on). Programs in <prefix>/bin and
+# plugins in <libdir>/satdump/plugins find libsatdump_core, and plugins find the plugins they
+# build on (such as libxrit_support), wherever the install is unpacked.
+option(SATDUMP_RELOCATABLE "Fork: installed files find their libraries relative to themselves" OFF)
+if(SATDUMP_RELOCATABLE)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR};$ORIGIN/../..;$ORIGIN")
+endif()
+
 if(APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 

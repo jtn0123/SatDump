@@ -38,8 +38,8 @@ set_tests_properties(cli_exit_codes PROPERTIES LABELS cli)
 add_test(NAME cli_short_inputs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/short_inputs.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_short_inputs PROPERTIES LABELS cli)
 
-# Only a build with an install RPATH (the fork presets) is meant to run without LD_LIBRARY_PATH
-if(CMAKE_INSTALL_RPATH)
+# Only a relocatable build (the fork presets) is meant to run without LD_LIBRARY_PATH
+if(SATDUMP_RELOCATABLE)
     add_test(NAME cli_install_layout COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_layout.sh ${SATDUMP_CHECK_PREFIX})
     set_tests_properties(cli_install_layout PROPERTIES LABELS cli)
 endif()
