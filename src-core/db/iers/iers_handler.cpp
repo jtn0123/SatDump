@@ -152,19 +152,32 @@ namespace satdump
     }
 
     // Fork: replaces the parser that split lines on single spaces, so the tab-separated list
-    // published by IERS stored nothing
+    // published by IERS stored nothing. The whole list is refused, with one warning, unless the
+    // times and the TAI-UTC values both go up from each entry to the next and it has its expiry
+    // line ("#@" and a time), as both published layouts do: a list cut short inside its last value
+    // ("3692217600<tab>3") was stored as 3 s from 2017 on
     bool IersDBHandler::storeLeapSeconds(const std::string &text)
     {
         std::vector<std::pair<long long, int>> entries;
         std::istringstream ls_stream(text);
         std::string l;
         int line_number = 0;
+        bool has_expiry = false;
         while (std::getline(ls_stream, l))
         {
             line_number++;
             size_t first = l.find_first_not_of(" \t\r");
-            if (first == std::string::npos || l[first] == '#')
+            if (first == std::string::npos)
                 continue;
+            if (l[first] == '#')
+            {
+                std::istringstream expiry_fields(l.substr(first + 1));
+                char at = 0;
+                long long expiry = 0;
+                if (expiry_fields.get(at) && at == '@' && expiry_fields >> expiry)
+                    has_expiry = true;
+                continue;
+            }
 
             // NTP time (seconds since 1900), TAI-UTC, then nothing or a comment
             std::istringstream fields(l);
@@ -179,12 +192,24 @@ namespace satdump
                 logger->warn("The leap second list cannot be read (line %d: %s); the leap seconds already loaded are kept", line_number, l.c_str());
                 return false;
             }
+            if (!entries.empty() && (ntp_time - 2208988800LL <= entries.back().first || leaps <= entries.back().second))
+            {
+                logger->warn("The leap second list is damaged: line %d (%s) does not have a later time and more leap seconds than the entry before; "
+                             "the leap seconds already loaded are kept",
+                             line_number, l.c_str());
+                return false;
+            }
             entries.push_back({ntp_time - 2208988800LL, leaps});
         }
 
         if (entries.empty())
         {
             logger->warn("The leap second list has no entries; the leap seconds already loaded are kept");
+            return false;
+        }
+        if (!has_expiry)
+        {
+            logger->warn("The leap second list has no expiry line (#@ and a time), so it may be cut short; the leap seconds already loaded are kept");
             return false;
         }
 

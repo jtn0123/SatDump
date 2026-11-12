@@ -596,18 +596,36 @@ TEST_CASE("IERS: the leap second list in both published layouts; a damaged one c
 {
     test_rig::OfflineRig rig(test_rig::general("Never", false));
 
-    // The copy in tzdata (IANA) has tabs between the columns
-    CHECK(rig.iers->storeLeapSeconds("#\tleap seconds\n2272060800\t10\t# 1 Jan 1972\n3692217600\t37\t# 1 Jan 2017\n"));
+    // The copy in tzdata (IANA) has tabs between the columns (the fixture has spaces). Both have
+    // the expiry line, "#@" and a time
+    CHECK(rig.iers->storeLeapSeconds("#\tleap seconds\n#@\t4023129600\n2272060800\t10\t# 1 Jan 1972\n3692217600\t37\t# 1 Jan 2017\n"));
     CHECK(rig.db->get_table_size("leap_seconds") == 2);
     CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
 
+    // Each refused list gives one warning and changes nothing
     LogCapture c;
-    CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 thirty-seven\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 thirty-seven\n"));
     CHECK(warnings(c) == 1);
-    CHECK(c.has(slog::LOG_WARN, "line 2"));
-    CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 37 1 Jan 2017\n"));
+    CHECK(c.has(slog::LOG_WARN, "line 3"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 37 1 Jan 2017\n"));
     CHECK_FALSE(rig.iers->storeLeapSeconds("<html><body>Not found</body></html>\n"));
-    CHECK_FALSE(rig.iers->storeLeapSeconds("# only comments\n\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n# only comments\n\n"));
+    CHECK(warnings(c) == 4);
+
+    // Cut short inside the last value: it was read as 3 s from 2017 on, over the 37 stored
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@\t4023129600\n2272060800\t10\t# 1 Jan 1972\n3692217600\t3"));
+    CHECK(c.has(slog::LOG_WARN, "line 3 (3692217600\t3) does not have a later time and more leap seconds"));
+    // Not in time order, and TAI-UTC not going up
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n3692217600 37 # 1 Jan 2017\n2272060800 10 # 1 Jan 1972\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 10 # 1 Jan 2017\n"));
+    CHECK(warnings(c) == 7);
+    // No expiry line, or one with no time: a list cut short between two lines cannot be told
+    // from a whole one without it
+    CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@\n2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"));
+    CHECK(c.has(slog::LOG_WARN, "no expiry line"));
+    CHECK(warnings(c) == 9);
+
     CHECK(rig.db->get_table_size("leap_seconds") == 2);
     CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
 
