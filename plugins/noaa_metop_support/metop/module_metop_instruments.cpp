@@ -244,7 +244,9 @@ namespace metop
                 }
 
                 nlohmann::json calib_coefs = loadJsonFile(resources::getResourcePath("calibration/MHS.json"));
-                if (calib_coefs.contains(sat_name))
+                if (mhs_reader.line < 6) // calibrate() reads the first and last 3 lines; fewer lines would read out of bounds
+                    logger->warn("MHS: too few lines (" + std::to_string(mhs_reader.line) + ") to calibrate, leaving it uncalibrated");
+                else if (calib_coefs.contains(sat_name))
                 {
                     mhs_reader.calibrate(calib_coefs[sat_name]);
                     mhs_products.set_calibration("noaa_mhs", mhs_reader.calib_out);
