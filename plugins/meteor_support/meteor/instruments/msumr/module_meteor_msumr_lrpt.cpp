@@ -153,9 +153,13 @@ namespace meteor
                     {
                         msureader.work(pkt);
 
+                        // Fork: the MSU-MR number is byte 20 and the calibration views end at byte 61.
+                        // A damaged, shorter packet was read past its end, and one of 21 to 61 bytes
+                        // also put the views of every later line one step out of line (the last
+                        // line read past the end of the list).
                         if (pkt.header.apid == 70)
                         {
-                            if (pkt.payload.size() >= 16)
+                            if (pkt.payload.size() >= 21)
                             {
                                 // Telemetry Timestamp
                                 if (meteorm2x_mode)
@@ -186,6 +190,11 @@ namespace meteor
 
                                 for (int channel = 0; channel < 6; channel++)
                                     calibration_info[channel].push_back({words10_bits[channel * 2], words10_bits[channel * 2 + 1]});
+                            }
+                            else if (pkt.payload.size() >= 21)
+                            {
+                                for (int channel = 0; channel < 6; channel++) // no views, as for a line without telemetry
+                                    calibration_info[channel].push_back({0, 0});
                             }
                         }
                     }

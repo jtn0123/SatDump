@@ -1,5 +1,5 @@
 #!/bin/bash
-# Golden tests: decode the synthetic MetOp and NOAA recordings (make_recordings.py) with the
+# Golden tests: decode the synthetic MetOp, NOAA and Meteor recordings (make_recordings.py) with the
 # installed SatDump and compare every picture with its known-good fingerprint.
 #
 #   golden.sh <install prefix> [--update | --names-only]
@@ -23,12 +23,13 @@ JSON
 python3 -I -B "$HERE/make_recordings.py" "$WORK/in" || exit 1
 run 0 metop pipeline metop_ahrpt cadu "$WORK/in/metop.cadu" "$WORK/metop"
 run 0 noaa pipeline noaa_hrpt frames "$WORK/in/noaa.raw16" "$WORK/noaa"
+run 0 meteor pipeline meteor_m2-x_lrpt cadu "$WORK/in/meteor.cadu" "$WORK/meteor" --fill_missing true
 [ "$FAILED" = 0 ] || exit 1
 
 python3 -I -B - "$WORK" > "$WORK/got.txt" <<'PY' || exit 1
 import hashlib, json, os, sys
 work = sys.argv[1]
-for run in ("metop", "noaa"):
+for run in ("metop", "noaa", "meteor"):
     top = os.path.join(work, run)
     with open(os.path.join(top, "dataset.json")) as f:
         print(f"{run} satellite {json.load(f).get('satellite')}")
@@ -49,8 +50,9 @@ fi
 [ -f "$EXPECTED" ] || { echo "golden: no $EXPECTED (run with --update on a trusted build)"; exit 1; }
 
 if [ "$MODE" = --names-only ]; then
-    cut -d' ' -f1-2 "$EXPECTED" > "$WORK/want.cmp"
-    cut -d' ' -f1-2 "$WORK/got.txt" > "$WORK/got.cmp"
+    # Drop only the SHA-256 at the end of each line (folder names can contain spaces)
+    sed 's/ [0-9a-f]\{64\}$//' "$EXPECTED" > "$WORK/want.cmp"
+    sed 's/ [0-9a-f]\{64\}$//' "$WORK/got.txt" > "$WORK/got.cmp"
 else
     cp "$EXPECTED" "$WORK/want.cmp"
     cp "$WORK/got.txt" "$WORK/got.cmp"

@@ -24,6 +24,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Crash fix | MetOp, NOAA, Meteor: a cut-off last frame is dropped instead of decoded from stale bytes | 2026-11-11 |
 | Crash fix | A pass with no data (empty or very short file) finishes with exit 0 instead of failing | 2026-11-11 |
 | Crash fix | Meteor LRPT: the picture decompression shifted negative numbers left (undefined behaviour), found by fuzzing | 2026-11-11 |
+| Crash fix | Meteor LRPT: a short (damaged) telemetry packet was read past its end and put the calibration of every later line out of step | 2026-11-11 |
 | Crash fix | Images: white balance and equalize no longer read past an empty image; copying an empty image is safe; a flat channel is no longer turned black | 2026-11-11 |
 | Start-up | A damaged settings file no longer stops SatDump: it uses the default settings and leaves the file as it is | 2026-11-11 |
 | Start-up | A damaged database (`main.db`) no longer stops SatDump: that run keeps its data in memory | 2026-11-11 |
@@ -42,7 +43,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Build | Linux installs are relocatable (`SATDUMP_RELOCATABLE`, on in the preset): they find their files and libraries wherever they are unpacked | 2026-11-11 |
 | Security | The experimental TestRemoteRec server listens on 127.0.0.1 only | 2026-11-11 |
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
-| Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
+| Tests | Golden tests: synthetic MetOp, NOAA and Meteor recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
 | Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory, leak, index and undefined-behaviour checks | 2026-11-11 |
 | Rust | `SATDUMP_WITH_RUST` (off by default): the Rust crate in `rust/`, linked into the core library with its symbols hidden; `SATDUMP_NO_RUST=1` switches it off at run time | 2026-11-11 |
 | Rust | First Rust part: the CCSDS derandomiser, tested byte for byte against the C++ one | 2026-11-11 |
@@ -79,9 +80,12 @@ warnings are fixed, `tests/gate.sh build --update` lowers the baseline in
 `tests/warnings/<arch>.txt`; the baseline should only ever go down. The tests never
 contact the network.
 
-The golden test decodes two small synthetic recordings (a MetOp-B and a NOAA-19 pass,
-generated on the fly from fixed seeds; nothing in them is received data) and compares a
-fingerprint of every picture with `tests/golden/expected-<arch>.txt`. When a change is
+The golden test decodes three small synthetic recordings (a MetOp-B, a NOAA-19 and a
+Meteor-M N2-3 pass, generated on the fly from fixed seeds; nothing in them is received data)
+and compares a fingerprint of every picture with `tests/golden/expected-<arch>.txt`. The
+Meteor one is compressed by a small JPEG-style encoder in the generator (with its own copy
+of the standard tables) and has a lost packet, a damaged packet and short telemetry in it,
+so the decoder's repair paths are checked as well. When a change is
 meant to alter the pictures, look at them first, then record the new fingerprints with
 `tests/golden/golden.sh build/check-prefix --update`.
 

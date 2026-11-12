@@ -8,6 +8,9 @@
               mixed with fill frames and one admin message carrying a TLE
   noaa.raw16  NOAA-19 HRPT minor frames (16-bit words): AVHRR/3 lines, time codes and
               calibration views
+  meteor.cadu Meteor-M N2-3 LRPT transfer frames (CADUs, after error correction): three MSU-MR
+              channels compressed the JPEG way, with telemetry, a lost packet, a damaged
+              packet and two short telemetry packets, as happens in a weak pass
 
 The picture is a fixed pattern made with integer arithmetic from fixed seeds, so both files
 are byte-for-byte the same on every machine and Python 3 version. Only the standard
@@ -135,8 +138,8 @@ class VirtualChannel:
     """Cuts a packet stream into M_PDUs: packets run on across frames, and the first header
     pointer says where the first packet starting in a frame begins (2047: none starts)."""
 
-    def __init__(self, vcid):
-        self.vcid, self.count, self.buf, self.starts = vcid, 0, bytearray(), []
+    def __init__(self, vcid, scid=SCID):
+        self.vcid, self.scid, self.count, self.buf, self.starts = vcid, scid, 0, bytearray(), []
 
     def add(self, pkt):
         self.starts.append(len(self.buf))
@@ -158,7 +161,7 @@ class VirtualChannel:
     def cadu(self, fhp, zone):
         c = self.count
         self.count += 1
-        vcdu = struct.pack(">HBHB", (1 << 14) | (SCID << 6) | self.vcid, c >> 16, c & 0xFFFF, 0)
+        vcdu = struct.pack(">HBHB", (1 << 14) | (self.scid << 6) | self.vcid, c >> 16, c & 0xFFFF, 0)
         # Sync marker, VCDU header, 2-byte insert zone, M_PDU header, packets, RS check bytes
         return b"\x1a\xcf\xfc\x1d" + vcdu + b"\0\0" + struct.pack(">H", fhp) + zone + bytes(128)
 
@@ -205,12 +208,167 @@ def noaa_frames(ch):
     return bytes(out)
 
 
+# ------------------------------------------------------------------------------ Meteor
+
+# MSU-MR pictures are sent as JPEG-style segments: every 8-line strip of a channel is 14
+# packets, each with 14 blocks of 8 x 8 pixels. These are the standard JPEG luminance tables
+# (ITU-T T.81 annex K), written out here independently of the decoder's own copy.
+Q_LUMA = (16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55,
+          14, 13, 16, 24, 40, 57, 69, 56, 14, 17, 22, 29, 51, 87, 80, 62,
+          18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113, 92,
+          49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99)
+DC_BITS = (0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0)  # codes per length, 1 to 16 bits
+AC_BITS = (0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125)
+AC_VALS = bytes.fromhex("""
+    01 02 03 00 04 11 05 12 21 31 41 06 13 51 61 07 22 71 14 32 81 91 a1 08 23 42 b1 c1 15 52 d1 f0
+    24 33 62 72 82 09 0a 16 17 18 19 1a 25 26 27 28 29 2a 34 35 36 37 38 39 3a 43 44 45 46 47 48 49
+    4a 53 54 55 56 57 58 59 5a 63 64 65 66 67 68 69 6a 73 74 75 76 77 78 79 7a 83 84 85 86 87 88 89
+    8a 92 93 94 95 96 97 98 99 9a a2 a3 a4 a5 a6 a7 a8 a9 aa b2 b3 b4 b5 b6 b7 b8 b9 ba c2 c3 c4 c5
+    c6 c7 c8 c9 ca d2 d3 d4 d5 d6 d7 d8 d9 da e1 e2 e3 e4 e5 e6 e7 e8 e9 ea f1 f2 f3 f4 f5 f6 f7 f8
+    f9 fa""")  # (zero run << 4) | size of each AC code, in code order
+assert sorted(AC_VALS) == sorted([0, 0xF0] + [r << 4 | z for r in range(16) for z in range(1, 11)])
+QF = 80  # quality factor: the table is Q_LUMA scaled by (200 - 2 * QF) percent, rounded
+QTAB = [max(1, (4 * q + 5) // 10) for q in Q_LUMA]
+ZIGZAG = sorted(range(64), key=lambda i: (i // 8 + i % 8, i // 8 if (i // 8 + i % 8) % 2 else i % 8))
+COS16 = (4096, 4017, 3784, 3406, 2896, 2276, 1567, 799)  # 4096 * cos(k * pi / 16), rounded
+METEOR_DAY = 9080  # Meteor counts days from 2000-12-31: 2025-11-10
+STRIPS = 8  # 64 lines
+
+
+def huffman_codes(bits, vals):
+    codes, code, k = {}, 0, 0
+    for length, count in enumerate(bits, 1):
+        for _ in range(count):
+            codes[vals[k]] = (code, length)
+            code, k = code + 1, k + 1
+        code <<= 1
+    return codes
+
+
+DC_CODES = huffman_codes(DC_BITS, range(12))
+AC_CODES = huffman_codes(AC_BITS, AC_VALS)
+
+
+def cos16(m):
+    m %= 32
+    m = 32 - m if m > 16 else m
+    return COS16[m] if m < 8 else -COS16[16 - m] if m > 8 else 0
+
+
+# The DCT basis, 4096 times too big; the first row also carries the 1 / sqrt(2) of the DCT
+BASIS = [[cos16((2 * x + 1) * u) if u else 2896 for x in range(8)] for u in range(8)]
+
+
+def rdiv(a, b):
+    """a / b rounded to the nearest whole number, halves away from zero (b > 0)."""
+    return (2 * a + b) // (2 * b) if a >= 0 else -((b - 2 * a) // (2 * b))
+
+
+def quantized_dct(px):
+    """8 x 8 pixels (rows, 0 to 255) to quantized DCT coefficients in zig-zag order."""
+    rows = [[sum(b * (p - 128) for b, p in zip(BASIS[u], px[8 * y : 8 * y + 8])) for u in range(8)] for y in range(8)]
+    out = [0] * 64
+    for v in range(8):
+        for u in range(8):
+            out[8 * v + u] = rdiv(sum(BASIS[v][y] * rows[y][u] for y in range(8)), 4 * 4096 * 4096 * QTAB[8 * v + u])
+    zz = [out[i] for i in ZIGZAG]
+    zz[63] = 0  # the decoder never stores the last coefficient, so it is never sent
+    return zz
+
+
+class BitWriter:
+    def __init__(self):
+        self.acc = self.n = 0
+
+    def put(self, code, n):
+        self.acc, self.n = (self.acc << n) | (code & ((1 << n) - 1)), self.n + n
+
+    def value(self, v):
+        """A JPEG magnitude: its size in bits, then the bits (negative values one less)."""
+        s = abs(v).bit_length()
+        self.put(v if v >= 0 else v + (1 << s) - 1, s)
+        return s
+
+    def data(self):
+        pad = -self.n % 8  # padded with one bits, as in JPEG
+        return ((self.acc << pad) | ((1 << pad) - 1)).to_bytes((self.n + pad) // 8, "big")
+
+
+def encode_blocks(blocks):
+    """Huffman-code blocks of zig-zag coefficients; the DC value is sent as a difference."""
+    w, last = BitWriter(), 0
+    for zz in blocks:
+        diff, last = zz[0] - last, zz[0]
+        w.put(*DC_CODES[abs(diff).bit_length()])
+        w.value(diff)
+        nonzero = [k for k in range(1, 64) if zz[k]]
+        run = 0
+        for k in range(1, nonzero[-1] + 1 if nonzero else 1):
+            if zz[k] == 0:
+                run += 1
+                continue
+            while run > 15:
+                w.put(*AC_CODES[0xF0])  # sixteen zeros
+                run -= 16
+            size = abs(zz[k]).bit_length()
+            assert size <= 10
+            w.put(*AC_CODES[run << 4 | size])
+            w.value(zz[k])
+            run = 0
+        w.put(*AC_CODES[0x00])  # end of block
+    return w.data()
+
+
+def meteor_time(strip):
+    return struct.pack(">HIH", METEOR_DAY, START_MS + strip * 1232, 0)  # about 1.23 s a strip
+
+
+def meteor_channels():
+    """Three 8-bit channels with thin bright bands, whose sharp edges need many coefficients."""
+    out = []
+    for c in range(3):
+        p = picture(200 + c, lines=8 * STRIPS, width=1568)
+        out.append([[min(255, (v - 60) * 220 // 900 + 16 + 120 * ((x + 3 * y + 50 * c) % 397 < 24))
+                     for x, v in enumerate(r)] for y, r in enumerate(p)])
+    return out
+
+
+def meteor_cadus():
+    ch = meteor_channels()
+    vc = VirtualChannel(5, scid=0)  # the decoder uses virtual channel 5 and ignores the SCID
+    seq = 16384 - 3 * 43  # the 14-bit packet counter wraps in the fourth strip
+    for strip in range(STRIPS):
+        # A strip is 43 packets: 14 for each channel, then one telemetry packet
+        for c in range(3):
+            for m in range(14):
+                blocks = [quantized_dct([ch[c][8 * strip + y][112 * m + 8 * b + x] for y in range(8) for x in range(8)])
+                          for b in range(14)]
+                if (c, strip, m) == (0, 1, 3):  # one block with long zero runs and the last coefficient sent
+                    blocks[0] = [blocks[0][0]] + [0] * 24 + [3] + [0] * 36 + [-2, 0]
+                head = meteor_time(strip) + bytes((14 * m, 0, 0)) + struct.pack(">HB", 0xFFF0, QF)
+                if (c, strip, m) == (2, 2, 9):  # damaged after nine blocks: the rest stays black
+                    body = encode_blocks(blocks[:9]) + b"\xff\xff"
+                else:
+                    body = encode_blocks(blocks)
+                if (c, strip, m) != (1, 5, 6):  # this packet is lost on the way
+                    vc.add(ccsds_packet(64 + c, seq, head + body))
+                seq += 1
+        # Telemetry: MSU-MR number 3 (Meteor-M N2-3), primary set, and the calibration views.
+        # Two packets are cut short: one before the number, one before the views.
+        tlm = meteor_time(strip) + bytes(12) + bytes((3 << 4, 0)) + bytes(21) + pack10([64, 960] * 6) + bytes(4)
+        vc.add(ccsds_packet(70, seq, tlm[: {3: 18, 5: 30}.get(strip, len(tlm))]))
+        seq += 1
+    out = vc.frames()
+    assert all(len(c) == 1024 for c in out)
+    return b"".join(out)
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     os.makedirs(sys.argv[1], exist_ok=True)
     ch = channels()
-    for name, data in (("metop.cadu", metop_cadus(ch)), ("noaa.raw16", noaa_frames(ch))):
+    for name, data in (("metop.cadu", metop_cadus(ch)), ("noaa.raw16", noaa_frames(ch)), ("meteor.cadu", meteor_cadus())):
         with open(os.path.join(sys.argv[1], name), "wb") as f:
             f.write(data)
 
