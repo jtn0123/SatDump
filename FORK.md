@@ -39,6 +39,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
 | Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |
+| CI | `fork_tests.yml`: the test gate, normal and sanitizer builds, on every push (arm64, Debian 13) | 2026-11-11 |
 
 ## Exit codes (`satdump` command line)
 
