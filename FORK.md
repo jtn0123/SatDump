@@ -36,6 +36,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Build | Linux installs are relocatable (`SATDUMP_RELOCATABLE`, on in the preset): they find their files and libraries wherever they are unpacked | 2026-11-11 |
 | Security | The experimental TestRemoteRec server listens on 127.0.0.1 only | 2026-11-11 |
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
+| Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |
 
 ## Exit codes (`satdump` command line)
@@ -60,6 +61,17 @@ cmake --install build --prefix ~/satdump    # a relocatable install
 warnings are fixed, `tests/gate.sh build --update` lowers the baseline in
 `tests/warnings/<arch>.txt`; the baseline should only ever go down. The tests never
 contact the network.
+
+A second build folder runs the same tests under AddressSanitizer and UBSan, which stop on
+any out-of-bounds read or write, use of freed memory, or undefined behaviour (exit code 86):
+
+```bash
+cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -DSATDUMP_SANITIZERS=address,undefined \
+      -DSATDUMP_CPU_FLAGS= -DBUILD_GUI=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo -S . -B build-asan -G Ninja
+tests/gate.sh build-asan       # the warning check is skipped for this build
+```
+
+Sanitizer builds are for testing only: they are slower and use more memory.
 
 ## Known issues left as they are
 

@@ -6,6 +6,8 @@
 # The build folder (default: build) must be configured with -DSATDUMP_TESTS=ON, normally
 # with the fork preset:
 #   cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -S . -B build -G Ninja
+# A second folder configured with -DSATDUMP_SANITIZERS=address,undefined runs the same tests
+# with memory and undefined-behaviour checks.
 # --update lowers the warning baseline after warnings were fixed.
 # Exit code: 0 all passed, 1 something failed.
 set -uo pipefail
@@ -29,12 +31,18 @@ if ! cmake --build "$B" --clean-first -j"$JOBS" > "$B/gate-build.log" 2>&1; then
     exit 1
 fi
 
-python3 -I -B "$ROOT/tests/warnings/ratchet.py" "$B/gate-build.log" "$ROOT" \
-    "$ROOT/tests/warnings/$(uname -m).txt" "${UPDATE[@]}" || FAIL=1
+# Warnings are checked on normal builds only (sanitizer flags change what the compiler reports)
+if grep -q '^SATDUMP_SANITIZERS:STRING=.' "$B/CMakeCache.txt"; then
+    echo "ratchet: skipped for a sanitizer build"
+else
+    python3 -I -B "$ROOT/tests/warnings/ratchet.py" "$B/gate-build.log" "$ROOT" \
+        "$ROOT/tests/warnings/$(uname -m).txt" "${UPDATE[@]}" || FAIL=1
+fi
 
-# The cli tests run the installed program, never the build tree or the source folder.
+# The cli tests run the installed program (in SATDUMP_CHECK_PREFIX), never the build tree.
 # Each run installs over the last one (files are replaced, nothing is deleted).
-if ! cmake --install "$B" --prefix "$B/check-prefix" > "$B/gate-install.log" 2>&1; then
+PREFIX=$(sed -n 's/^SATDUMP_CHECK_PREFIX:PATH=//p' "$B/CMakeCache.txt")
+if ! cmake --install "$B" --prefix "${PREFIX:-$B/check-prefix}" > "$B/gate-install.log" 2>&1; then
     tail -5 "$B/gate-install.log"
     echo "gate: install FAILED"
     exit 1

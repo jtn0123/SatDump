@@ -45,3 +45,12 @@ if(SATDUMP_RELOCATABLE)
     add_test(NAME cli_install_layout COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_layout.sh ${SATDUMP_CHECK_PREFIX})
     set_tests_properties(cli_install_layout PROPERTIES LABELS cli)
 endif()
+
+# Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
+# exit code 86. Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports as a
+# one-definition-rule violation when the plugins load; that one check is switched off.
+if(SATDUMP_SANITIZERS)
+    get_property(_satdump_tests DIRECTORY PROPERTY TESTS)
+    set_tests_properties(${_satdump_tests} PROPERTIES ENVIRONMENT
+        "ASAN_OPTIONS=detect_odr_violation=0:detect_leaks=0:exitcode=86;UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:exitcode=86")
+endif()

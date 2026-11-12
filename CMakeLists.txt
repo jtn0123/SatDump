@@ -189,6 +189,14 @@ if(SATDUMP_CPU_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SATDUMP_CPU_FLAGS}")
 endif()
 
+# Fork: test builds with sanitizers, for example -DSATDUMP_SANITIZERS=address,undefined
+set(SATDUMP_SANITIZERS "" CACHE STRING "Sanitizers to build with (testing only), e.g. address,undefined")
+if(SATDUMP_SANITIZERS)
+    message("-- Sanitizers: ${SATDUMP_SANITIZERS}")
+    add_compile_options(-fsanitize=${SATDUMP_SANITIZERS} -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=${SATDUMP_SANITIZERS})
+endif()
+
 project(SatDump VERSION "2.0.0")
 set(SATDUMP_VERSION_TYPE "alpha")
 
