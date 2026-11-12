@@ -38,6 +38,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
 | Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
 | Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
+| Tests | Fuzzing (`SATDUMP_FUZZ`, clang): random input for the MetOp/Meteor packet readers, the admin messages and Reed-Solomon | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |
 | CI | `fork_tests.yml`: the test gate, normal and sanitizer builds, on every push (arm64, Debian 13) | 2026-11-11 |
 
@@ -80,6 +81,20 @@ tests/gate.sh build-asan       # the warning check is skipped for this build
 ```
 
 Sanitizer builds are for testing only: they are slower and use more memory.
+
+Fuzzing feeds the packet readers millions of random inputs and stops at the first memory
+error or undefined behaviour. It needs clang:
+
+```bash
+cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -DSATDUMP_FUZZ=ON -DSATDUMP_SANITIZERS=address,undefined \
+      -DSATDUMP_CPU_FLAGS= -DBUILD_GUI=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -S . -B build-fuzz -G Ninja
+cmake --build build-fuzz && ctest --test-dir build-fuzz -L fuzz      # a short, repeatable run of each
+tests/fuzz/run.sh build-fuzz/fuzz_msumr_lrpt 600                     # 10 minutes of one fuzzer
+```
+
+A long run keeps what it learned in `tests/fuzz/corpus/<name>` (not committed) and writes
+any input that fails to `crash-*` in the current folder.
 
 ## Known issues left as they are
 

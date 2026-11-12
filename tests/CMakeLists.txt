@@ -56,6 +56,10 @@ if(SATDUMP_RELOCATABLE)
     set_tests_properties(cli_install_layout PROPERTIES LABELS cli)
 endif()
 
+if(SATDUMP_FUZZ)
+    add_subdirectory(fuzz)
+endif()
+
 # Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
 # exit code 86. Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports as a
 # one-definition-rule violation when the plugins load; that one check is switched off.

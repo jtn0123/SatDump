@@ -200,6 +200,16 @@ endif()
 project(SatDump VERSION "2.0.0")
 set(SATDUMP_VERSION_TYPE "alpha")
 
+# Fork: libFuzzer harnesses (tests/fuzz). Clang only; use with SATDUMP_SANITIZERS and SATDUMP_TESTS.
+option(SATDUMP_FUZZ "Fork: build the fuzz harnesses in tests/fuzz (clang only)" OFF)
+if(SATDUMP_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "SATDUMP_FUZZ needs clang: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++")
+    endif()
+    # Coverage feedback for libFuzzer in all of SatDump; the harnesses add the fuzzer itself
+    add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
+
 # Check if the current commit has a tag
 execute_process(
     COMMAND git name-rev --name-only --tags HEAD

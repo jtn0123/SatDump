@@ -21,3 +21,4 @@ deps/
 src-core/satdump_varst.cpp
 windows/deps
 plugins/external
+tests/fuzz/corpus/
