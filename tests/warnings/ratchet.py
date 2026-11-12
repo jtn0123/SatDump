@@ -17,6 +17,9 @@ ESC = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def keys_from_log(log_path, root):
+    # Fork: the compiler runs in the build folder, so a relative path in a warning (as printed
+    # when ccache's base_dir makes paths relative) is relative to the folder of the build log
+    build_dir = os.path.dirname(os.path.realpath(log_path))
     seen = set()
     counts = Counter()
     with open(log_path, errors="replace") as fh:
@@ -26,8 +29,11 @@ def keys_from_log(log_path, root):
                 continue
             m = GCC.match(line)
             if m:
-                path = os.path.normpath(m["path"])
-                if os.path.isabs(path) and path.startswith(root + os.sep):
+                path = m["path"]
+                if not os.path.isabs(path):
+                    path = os.path.join(build_dir, path)
+                path = os.path.normpath(path)
+                if path.startswith(root + os.sep):
                     path = os.path.relpath(path, root)
                 what = m["flag"] or re.sub(r"\d+", "N", m["msg"])[:80]
                 ident = (path, m["line"], m["col"], what)

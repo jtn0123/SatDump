@@ -112,12 +112,39 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 |---|---|
 | 0 | Finished (a pass with no usable data also finishes, with empty products) |
 | 1 | Usage error: unknown option, missing argument, unknown pipeline, input file not found |
-| 2 | The command ran and failed (the log line `Error running command` says why) |
+| 2 | The command ran and failed (the log line `Error running command` says why), including when a module or DSP block failed during the run, so the output is incomplete |
 | 3 | Radio problem: the radio is not connected, its driver is missing, or it could not be opened, set up or started (`legacy record` and `legacy live`) |
 
 A crash ends the way the system reports crashes: by its signal (a shell shows 128 + the
 signal number, for example 139 for a segmentation fault or 134 for an abort), so a service
 manager can tell a crash from an ordinary failure.
+
+## Error handling rules
+
+Every fix in this fork follows these rules, and new code should too:
+
+1. No error may leave a thread. Every thread body and background task ends with
+   `catch (const std::exception &)` and `catch (...)`, logs the error with what failed (the
+   pipeline, module or block), and records that it failed. `tests/lint/thread_catches.py`
+   checks the thread entry points it lists.
+2. Catch `const std::exception &`, never only `std::runtime_error`. `catch (...)` belongs at
+   thread and process boundaries only.
+3. Nothing is swallowed silently on decode, file or settings paths: at least a warning with
+   the reason and the value used instead.
+4. Destructors, `stop()` and signal handlers never throw, and `stop()` always stops everything
+   it started. (`-Werror=terminate` turns a throw that can only end in `std::terminate` into a
+   build error.)
+5. In a live pass, a module that fails is logged, marked in the live stats with an `"error"`
+   field, and its input is let through, so the recording and the other modules keep going. The
+   pass ends at its normal stop or timeout, and the command then exits with code 2.
+6. Exit codes are the ones in the table above; a crash ends by its signal.
+7. A damaged settings file or database never stops SatDump: it logs a warning and uses
+   the defaults (or an in-memory database), leaving the file as it is.
+8. A lifetime bug, such as a DSP block destroyed while it still runs, stops SatDump at once
+   with a log line naming it, rather than crashing later somewhere unrelated.
+9. Log calls: a message given alone is written as it is, `%` included. Text read at run time is
+   passed as a `%s` argument, never used as the format; the compiler checks the formats
+   (`tests/compile/logger_format.sh`).
 
 ## Building and testing
 

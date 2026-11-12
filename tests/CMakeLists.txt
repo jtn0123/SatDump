@@ -93,6 +93,8 @@ set_tests_properties(cli_thread_faults PROPERTIES LABELS cli)
 if(Python3_FOUND)
     add_test(NAME thread_catches_lint COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lint/thread_catches.py ${PROJECT_SOURCE_DIR})
     set_tests_properties(thread_catches_lint PROPERTIES LABELS lint)
+    add_test(NAME ratchet_selftest COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/warnings/test_ratchet.py)
+    set_tests_properties(ratchet_selftest PROPERTIES LABELS lint)
 endif()
 
 # Synthetic MetOp and NOAA recordings must give exactly the known-good pictures. Sanitizer
