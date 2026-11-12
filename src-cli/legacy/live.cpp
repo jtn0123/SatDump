@@ -1,4 +1,5 @@
 #include "live.h"
+#include "exit_codes.h"
 #include "common/cli_utils.h"
 #include "common/dsp/fft/fft_pan.h"
 #include "common/dsp/path/splitter.h"
@@ -168,15 +169,23 @@ int main_live(int argc, char *argv[])
         if (!src_found)
         {
             logger->error("Could not find a handler for source type : %s!", handler_id.c_str());
-            return 1;
+            return satdump::EXIT_RADIO; // Fork: no such radio connected (or its driver is missing)
         }
 
         // Init source
         std::shared_ptr<dsp::DSPSampleSource> source_ptr = getSourceFromDescriptor(selected_src);
-        source_ptr->open();
-        source_ptr->set_frequency(frequency);
-        source_ptr->set_samplerate(samplerate);
-        source_ptr->set_settings(parameters);
+        try // Fork: a radio that cannot be opened or set up is exit code 3
+        {
+            source_ptr->open();
+            source_ptr->set_frequency(frequency);
+            source_ptr->set_samplerate(samplerate);
+            source_ptr->set_settings(parameters);
+        }
+        catch (std::exception &e)
+        {
+            logger->error("Radio problem: could not open or set up the radio: %s", e.what());
+            return satdump::EXIT_RADIO;
+        }
 
         if (parameters.contains("multi_vfo"))
         {
@@ -190,10 +199,15 @@ int main_live(int argc, char *argv[])
             // Attempt to start the source and pipeline
             try
             {
-                source_ptr->start();
+                satdump::start_radio(source_ptr);
                 splitter_vfo = std::make_unique<dsp::VFOSplitterBlock>(source_ptr->output_stream);
                 splitter_vfo->set_main_enabled(false);
                 splitter_vfo->start();
+            }
+            catch (satdump::RadioError &e)
+            {
+                logger->error("Radio problem: could not start the radio: %s", e.what());
+                return satdump::EXIT_RADIO;
             }
             catch (std::exception &e)
             {
@@ -330,7 +344,7 @@ int main_live(int argc, char *argv[])
             // Attempt to start the source and pipeline
             try
             {
-                source_ptr->start();
+                satdump::start_radio(source_ptr);
 
                 std::shared_ptr<dsp::stream<complex_t>> final_stream = source_ptr->output_stream;
 
@@ -363,6 +377,11 @@ int main_live(int argc, char *argv[])
                 }
 
                 live_pipeline->start(final_stream, live_thread_pool, server_mode);
+            }
+            catch (satdump::RadioError &e)
+            {
+                logger->error("Radio problem: could not start the radio: %s", e.what());
+                return satdump::EXIT_RADIO;
             }
             catch (std::exception &e)
             {

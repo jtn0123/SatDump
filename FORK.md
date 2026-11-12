@@ -29,7 +29,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
-| CLI | Exit codes: 0 success, 1 usage or configuration error, 2 the command failed | 2026-11-11 |
+| CLI | Exit codes: 0 success, 1 usage or configuration error, 2 the command failed, 3 radio problem | 2026-11-11 |
 | CLI | `pipeline` needs a pipeline name and an input file that exists (else exit 1) | 2026-11-11 |
 | Settings | `iers_auto_update` can switch off the Earth-orientation downloads at launch | 2026-11-11 |
 | Build | `SATDUMP_CPU_FLAGS` replaces the hard-wired `-march=native`; warnings are no longer dropped | 2026-11-11 |
@@ -51,6 +51,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | 0 | Finished (a pass with no usable data also finishes, with empty products) |
 | 1 | Usage error: unknown option, missing argument, unknown pipeline, input file not found |
 | 2 | The command ran and failed (the log line `Error running command` says why) |
+| 3 | Radio problem: the radio is not connected, its driver is missing, or it could not be opened, set up or started (`legacy record` and `legacy live`) |
 
 ## Building and testing
 

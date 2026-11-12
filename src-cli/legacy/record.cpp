@@ -1,3 +1,4 @@
+#include "exit_codes.h"
 #include "common/cli_utils.h"
 #include "common/dsp/fft/fft_pan.h"
 #include "common/dsp/io/file_sink.h"
@@ -97,15 +98,23 @@ int main_record(int argc, char *argv[])
     if (!src_found)
     {
         logger->error("Could not find a handler for source type : %s!", handler_id.c_str());
-        return 1;
+        return satdump::EXIT_RADIO; // Fork: no such radio connected (or its driver is missing)
     }
 
     // Init source
     std::shared_ptr<dsp::DSPSampleSource> source_ptr = getSourceFromDescriptor(selected_src);
-    source_ptr->open();
-    source_ptr->set_frequency(frequency);
-    source_ptr->set_samplerate(samplerate);
-    source_ptr->set_settings(parameters);
+    try // Fork: a radio that cannot be opened or set up is exit code 3
+    {
+        source_ptr->open();
+        source_ptr->set_frequency(frequency);
+        source_ptr->set_samplerate(samplerate);
+        source_ptr->set_settings(parameters);
+    }
+    catch (std::exception &e)
+    {
+        logger->error("Radio problem: could not open or set up the radio: %s", e.what());
+        return satdump::EXIT_RADIO;
+    }
 
     std::unique_ptr<dsp::SmartResamplerBlock<complex_t>> decim;
     std::unique_ptr<dsp::SplitterBlock> splitter;
@@ -119,8 +128,8 @@ int main_record(int argc, char *argv[])
     }
     catch (std::exception &e)
     {
-        logger->error("Fatal error starting device : " + std::string(e.what()));
-        return 1;
+        logger->error("Radio problem: could not start the radio: " + std::string(e.what()));
+        return satdump::EXIT_RADIO;
     }
 
     // Decimation if requested
