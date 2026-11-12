@@ -17,12 +17,15 @@ namespace meteor
 
         bool m2x_mode;
 
-        int viterbi_lock;
-        float viterbi_ber;
+        // Fork: these all start at 0 (no lock, no errors). getModuleStats() and the UI read them
+        // before the first buffer is decoded, and without a starting value they held whatever
+        // was in memory, so an M2-x decoder could report "SYNCED" before it had seen any data
+        int viterbi_lock = 0;
+        float viterbi_ber = 0;
 
         bool locked = false;
-        int errors[4];
-        int cor;
+        int errors[4] = {0, 0, 0, 0};
+        int cor = 0;
 
         std::shared_ptr<viterbi::Viterbi27> viterbi;
 
@@ -30,8 +33,8 @@ namespace meteor
         std::shared_ptr<deframing::BPSK_CCSDS_Deframer> deframer;
 
         // UI Stuff
-        float ber_history[200];
-        float cor_history[200];
+        float ber_history[200] = {};
+        float cor_history[200] = {};
 
     public:
         METEORLRPTDecoderModule(std::string input_file, std::string output_file_hint, nlohmann::json parameters);

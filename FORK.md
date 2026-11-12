@@ -42,6 +42,8 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Crash fix | NOAA HIRS calibration: a calibration sequence on the first or last line, or a pass in which one of the thermometers (PRTs) has no reading, no longer reads outside the readings (or crashes); the nearest reading is used, and when a thermometer has no reading at all the lines are left uncalibrated | 2026-11-11 |
 | Bug fix | NOAA HIRS: averaging samples that are all 0 (dropped frames) gives 0 instead of a NaN converted to an integer (undefined behaviour) | 2026-11-11 |
 | Bug fix | MetOp IASI imager: a pixel whose warm and cold calibration views read the same is now 0 (no data) instead of white or an undefined value | 2026-11-11 |
+| Bug fix | MetOp AHRPT, MetOp X-band dump and Meteor LRPT decoders: error counts, lock state, correlation and the plots start at 0, so stats read before the first frame (live mode) are no longer garbage and a Meteor M2-x decoder no longer reports SYNCED before it has any data | 2026-11-11 |
+| Bug fix | Meteor LRPT: picture segments that were never received, or that had no picture data, no longer leave their header values unset (the validity check read them) | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |

@@ -17,6 +17,7 @@ add_executable(satdump-unit-tests
     unit/test_aos_demuxer.cpp
     unit/test_metop_instruments.cpp
     unit/test_hirs_iasi.cpp
+    unit/test_init_ub.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp
@@ -25,11 +26,19 @@ add_executable(satdump-unit-tests
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/iasi/iasi_imaging_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/noaa/instruments/hirs/hirs_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/noaa/contains.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/module_metop_ahrpt_decoder.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/module_metop_dump_decoder.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/module_meteor_lrpt_decoder.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/deint.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt/segment.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt/idct.cpp
 )
 target_include_directories(satdump-unit-tests PRIVATE
     third_party/doctest
     ${PROJECT_SOURCE_DIR}/src-core
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support
+    ${PROJECT_SOURCE_DIR}/plugins/meteor_support
 )
 target_link_libraries(satdump-unit-tests PRIVATE satdump_core)
 if(SATDUMP_WITH_RUST)

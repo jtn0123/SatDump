@@ -18,10 +18,12 @@ namespace metop
         viterbi::Viterbi3_4 viterbi;
         deframing::BPSK_CCSDS_Deframer deframer;
 
-        int errors[4];
+        // Fork: start at 0. getModuleStats() (rs_avg) and the UI read these before the first
+        // frame is decoded, and without a starting value they held whatever was in memory
+        int errors[4] = {0, 0, 0, 0};
 
         // UI Stuff
-        float ber_history[200];
+        float ber_history[200] = {};
 
     public:
         MetOpAHRPTDecoderModule(std::string input_file, std::string output_file_hint, nlohmann::json parameters);

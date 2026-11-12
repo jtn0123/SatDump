@@ -14,9 +14,10 @@ namespace meteor
         {
             bool Segment::isValid()
             {
-                return QT == 0x00 && DC == 0x00 && AC == 0x00 && QFM == 0xFFF0 &&
-                       valid; // &&
-                              // day_time == 0 && us_time == 0;
+                // Fork: valid first. In a missing segment or a header-only packet the other
+                // fields were never filled in (they used to be unset), and an invalid segment is
+                // rejected whatever they hold
+                return valid && QT == 0x00 && DC == 0x00 && AC == 0x00 && QFM == 0xFFF0; // && day_time == 0 && us_time == 0;
             }
 
             Segment::Segment(uint8_t* data, int length, bool partial, bool meteorm2x_mode) : partial(partial)
