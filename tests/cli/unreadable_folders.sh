@@ -8,13 +8,16 @@
 #   - a current folder that cannot be read or searched (mode 000): the version, the start-up
 #     log (installed config, one debug line), and a short live run from a file, which writes
 #     its output
-#   - a current folder below a folder that cannot be searched, and a current folder that has
-#     been deleted (making ./plugins absolute threw there)
+#   - a current folder that has been deleted (making ./plugins absolute threw there), and, as
+#     a smoke check only, a current folder below a folder that cannot be searched
 #   - HOME inside a folder that cannot be read (su without -): the default settings are used
 #   - a "plugins" folder in the current folder that cannot be read, or only listed: the
 #     installed plugins are loaded
-#   - a "resources" folder in the current folder that cannot be read: the same as an empty
-#     one (exit 1, no pipelines), not an unhandled error
+#   - a "resources" folder in the current folder, or a "pipelines" folder in it, that cannot
+#     be read: the same as an empty "resources" folder (exit 1, no pipelines), not an
+#     unhandled error; a "pipelines" folder that can only be listed: its files are skipped
+#     with a warning; a pipeline that includes a file through a folder that cannot be
+#     searched: reported like a missing include
 #   - a readable current folder with satdump_cfg.json and settings.json: both still used
 # Root can read a folder with mode 000. So as root (CI containers) SatDump runs as user nobody
 # (setpriv or runuser) or, failing that, without capabilities (unshare -U). When none of these
@@ -125,7 +128,11 @@ run_in 0 locked-live "$WORK/locked" lock_here "${LIVE[@]}"
 chmod 755 "$WORK/locked"
 check locked-live-output test -f "$OUT/live/metop_ahrpt.cadu"
 
-# 2. A folder above the current folder cannot be searched; the current folder is deleted
+# 2. A folder above the current folder cannot be searched; the current folder is deleted.
+# locked-parent is only a smoke check: it passes without the fix as well. On Linux a path
+# relative to the current folder never looks at the folders above it, getcwd() works without
+# search permission on them, and SatDump resolves no path through them at start-up. The case
+# that matters, a current folder that cannot be searched, is checked in 1
 mkdir -p "$WORK/parent/sub"
 run_in 0 locked-parent "$WORK/parent/sub" lock_parent legacy version
 chmod 755 "$WORK/parent"
@@ -163,6 +170,30 @@ chmod 755 "$WORK/resources-locked/resources"
 run_in 1 resources-empty "$WORK/resources-empty" true legacy version
 check_denied resources-locked-reported logged resources-locked "Couldn't load pipelines! Was trying : resources/pipelines (Permission denied)"
 check resources-empty-reported logged resources-empty "Couldn't load pipelines! Was trying : resources/pipelines"
+
+# A "pipelines" folder in a readable "resources" folder that cannot be read: it can still be
+# checked, but not listed (the listing threw), so it ends the same way (where it can be read
+# after all, it is an empty folder, which SatDump runs with: exit 0). One that can only be
+# listed: its files cannot be checked (that threw), so they are skipped with a warning and
+# SatDump runs without them. A pipeline including a file through a folder that cannot be
+# searched (that check threw): reported, and the other pipelines load
+mkdir -p "$WORK/pipelines-locked/resources/pipelines" "$WORK/pipelines-listed/resources/pipelines" \
+    "$WORK/include-locked/resources/pipelines" "$WORK/include-locked/resources/locked"
+echo '{}' > "$WORK/pipelines-listed/resources/pipelines/listed.json"
+echo '{ "include_test": "../locked/part.json.inc" }' > "$WORK/include-locked/resources/pipelines/include.json"
+echo '"included"' > "$WORK/include-locked/resources/locked/part.json.inc"
+cp "$(find "$PREFIX" -path '*/pipelines/MetOp.json' -print -quit)" "$WORK/include-locked/resources/pipelines/"
+chmod 000 "$WORK/pipelines-locked/resources/pipelines" "$WORK/include-locked/resources/locked"
+chmod 444 "$WORK/pipelines-listed/resources/pipelines"
+run_in "$([ $EXERCISED = 1 ] && echo 1 || echo 0)" pipelines-locked "$WORK/pipelines-locked" true legacy version
+run_in 0 pipelines-listed "$WORK/pipelines-listed" true legacy version
+run_in 0 include-locked "$WORK/include-locked" true -v legacy version
+chmod 755 "$WORK/pipelines-locked/resources/pipelines" "$WORK/pipelines-listed/resources/pipelines" \
+    "$WORK/include-locked/resources/locked"
+check_denied pipelines-locked-reported logged pipelines-locked "Couldn't load pipelines! Was trying : resources/pipelines (Permission denied)"
+check_denied pipelines-listed-reported logged pipelines-listed "Entries in resources/pipelines that cannot be checked are skipped: 1, the first resources/pipelines/listed.json (Permission denied)"
+check_denied include-locked-reported logged include-locked "Could not include resources/pipelines/../locked/part.json.inc! (Permission denied)"
+check include-locked-other-pipelines logged include-locked " - metop_ahrpt$"
 
 # 6. A readable current folder: its satdump_cfg.json and settings.json are used, as before
 mkdir "$WORK/portable"

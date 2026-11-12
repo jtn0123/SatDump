@@ -46,7 +46,10 @@ namespace satdump
                         std::string filenameToLoad = finalStr.substr(1, finalStr.size() - 2);
                         std::string pathToLoad = std::filesystem::path(filepath).parent_path().string() + "/" + filenameToLoad;
 
-                        if (std::filesystem::exists(pathToLoad))
+                        // Fork: an include that cannot be checked (a folder on its path may not be
+                        // searched) is reported like a missing one; the check threw and stopped SatDump
+                        std::error_code includeError;
+                        if (std::filesystem::exists(pathToLoad, includeError))
                         {
                             std::ifstream fileStream(pathToLoad);
                             std::string includeString((std::istreambuf_iterator<char>(fileStream)), (std::istreambuf_iterator<char>()));
@@ -56,7 +59,7 @@ namespace satdump
                         }
                         else
                         {
-                            logger->error("Could not include " + pathToLoad + "!");
+                            logger->error("Could not include " + pathToLoad + "!" + (includeError ? " (" + includeError.message() + ")" : ""));
                         }
                     }
                 }
@@ -193,8 +196,9 @@ namespace satdump
 
         void loadPipelines(std::string filepath)
         {
-            // Fork: a folder that cannot be checked counts as missing. In portable mode the path is
-            // in the current folder: a "resources" folder there that cannot be read stopped SatDump
+            // Fork: a folder that cannot be checked or listed counts as missing. In portable mode
+            // the path is in the current folder: a "resources" or "resources/pipelines" folder
+            // there that cannot be read stopped SatDump
             std::error_code missing;
             if (!std::filesystem::exists(filepath, missing))
             {
@@ -205,11 +209,28 @@ namespace satdump
             logger->info("Loading system pipelines from " + filepath);
 
             std::vector<std::string> systemPipelines;
-            std::filesystem::recursive_directory_iterator pipelinesIterator(filepath);
             std::error_code iteratorError;
+            std::filesystem::recursive_directory_iterator pipelinesIterator(filepath, iteratorError);
+            if (iteratorError)
+            {
+                logger->error("Couldn't load pipelines! Was trying : " + filepath + " (" + iteratorError.message() + ")");
+                exit(1);
+            }
+            // Fork: an entry that cannot be checked, as in a folder that may be listed but not
+            // searched, is skipped (it could not be read either) and reported once below.
+            // is_directory() without an error_code threw there and stopped SatDump
+            int uncheckedEntries = 0;
+            std::string firstUnchecked;
             while (pipelinesIterator != std::filesystem::recursive_directory_iterator())
             {
-                if (!std::filesystem::is_directory(pipelinesIterator->path()))
+                std::error_code entryError;
+                std::filesystem::file_status entryStatus = std::filesystem::status(pipelinesIterator->path(), entryError);
+                if (!std::filesystem::status_known(entryStatus))
+                {
+                    if (uncheckedEntries++ == 0)
+                        firstUnchecked = pipelinesIterator->path().string() + " (" + entryError.message() + ")";
+                }
+                else if (!std::filesystem::is_directory(entryStatus))
                 {
                     if (pipelinesIterator->path().filename().string().find(".json") != std::string::npos)
                     {
@@ -225,6 +246,8 @@ namespace satdump
                 if (iteratorError)
                     logger->critical(iteratorError.message());
             }
+            if (uncheckedEntries > 0)
+                logger->warn("Entries in %s that cannot be checked are skipped: %d, the first %s", filepath.c_str(), uncheckedEntries, firstUnchecked.c_str());
 
             std::sort(systemPipelines.begin(), systemPipelines.end());
             for (std::string &pipeline : systemPipelines)
