@@ -470,6 +470,20 @@ TEST_CASE("Orbit elements: a download with entries that cannot be read uses the 
     CHECK(server.requests() == std::vector<std::string>{"GET /gp.php?GROUP=weather&FORMAT=csv HTTP/1.1"});
 }
 
+TEST_CASE("Orbit elements: a download tried again after failing part way is read on its own")
+{
+    // The first try ends part way through METOP-B's line, and the second sends it all. The text
+    // of the first was kept and the second added to it, so a line made of both was an entry that
+    // could not be read
+    const std::string body = OMM_HEADER + OMM_METOP + "\n" + OMM_NOAA + "\n";
+    LocalHttpServer server({http_reply(body, OMM_HEADER.size() + 20), http_reply(body)});
+    LogCapture c;
+    std::vector<satdump::KeplerData> keps = satdump::tryFetchOMMFileFromURL(server.url("/elements.csv"));
+    CHECK(keps.size() == 2);
+    CHECK(warnings(c) == 0);
+    CHECK(server.requests().size() == 2);
+}
+
 TEST_CASE("Orbit elements: a single satellite's download that cannot be read says why")
 {
     // The satellite's only entry cannot be used: the error that nothing came was all there was

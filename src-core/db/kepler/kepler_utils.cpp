@@ -459,6 +459,9 @@ namespace satdump
         int http_res = 1, trials = 0;
         while (http_res == 1 && trials < 10)
         {
+            // Fork: each try starts from nothing; a try that failed part way left its text, and
+            // the next one was added to it
+            result.clear();
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
                 // Fork: TLE text is read too, not only OMM CSV, and entries that cannot be read are reported
@@ -495,6 +498,9 @@ namespace satdump
         int http_res = 1, trials = 0;
         while (http_res == 1 && trials < 10)
         {
+            // Fork: each try starts from nothing; a try that failed part way left its text, and
+            // the next one was added to it
+            result.clear();
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
                 // Fork: as above (parseCcsdsOmmFile dropped such entries without a word)
