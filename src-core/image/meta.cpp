@@ -16,8 +16,11 @@ namespace satdump
 
         void set_metadata(Image &img, nlohmann::json metadata)
         {
-            img.metadata_obj = (nlohmann::json *)new nlohmann::json();
-            *((nlohmann::json *)img.metadata_obj) = metadata;
+            // Fork: reuse the image's metadata object; a new one each time leaked the old
+            // metadata whenever an image that had some was assigned or given new metadata
+            if (img.metadata_obj == nullptr)
+                img.metadata_obj = (nlohmann::json *)new nlohmann::json();
+            *((nlohmann::json *)img.metadata_obj) = std::move(metadata);
         }
 
         nlohmann::json get_metadata(const Image &img)

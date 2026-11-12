@@ -18,6 +18,8 @@
 #include "projection/projection.h"
 #include "projection/utils/equirectangular.h"
 #include "utils/unit_parser.h"
+#include <memory>
+#include <vector>
 
 namespace satdump
 {
@@ -376,8 +378,11 @@ namespace satdump
             {
                 // Setup expression parser
                 size_t ntkts = 0;
-                TokenS **tkts = new TokenS *[tokens.size()];
-                image::Image *other_images = new image::Image[tokens.size()];
+                // Fork: owned by vectors, so nothing leaks. The pointer array always leaked, and
+                // everything leaked when the expression had an error. Neither vector is resized,
+                // so the tokens' references into other_images stay valid.
+                std::vector<std::unique_ptr<TokenS>> tkts(tokens.size());
+                std::vector<image::Image> other_images(tokens.size());
                 mu::Parser equParser;
                 equParser.SetExpr(expression);
 
@@ -425,13 +430,14 @@ namespace satdump
                             image::load_img(h.image, product->contents["lazyload_path"].get<std::string>() + "/" + h.filename);
                         }
 
-                        auto nt = new TokenS(h.image, h.ch_transform);
+                        tkts[ntkts] = std::make_unique<TokenS>(h.image, h.ch_transform);
+                        auto nt = tkts[ntkts].get();
                         nt->ch_idx = h.abs_index;
                         nt->width = h.image.width();
                         nt->height = h.image.height();
                         nt->maxval = h.image.maxval();
                         equParser.DefineVar(tkt, &nt->v);
-                        tkts[ntkts++] = nt;
+                        ntkts++;
 
                         if (reference_channel != "" && reference_channel == index)
                             reference_channel_index = ntkts - 1; // Try to set reference
@@ -458,13 +464,14 @@ namespace satdump
                         else
                             other_images[ntkts] = generate_calibrated_product_channel(product, index, c.min, c.max, c.unit, progress); // TODOREWORK handle progress?
                         auto &image = other_images[ntkts];
-                        auto nt = new TokenS(image, h.ch_transform);
+                        tkts[ntkts] = std::make_unique<TokenS>(image, h.ch_transform);
+                        auto nt = tkts[ntkts].get();
                         nt->ch_idx = h.abs_index;
                         nt->width = image.width();
                         nt->height = image.height();
                         nt->maxval = image.maxval();
                         equParser.DefineVar(tkt, &nt->v);
-                        tkts[ntkts++] = nt;
+                        ntkts++;
 
                         if (reference_channel != "" && reference_channel == index)
                             reference_channel_index = ntkts - 1; // Try to set reference
@@ -479,7 +486,7 @@ namespace satdump
                 // Select reference channel
                 if (reference_channel_index == -1)
                     throw satdump_exception("Reference channel " + reference_channel + " not found! Must be present/used in equation!");
-                TokenS *rtkt = tkts[reference_channel_index];
+                TokenS *rtkt = tkts[reference_channel_index].get();
 
                 // Setup output image
                 image::Image out(rtkt->img.depth(), rtkt->img.width(), rtkt->img.height(), nout_channels);
@@ -504,7 +511,7 @@ namespace satdump
                         // Update raw values, apply transforms if needed
                         for (i = 0; i < ntkts; i++)
                         {
-                            TokenS *t = tkts[i];
+                            TokenS *t = tkts[i].get();
                             t->px = x, t->py = y;
                             rtkt->transform.forward(&t->px, &t->py);
                             t->transform.reverse(&t->px, &t->py);
@@ -530,11 +537,6 @@ namespace satdump
                 // Add metadata
                 if (product->has_proj_cfg())
                     image::set_metadata_proj_cfg(out, product->get_proj_cfg(rtkt->ch_idx));
-
-                // Free up tokens
-                for (int i = 0; i < ntkts; i++)
-                    delete tkts[i];
-                delete[] other_images;
 
                 return out;
             }

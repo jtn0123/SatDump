@@ -309,7 +309,7 @@
 2 src-core/products/image/converters/sun_angle.h -Wunused-parameter
 3 src-core/products/image/image_calibrator.cpp -Wunused-parameter
 2 src-core/products/image/image_calibrator.h -Wsign-compare
-2 src-core/products/image/product_expression.cpp -Wsign-compare
+1 src-core/products/image/product_expression.cpp -Wsign-compare
 3 src-core/products/punctiform/product_dotmap.cpp -Wsign-compare
 3 src-core/products/punctiform/product_dotmap.cpp -Wunused-parameter
 2 src-core/products/punctiform_product.cpp -Wsign-compare

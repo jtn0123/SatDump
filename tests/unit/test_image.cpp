@@ -1,5 +1,6 @@
 #include "doctest.h"
 #include "image/image.h"
+#include "image/meta.h"
 #include "image/processing.h"
 
 using satdump::image::Image;
@@ -54,4 +55,21 @@ TEST_CASE("Image: copying an image that has no buffer gives an empty image")
     some.set(0, 3, 9);
     Image copy2(some);
     CHECK(copy2.get(0, 3) == 9);
+}
+
+TEST_CASE("Image: new metadata replaces the old in place (it used to leak the old metadata)")
+{
+    Image img(8, 4, 4, 1);
+    satdump::image::set_metadata(img, {{"a", 1}});
+    const void *first = img.metadata_obj;
+    satdump::image::set_metadata(img, {{"b", 2}});
+    CHECK(img.metadata_obj == first);
+    CHECK(satdump::image::get_metadata(img) == nlohmann::json{{"b", 2}});
+
+    Image other(8, 4, 4, 1);
+    satdump::image::set_metadata(other, {{"c", 3}});
+    const void *other_first = other.metadata_obj;
+    other = img;
+    CHECK(other.metadata_obj == other_first);
+    CHECK(satdump::image::get_metadata(other) == nlohmann::json{{"b", 2}});
 }

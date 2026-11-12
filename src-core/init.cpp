@@ -240,6 +240,7 @@ namespace satdump
         catch (std::exception &e) // Fork: for example a damaged main.db (see above)
         {
             logger->error("Cannot use the database %s/main.db (%s); it is left as it is and this run keeps its data in memory only", user_path.c_str(), e.what());
+            db->subhandlers.clear(); // they hold the old database too, so it would never be freed
             db = std::make_shared<DBHandler>(":memory:");
             setup_db();
         }
