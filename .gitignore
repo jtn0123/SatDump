@@ -18,6 +18,8 @@ srv/
 compile_commands.json
 as.predefined
 deps/
+# Fork: tests/deps holds the bundled-library check, not downloaded dependencies like the rule above
+!/tests/deps/
 src-core/satdump_varst.cpp
 windows/deps
 plugins/external

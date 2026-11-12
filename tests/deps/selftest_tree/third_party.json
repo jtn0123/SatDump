@@ -1,0 +1,36 @@
+{
+  "about": "Fixture list for test_check_deps.py (a pretend source tree).",
+  "doc": "DEPENDENCIES.md",
+  "scan": [
+    "lib"
+  ],
+  "not_libraries": [
+    {
+      "path": "lib/own_helper.h",
+      "reason": "the project's own file, not a library"
+    }
+  ],
+  "libraries": [
+    {
+      "name": "alpha",
+      "paths": [
+        "lib/alpha"
+      ],
+      "version": "1.2.3",
+      "version_from": {
+        "file": "lib/alpha/alpha.h",
+        "regex": "#define ALPHA_VERSION_MAJOR (\\d+)\\s+#define ALPHA_VERSION_MINOR (\\d+)\\s+#define ALPHA_VERSION_PATCH (\\d+)"
+      },
+      "sha256": "673040d479b1697c98c600e755d187d433cabe1622f6de8f6e5a71c4d1ef3fd0"
+    },
+    {
+      "name": "single",
+      "paths": [
+        "lib/single.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "sha256": "48d983c3e3a8028879f3b899e9114ae8d4f5a6724a6fe9e0ea08b9def7156bf0"
+    }
+  ]
+}

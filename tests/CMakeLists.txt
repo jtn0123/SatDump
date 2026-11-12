@@ -110,6 +110,13 @@ if(Python3_FOUND)
     set_tests_properties(thread_catches_lint PROPERTIES LABELS lint)
     add_test(NAME ratchet_selftest COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/warnings/test_ratchet.py)
     set_tests_properties(ratchet_selftest PROPERTIES LABELS lint)
+    # Fork: the bundled third-party libraries must match tests/deps/third_party.json (version,
+    # contents, no unlisted library in the scanned folders) and DEPENDENCIES.md must show each
+    # listed version; see DEPENDENCIES.md
+    add_test(NAME deps_check COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/deps/check_deps.py ${PROJECT_SOURCE_DIR})
+    set_tests_properties(deps_check PROPERTIES LABELS lint)
+    add_test(NAME deps_check_selftest COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/deps/test_check_deps.py)
+    set_tests_properties(deps_check_selftest PROPERTIES LABELS lint)
 endif()
 
 # Synthetic MetOp and NOAA recordings must give exactly the known-good pictures. Sanitizer

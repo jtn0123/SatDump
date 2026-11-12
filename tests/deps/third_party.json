@@ -1,0 +1,1022 @@
+{
+  "about": "Fork: bundled third-party libraries. tests/deps/check_deps.py checks this list; DEPENDENCIES.md explains it, and its Table 1 must start each library's version cell with the version here. \"scan\" names the folders where every file or folder must be a listed library or a not_libraries entry. Run check_deps.py <source root> --update after a deliberate library change, and update DEPENDENCIES.md with it.",
+  "doc": "DEPENDENCIES.md",
+  "scan": [
+    "src-core/libs",
+    "src-core/imgui",
+    "src-ui/imgui",
+    "src-core/angelscript",
+    "src-core/image/font",
+    "src-core/image/font_lib",
+    "plugins/firstparty_support/fcidecomp"
+  ],
+  "not_libraries": [
+    {
+      "path": "src-core/libs/bzlib_utils.h",
+      "reason": "SatDump's own helper around bzip2, not a library"
+    },
+    {
+      "path": "src-core/imgui/dialogs",
+      "reason": "SatDump's own file dialogs"
+    },
+    {
+      "path": "src-core/imgui/imgui_filedrop.h",
+      "reason": "SatDump's own file"
+    },
+    {
+      "path": "src-core/imgui/imgui_flags.h",
+      "reason": "SatDump's own file"
+    },
+    {
+      "path": "src-core/imgui/imgui_image.cpp",
+      "reason": "SatDump's own file"
+    },
+    {
+      "path": "src-core/imgui/imgui_image.h",
+      "reason": "SatDump's own file"
+    },
+    {
+      "path": "src-core/imgui/imgui_soft.h",
+      "reason": "the fork's soft skin"
+    },
+    {
+      "path": "src-ui/imgui/imgui_image_adv.cpp",
+      "reason": "SatDump's own file"
+    },
+    {
+      "path": "src-ui/imgui/imgui_image_base.cpp",
+      "reason": "SatDump's own file"
+    },
+    {
+      "path": "src-core/angelscript/scriptsatdump",
+      "reason": "SatDump's own script bindings"
+    }
+  ],
+  "libraries": [
+    {
+      "name": "libaec",
+      "paths": [
+        "src-core/libs/aec"
+      ],
+      "version": "1.0.x (2016)",
+      "version_from": null,
+      "version_note": "no version string; Copyright.txt ends at 2016 and the later aec_decode_range function is absent",
+      "upstream": "https://gitlab.dkrz.de/k202009/libaec",
+      "license": "BSD-2-Clause",
+      "debian": "libaec-dev 1.1.3-1",
+      "sha256": "c04cd6d40d8951133265ada4b668245d9e6e1ac097af6dacd271d1564afdf5aa"
+    },
+    {
+      "name": "base64 (tomykaira)",
+      "paths": [
+        "src-core/libs/base64"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://gist.github.com/tomykaira/f0fd86b6c73063283afe550bc5d77594",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "0a500cc91d21e30052a14163c70c03694ca4ac35a23fba99142eec4d661b1bdd"
+    },
+    {
+      "name": "CCSDS 122 Bit Plane Encoder (University of Nebraska-Lincoln)",
+      "paths": [
+        "src-core/libs/bpe"
+      ],
+      "version": "2006-11-03",
+      "version_from": null,
+      "version_note": "date in the file headers; bpe.c and bpe.h are SatDump's wrapper",
+      "upstream": "University of Nebraska-Lincoln reference encoder by Hongqiang Wang (no maintained upstream)",
+      "license": "University of Nebraska-Lincoln licence agreement (terms not in the tree)",
+      "debian": null,
+      "sha256": "f5e14ddd9bfd6264992203fd2637e4f49006fdce1b8e91c03411eccf8d9ab79b"
+    },
+    {
+      "name": "bzip2",
+      "paths": [
+        "src-core/libs/bzlib"
+      ],
+      "version": "1.1.0",
+      "version_from": {
+        "file": "src-core/libs/bzlib/bz_version.h",
+        "regex": "#define BZ_VERSION \"([^\"]+)\""
+      },
+      "version_note": "a development snapshot of the 1.1 branch, not a release",
+      "upstream": "https://gitlab.com/bzip2/bzip2",
+      "license": "bzip2 licence (BSD-style)",
+      "debian": "libbz2-dev 1.0.8-6",
+      "sha256": "18ed070e8fc63ef603e43464e0eaf8e26dc54adfa4b6c48ef32fbc5cfb7a306f"
+    },
+    {
+      "name": "CALCEPH",
+      "paths": [
+        "src-core/libs/calceph"
+      ],
+      "version": "4.0.5",
+      "version_from": {
+        "file": "src-core/libs/calceph/calceph.h",
+        "regex": "#define CALCEPH_VERSION_MAJOR (\\d+).*?#define CALCEPH_VERSION_MINOR (\\d+).*?#define CALCEPH_VERSION_PATCH (\\d+)"
+      },
+      "upstream": "https://www.imcce.fr/inpop/calceph",
+      "license": "CeCILL-C, CeCILL-B or CeCILL-2.1 (any one)",
+      "debian": "libcalceph-dev 4.0.4-2",
+      "sha256": "e9c9e30de44e37f7c55eaf4d0380a7ed3f0039436804b572be3d1295fc026d43"
+    },
+    {
+      "name": "libcorrect (Reed-Solomon part)",
+      "paths": [
+        "src-core/libs/correct"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/quiet/libcorrect",
+      "license": "BSD-3-Clause",
+      "debian": null,
+      "sha256": "bb0882c0a12e6853990d52254a8a32fa39b2c039ce4107fc971069a39a87c02c"
+    },
+    {
+      "name": "CTPL thread pool",
+      "paths": [
+        "src-core/libs/ctpl"
+      ],
+      "version": "unversioned (2014)",
+      "version_from": null,
+      "upstream": "https://github.com/vit-vit/CTPL",
+      "license": "Apache-2.0",
+      "debian": null,
+      "sha256": "997609619377443516399c219b4fde1ffc63dc5eebb5b07c420357be0d7720a7"
+    },
+    {
+      "name": "deepspace-turbo",
+      "paths": [
+        "src-core/libs/deepspace-turbo"
+      ],
+      "version": "unversioned (2017)",
+      "version_from": null,
+      "upstream": "https://github.com/geeanlooca/deepspace-turbo",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "81dc8f7b25b96ded814110ba96e38ea2c4753f4191d289f88d8f728e860b9a3f"
+    },
+    {
+      "name": "dlfcn-win32",
+      "paths": [
+        "src-core/libs/dlfcn"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/dlfcn-win32/dlfcn-win32",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "46cfa45e8dbc7d72369466a6a1f7178c1d69909fdbc5484c74e639ece2084d8a"
+    },
+    {
+      "name": "fkYAML",
+      "paths": [
+        "src-core/libs/fkyaml"
+      ],
+      "version": "0.4.3",
+      "version_from": {
+        "file": "src-core/libs/fkyaml/node.hpp",
+        "regex": "#define FK_YAML_MAJOR_VERSION (\\d+)\\s+#define FK_YAML_MINOR_VERSION (\\d+)\\s+#define FK_YAML_PATCH_VERSION (\\d+)"
+      },
+      "upstream": "https://github.com/fktn-k/fkYAML",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "6df2643f50a80d9dbf4a39c43e720ff13bd136e8827aee8f6eeedd136ddd467e"
+    },
+    {
+      "name": "IJG libjpeg (8-bit)",
+      "paths": [
+        "src-core/libs/jpeg"
+      ],
+      "version": "6b (27-Mar-1998)",
+      "version_from": {
+        "file": "src-core/libs/jpeg/jversion.h",
+        "regex": "#define JVERSION\\s+\"(\\S+)\\s+([^\"]+)\"",
+        "format": "{0} ({1})"
+      },
+      "upstream": "https://www.ijg.org/ (this copy is DCMTK's dcmjpeg/libijg8)",
+      "license": "IJG licence",
+      "debian": "libjpeg62-turbo-dev 1:2.1.5-4",
+      "sha256": "b12974ac363baddef30968eb125ed3eee2065917cbb2927fd643422446c1136e"
+    },
+    {
+      "name": "IJG libjpeg (12-bit)",
+      "paths": [
+        "src-core/libs/jpeg12"
+      ],
+      "version": "6b (27-Mar-1998)",
+      "version_from": {
+        "file": "src-core/libs/jpeg12/jversion12.h",
+        "regex": "#define JVERSION\\s+\"(\\S+)\\s+([^\"]+)\"",
+        "format": "{0} ({1})"
+      },
+      "version_note": "Debian has no stand-alone 12-bit libjpeg (DCMTK keeps its copy inside libdcmjpeg)",
+      "upstream": "https://github.com/DCMTK/dcmtk/tree/master/dcmjpeg/libijg12",
+      "license": "IJG licence",
+      "debian": null,
+      "sha256": "6b39d8f75bd6696d77c84b1af50f5dd4370880ae4b07b75b18437714d60f4142"
+    },
+    {
+      "name": "libintl-tiny (libintl-lite)",
+      "paths": [
+        "src-core/libs/libintl-tiny"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "libintl-lite; maintained fork: https://github.com/j-jorge/libintl-lite",
+      "license": "BSL-1.0",
+      "debian": null,
+      "sha256": "97b8edfaca7d6ce490f8f19a802239e07d8bdeaea0fcef85bbb043cb4a5ef63d"
+    },
+    {
+      "name": "libOpenCL_loader (with Khronos OpenCL headers)",
+      "paths": [
+        "src-core/libs/libopencl_loader"
+      ],
+      "version": "unversioned (2019)",
+      "version_from": null,
+      "upstream": "Guohui Wang's libOpenCL_loader; the CL/ headers are from https://github.com/KhronosGroup/OpenCL-Headers",
+      "license": "loader: no licence stated; CL headers: Apache-2.0",
+      "debian": null,
+      "sha256": "356c43502c5b8639a6e5b3920cdb033dd4ffc9d02fd25efe6970acd714c7d432"
+    },
+    {
+      "name": "miniz",
+      "paths": [
+        "src-core/libs/miniz"
+      ],
+      "version": "10.2.0",
+      "version_from": {
+        "file": "src-core/libs/miniz/miniz.h",
+        "regex": "#define MZ_VERSION \"([^\"]+)\""
+      },
+      "version_note": "MZ_VERSION 10.2.0 is miniz release 2.2.0",
+      "upstream": "https://github.com/richgel999/miniz",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "cd3ae87d87cd1130ba2e5a612729efaf3aef51200df46874a2232be870949038"
+    },
+    {
+      "name": "MQTT-C",
+      "paths": [
+        "src-core/libs/mqttc"
+      ],
+      "version": "1.1.7",
+      "version_from": {
+        "file": "src-core/libs/mqttc/README.md",
+        "regex": "Version: (\\S+)"
+      },
+      "version_note": "upstream tag v1.1.7 (commit 102e59c1, 2026-10-29), with SatDump's changes listed in its README.md",
+      "upstream": "https://github.com/LiamBindle/MQTT-C",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "63f6bc60d96c3f324e9466756fcee81bbea481c2fdfe12eda6d883b1340bedca"
+    },
+    {
+      "name": "muparser",
+      "paths": [
+        "src-core/libs/muparser"
+      ],
+      "version": "2.3.3 (Development Build)",
+      "version_from": {
+        "file": "src-core/libs/muparser/muParserDef.h",
+        "regex": "ParserVersion = string_type\\(_T\\(\"([^\"]+)\"\\)\\)"
+      },
+      "upstream": "https://github.com/beltoforion/muparser",
+      "license": "BSD-2-Clause",
+      "debian": "libmuparser-dev 2.3.4-1",
+      "sha256": "1538664d80ba549b5a65d9ed87c30b3ec2425e141b2d34d0044cf423c4f89f44"
+    },
+    {
+      "name": "muparserx",
+      "paths": [
+        "src-core/libs/muparserx"
+      ],
+      "version": "4.0.12 (2023-03-04)",
+      "version_from": {
+        "file": "src-core/libs/muparserx/mpDefines.h",
+        "regex": "#define MUP_PARSER_VERSION _T\\(\"([^\"]+)\"\\)"
+      },
+      "upstream": "https://github.com/beltoforion/muparserx",
+      "license": "BSD-2-Clause",
+      "debian": "libmuparserx-dev 4.0.12-2",
+      "sha256": "68520ec5d3b273cfe1ac40793e9f28e4ee9c36de2d1579e4453c170c8c12ad17"
+    },
+    {
+      "name": "OpenJPEG",
+      "paths": [
+        "src-core/libs/openjp2"
+      ],
+      "version": "2.5.0",
+      "version_from": {
+        "file": "src-core/libs/openjp2/opj_config_private.h",
+        "regex": "#define OPJ_PACKAGE_VERSION \"([^\"]+)\""
+      },
+      "upstream": "https://github.com/uclouvain/openjpeg",
+      "license": "BSD-2-Clause",
+      "debian": "libopenjp2-7-dev 2.5.3-2.1~deb13u2",
+      "sha256": "ce252eb87019bcbb72ce6bcfdcb937b17a76535bb76d326ecd20c1bb78db34e7"
+    },
+    {
+      "name": "NetBSD strptime",
+      "paths": [
+        "src-core/libs/others"
+      ],
+      "version": "1.62 (2017/08/24)",
+      "version_from": {
+        "file": "src-core/libs/others/strptime.cpp",
+        "regex": "\\$NetBSD: strptime\\.c,v (\\S+) (\\S+)",
+        "format": "{0} ({1})"
+      },
+      "upstream": "https://cvsweb.netbsd.org/bsdweb.cgi/src/lib/libc/time/strptime.c",
+      "license": "BSD-2-Clause",
+      "debian": null,
+      "sha256": "76458e566eab730324e9c299f8f7a48f149eab3594d59513ace912eea7410c96"
+    },
+    {
+      "name": "libpredict",
+      "paths": [
+        "src-core/libs/predict"
+      ],
+      "version": "3.0.0",
+      "version_from": {
+        "file": "src-core/libs/predict/predict.h",
+        "regex": "#define PREDICT_VERSION_STRING \"([^\"]+)\""
+      },
+      "upstream": "https://github.com/la1k/libpredict",
+      "license": "GPL-2.0",
+      "debian": null,
+      "sha256": "c54be7da5fd64f9454e3105b6ba1382f9f84b3dc593fbbe99880c4974c100e43"
+    },
+    {
+      "name": "SuperNOVAS",
+      "paths": [
+        "src-core/libs/supernovas"
+      ],
+      "version": "1.5.0-devel",
+      "version_from": {
+        "file": "src-core/libs/supernovas/novas.h",
+        "regex": "#define SUPERNOVAS_MAJOR_VERSION\\s+(\\d+).*?#define SUPERNOVAS_MINOR_VERSION\\s+(\\d+).*?#define SUPERNOVAS_PATCHLEVEL\\s+(\\d+).*?#define SUPERNOVAS_RELEASE_STRING\\s+\"([^\"]*)\"",
+        "format": "{0}.{1}.{2}{3}"
+      },
+      "upstream": "https://github.com/Sigmyne/SuperNOVAS",
+      "license": "Unlicense",
+      "debian": "libsupernovas-dev 1.3.0-2",
+      "sha256": "8df3e7d4ffb87c55a2c91aa27ef4b90682d8713b8f60e824bec6e8f0efc3f57f"
+    },
+    {
+      "name": "CLI11",
+      "paths": [
+        "src-core/libs/CLI11.hpp"
+      ],
+      "version": "2.5.0",
+      "version_from": {
+        "file": "src-core/libs/CLI11.hpp",
+        "regex": "#define CLI11_VERSION \"([^\"]+)\""
+      },
+      "upstream": "https://github.com/CLIUtils/CLI11",
+      "license": "BSD-3-Clause",
+      "debian": "libcli11-dev 2.4.1+ds-2",
+      "sha256": "6758cfa282c0ea1bcb075f2c1ed85a111095600fdd27918cd8de338b7fd12cc3"
+    },
+    {
+      "name": "QOI",
+      "paths": [
+        "src-core/libs/qoi.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/phoboslab/qoi",
+      "license": "MIT",
+      "debian": "libqoi-dev 0+git20220615+ds-4",
+      "sha256": "ec613f35b89e375cb251b72897901c5a9576d7899a04f47ffaff55de543f638b"
+    },
+    {
+      "name": "RapidXml",
+      "paths": [
+        "src-core/libs/rapidxml.hpp"
+      ],
+      "version": "1.13",
+      "version_from": {
+        "file": "src-core/libs/rapidxml.hpp",
+        "regex": "// Version (\\S+)"
+      },
+      "upstream": "https://rapidxml.sourceforge.net/",
+      "license": "BSL-1.0 or MIT",
+      "debian": "librapidxml-dev 1.13-3",
+      "sha256": "e0efb1b6b10ee17245d663f307befde3795baf4e6ee537d8adba927691b8a92b"
+    },
+    {
+      "name": "mmap for Windows (Mike Frysinger)",
+      "paths": [
+        "src-core/libs/mmap_windows.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "Mike Frysinger's public-domain mmap() replacement for Windows",
+      "license": "public domain",
+      "debian": null,
+      "sha256": "2b50d443a953d637304883249f81e9879b6b8b55a80cb7d2b61ede7fbe74684e"
+    },
+    {
+      "name": "strings.h for Windows (win32ports)",
+      "paths": [
+        "src-core/libs/strings_h_win.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/win32ports/strings_h",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "4f5f12e5a439ee6ba8289ea99cf193bcfe73a944bc3b7049e3d61d67ca759ef5"
+    },
+    {
+      "name": "Dear ImGui",
+      "paths": [
+        "src-core/imgui/imgui.h",
+        "src-core/imgui/imgui.cpp",
+        "src-core/imgui/imgui_demo.cpp",
+        "src-core/imgui/imgui_draw.cpp",
+        "src-core/imgui/imgui_internal.h",
+        "src-core/imgui/imgui_tables.cpp",
+        "src-core/imgui/imgui_widgets.cpp",
+        "src-core/imgui/imconfig.h",
+        "src-core/imgui/imstb_rectpack.h",
+        "src-core/imgui/imstb_textedit.h",
+        "src-core/imgui/imstb_truetype.h",
+        "src-core/imgui/imgui_stdlib.cpp",
+        "src-core/imgui/imgui_stdlib.h"
+      ],
+      "version": "1.92.5",
+      "version_from": {
+        "file": "src-core/imgui/imgui.h",
+        "regex": "#define IMGUI_VERSION\\s+\"([^\"]+)\""
+      },
+      "version_note": "the other files in src-core/imgui (imgui_soft.h, imgui_image.*, imgui_flags.h, imgui_filedrop.h, dialogs/) are SatDump's own",
+      "upstream": "https://github.com/ocornut/imgui",
+      "license": "MIT",
+      "debian": "libimgui-dev 1.90.1+ds-1",
+      "sha256": "5e8f5daafbb01a038fa1f0518649e23552c61eae3bd3fac3eb91560132af8f3e"
+    },
+    {
+      "name": "Dear ImGui backends (GLFW, OpenGL 2 and 3)",
+      "paths": [
+        "src-ui/imgui/imgui_impl_glfw.cpp",
+        "src-ui/imgui/imgui_impl_glfw.h",
+        "src-ui/imgui/imgui_impl_opengl2.cpp",
+        "src-ui/imgui/imgui_impl_opengl2.h",
+        "src-ui/imgui/imgui_impl_opengl3.cpp",
+        "src-ui/imgui/imgui_impl_opengl3.h"
+      ],
+      "version": "1.92.5",
+      "version_from": null,
+      "version_note": "no version string of their own; updated together with Dear ImGui",
+      "upstream": "https://github.com/ocornut/imgui/tree/master/backends",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "d5231d2197c8b85a28b0f70411299a6420d888f86f81bb872a82671a365b6469"
+    },
+    {
+      "name": "gl3w",
+      "paths": [
+        "src-ui/imgui/gl3w"
+      ],
+      "version": "unversioned (generated)",
+      "version_from": null,
+      "upstream": "https://github.com/skaslev/gl3w",
+      "license": "Unlicense (glcorearb.h and khrplatform.h: Khronos MIT-style)",
+      "debian": null,
+      "sha256": "3293d012ab2e5400c1a80793a0aae96fe2187698db1809c8c00e3cd3b22e3230"
+    },
+    {
+      "name": "portable-file-dialogs",
+      "paths": [
+        "src-ui/imgui/portable-file-dialogs.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/samhocevar/portable-file-dialogs",
+      "license": "WTFPL",
+      "debian": null,
+      "sha256": "017bc10b6384d17e2bb78b8f8c748098151949cf5fb0e819f12900759cfea375"
+    },
+    {
+      "name": "ImPlot",
+      "paths": [
+        "src-core/imgui/implot"
+      ],
+      "version": "0.18 WIP",
+      "version_from": {
+        "file": "src-core/imgui/implot/implot.h",
+        "regex": "#define IMPLOT_VERSION \"([^\"]+)\""
+      },
+      "upstream": "https://github.com/epezent/implot",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "c63a3bd6a99378d798118e79cd5277c5847f33e8a0073ba49f972c94718b717c"
+    },
+    {
+      "name": "ImPlot3D",
+      "paths": [
+        "src-core/imgui/implot3d"
+      ],
+      "version": "0.1",
+      "version_from": {
+        "file": "src-core/imgui/implot3d/implot3d.h",
+        "regex": "#define IMPLOT3D_VERSION \"([^\"]+)\""
+      },
+      "upstream": "https://github.com/brenocq/implot3d",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "02b71635c9c5e248ad2309f69cc1c1f79ef1e899ef146264250968c593a73391"
+    },
+    {
+      "name": "imnodes",
+      "paths": [
+        "src-core/imgui/imnodes"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/Nelarius/imnodes",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "be10f17eb9d32ef6fbaba2e383fbd8607f8b42d3167a040728920bc5a98053aa"
+    },
+    {
+      "name": "imgui_markdown",
+      "paths": [
+        "src-core/imgui/imgui_markdown.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/enkisoftware/imgui_markdown",
+      "license": "Zlib",
+      "debian": null,
+      "sha256": "f2ce902fc91616e503a0d071adb470c97cf57a6983805720f4ce5d18417a0472"
+    },
+    {
+      "name": "imgui-notify (with Font Awesome 5 icon codes)",
+      "paths": [
+        "src-interface/imgui_notify"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/patrickcjk/imgui-notify; font_awesome_5.h from https://github.com/juliettef/IconFontCppHeaders",
+      "license": "MIT (icon header: Zlib)",
+      "debian": null,
+      "sha256": "a2f9af76e8b32b52bc2c29f917dd19de8d65559f46fb68c11fd7f1bf7983a131"
+    },
+    {
+      "name": "nativefiledialog-extended",
+      "paths": [
+        "src-ui/nfd"
+      ],
+      "version": "1.2.1",
+      "version_from": {
+        "file": "src-ui/nfd/CMakeLists.txt",
+        "regex": "project\\(nativefiledialog-extended VERSION ([^)\\s]+)\\)"
+      },
+      "upstream": "https://github.com/btzy/nativefiledialog-extended",
+      "license": "Zlib",
+      "debian": null,
+      "sha256": "31b2d0d5dfdbac9590e02a4ea89f15806c631bde047e6d77eb24ef57847cfd67"
+    },
+    {
+      "name": "imgui_sw (software renderer for Dear ImGui)",
+      "paths": [
+        "src-core/dsp/benchmark/render/imgui_sw.cpp",
+        "src-core/dsp/benchmark/render/imgui_sw.hpp"
+      ],
+      "version": "unversioned (2018)",
+      "version_from": null,
+      "version_note": "no version string; upstream master adapted to newer Dear ImGui",
+      "upstream": "https://github.com/emilk/imgui_software_renderer",
+      "license": "public domain, or a do-as-you-like licence (dual, in the file header)",
+      "debian": null,
+      "sha256": "e46004c3b77d943ad29f5e0ee335f2c6f21964c5f698f5172294e0011a782b8b"
+    },
+    {
+      "name": "ImGuiColorTextEdit",
+      "paths": [
+        "src-core/handlers/dataset/TextEditor.cpp",
+        "src-core/handlers/dataset/TextEditor.h"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "version_note": "no version string; upstream master with small changes for newer Dear ImGui",
+      "upstream": "https://github.com/BalazsJako/ImGuiColorTextEdit",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "3b42a60d34c594c079b905f84d041a88ddae48b9afc3d29faf454fe490575b48"
+    },
+    {
+      "name": "Dear ImGui Android backends (with the imgl3w OpenGL loader)",
+      "paths": [
+        "android/imgui_backends"
+      ],
+      "version": "about 1.90",
+      "version_from": null,
+      "version_note": "no version string; the newest change note in imgui_impl_opengl3.cpp is 2023-10-05",
+      "upstream": "https://github.com/ocornut/imgui/tree/master/backends; loader https://github.com/dearimgui/gl3w_stripped",
+      "license": "MIT; loader public domain",
+      "debian": "part of libimgui-dev",
+      "sha256": "93b4ee423ab95fe3685d3e994a2205a527b6c577ba85db1132d39659e0da2ac3"
+    },
+    {
+      "name": "nlohmann json",
+      "paths": [
+        "src-core/nlohmann/json.hpp"
+      ],
+      "version": "3.11.3",
+      "version_from": {
+        "file": "src-core/nlohmann/json.hpp",
+        "regex": "#define NLOHMANN_JSON_VERSION_MAJOR (\\d+).*?#define NLOHMANN_JSON_VERSION_MINOR (\\d+).*?#define NLOHMANN_JSON_VERSION_PATCH (\\d+)"
+      },
+      "version_note": "json_utils.* next to it is SatDump's own",
+      "upstream": "https://github.com/nlohmann/json",
+      "license": "MIT",
+      "debian": "nlohmann-json3-dev 3.11.3-2.1",
+      "sha256": "07f8dc1d3853d2a49bf9168eac5d532b53892ce84fbe3e9a78084552d506a7b2"
+    },
+    {
+      "name": "AngelScript",
+      "paths": [
+        "src-core/angelscript/lib",
+        "src-core/angelscript/angelscript.h"
+      ],
+      "version": "2.38.0 WIP",
+      "version_from": {
+        "file": "src-core/angelscript/lib/angelscript.h",
+        "regex": "#define ANGELSCRIPT_VERSION_STRING \"([^\"]+)\""
+      },
+      "version_note": "src-core/angelscript/angelscript.h is a copy of lib/angelscript.h",
+      "upstream": "https://www.angelcode.com/angelscript/",
+      "license": "Zlib",
+      "debian": "angelscript-dev 2.35.1+ds-3.1",
+      "sha256": "5fa8d62af86649f1c959db0470439bac8808689aff01b8438c9921eabfcbe702"
+    },
+    {
+      "name": "AngelScript add-ons",
+      "paths": [
+        "src-core/angelscript/scriptarray",
+        "src-core/angelscript/scriptbuilder",
+        "src-core/angelscript/scriptdictionary",
+        "src-core/angelscript/scriptstdstring"
+      ],
+      "version": "2.38.0 WIP",
+      "version_from": null,
+      "version_note": "no version string of their own; from the same SDK as AngelScript. scriptsatdump/ is SatDump's own",
+      "upstream": "https://www.angelcode.com/angelscript/ (SDK add_on folder)",
+      "license": "Zlib",
+      "debian": null,
+      "sha256": "4d0561dddd89d81865c53ac3f191ca02c625abd4399c84190e8bd8d57ae3a261"
+    },
+    {
+      "name": "CharLS",
+      "paths": [
+        "plugins/firstparty_support/fcidecomp/charls"
+      ],
+      "version": "2.4.2",
+      "version_from": {
+        "file": "plugins/firstparty_support/fcidecomp/charls/version.h",
+        "regex": "#define CHARLS_VERSION_MAJOR (\\d+)\\s+#define CHARLS_VERSION_MINOR (\\d+)\\s+#define CHARLS_VERSION_PATCH (\\d+)"
+      },
+      "upstream": "https://github.com/team-charls/charls",
+      "license": "BSD-3-Clause",
+      "debian": "libcharls-dev 2.4.2-2",
+      "sha256": "28281afd5cdf0fc299ac4be2579be781046f8b337421189781cdf0ffab68ce60"
+    },
+    {
+      "name": "EUMETSAT FCIDECOMP (JPEG-LS HDF5 filter)",
+      "paths": [
+        "plugins/firstparty_support/fcidecomp/H5Zjpegls.c",
+        "plugins/firstparty_support/fcidecomp/H5Zjpegls.h",
+        "plugins/firstparty_support/fcidecomp/H5Zjpegls_definitions.h",
+        "plugins/firstparty_support/fcidecomp/H5Zjpegls_messages.h",
+        "plugins/firstparty_support/fcidecomp/fcicomp_errors.h",
+        "plugins/firstparty_support/fcidecomp/fcicomp_jpegls.c",
+        "plugins/firstparty_support/fcidecomp/fcicomp_jpegls.h",
+        "plugins/firstparty_support/fcidecomp/fcicomp_jpegls_messages.h",
+        "plugins/firstparty_support/fcidecomp/fcicomp_log.c",
+        "plugins/firstparty_support/fcidecomp/fcicomp_log.h",
+        "plugins/firstparty_support/fcidecomp/fcicomp_options.h"
+      ],
+      "version": "2.x (same files as 2.1.1)",
+      "version_from": null,
+      "version_note": "no version string. The Apache-2.0 headers and CharLS 2 mean 2.0.0 or later (CHANGES.md: 2.0.0 adopted Apache-2.0 and CharLS 2); the files match Debian's fcidecomp 2.1.1-1 source apart from SatDump's changes. VERSION:1.0.2 in H5Zjpegls_definitions.h is an old change note kept in later releases",
+      "upstream": "https://gitlab.eumetsat.int/sepdssme/fcidecomp",
+      "license": "Apache-2.0",
+      "debian": "libfcidecomp-jpegls-dev 2.1.1-1",
+      "sha256": "3abaa06fe2faf384b5fd25b1dcb7da30b1d922e7594c414845ddcf38d6df4560"
+    },
+    {
+      "name": "LibTomCrypt (DES subset)",
+      "paths": [
+        "plugins/gk2a_support/libtom"
+      ],
+      "version": "1.17",
+      "version_from": {
+        "file": "plugins/gk2a_support/libtom/tomcrypt.h",
+        "regex": "#define SCRYPT\\s+\"([^\"]+)\""
+      },
+      "upstream": "https://github.com/libtom/libtomcrypt",
+      "license": "public domain (LibTomCrypt 1.17 terms)",
+      "debian": "libtomcrypt-dev 1.18.2+dfsg-7",
+      "sha256": "35731eb4fa1e5474b7202214f84abb37974e50d2714f147d9d6c9fc70b8f7124"
+    },
+    {
+      "name": "libacars",
+      "paths": [
+        "plugins/inmarsat_support/aero/libacars"
+      ],
+      "version": "2.1.x",
+      "version_from": null,
+      "version_note": "no version string (version.c, which holds LA_VERSION, is not bundled); no ohma.c, so before 2.2",
+      "upstream": "https://github.com/szpajder/libacars",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "d0d37ccb9f0c5ac1f5077d8e0da7ebef6e0612a2ed0abed8ead4273cc640a822"
+    },
+    {
+      "name": "mbelib",
+      "paths": [
+        "plugins/inmarsat_support/aero/mbelib"
+      ],
+      "version": "1.3.0",
+      "version_from": {
+        "file": "plugins/inmarsat_support/aero/mbelib/README.md",
+        "regex": "mbelib (\\d+\\.\\d+\\.\\d+)"
+      },
+      "upstream": "https://github.com/szechyjs/mbelib",
+      "license": "ISC",
+      "debian": null,
+      "sha256": "70822e60dc216d457a3274acb7399385a807865dca755199f06872e72825dbd2"
+    },
+    {
+      "name": "librfnm",
+      "paths": [
+        "plugins/sdr_sources/rfnm_sdr_support/librfnm"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/rfnm/librfnm",
+      "license": "MPL-2.0",
+      "debian": null,
+      "sha256": "cfeaf4174e74360678b11179e559a0a72bf72f34a02875cd3198dd5a45df3d70"
+    },
+    {
+      "name": "ExtIO_sddc / libsddc (with PFFFT)",
+      "paths": [
+        "plugins/sdr_sources/sddc_sdr_support/lib"
+      ],
+      "version": "1.3.0 RC1",
+      "version_from": {
+        "file": "plugins/sdr_sources/sddc_sdr_support/lib/Core/config.h",
+        "regex": "#define SWVERSION\\s+\"([^\"]+)\""
+      },
+      "upstream": "https://github.com/ik1xpv/ExtIO_sddc",
+      "license": "MIT (PFFFT: FFTPACK BSD-style)",
+      "debian": null,
+      "sha256": "4c3eebfca556bb1d51b4ef00156a8cb303c9f96d621477d801526bb87618e408"
+    },
+    {
+      "name": "libmirisdr-4",
+      "paths": [
+        "plugins/sdr_sources/mirisdr_sdr_support/mirisdr"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "version_note": "the libmirisdr-4 branch (has the SDRplay hardware flavour); Debian's libmirisdr 2.0.0-4 is the older original and not a drop-in",
+      "upstream": "https://github.com/f4exb/libmirisdr-4",
+      "license": "GPL-2.0-or-later",
+      "debian": null,
+      "sha256": "482ba3895d9be06d7cec7bcc1c3d750fa23c7618a5e333687e9300b5a5992244"
+    },
+    {
+      "name": "SDRplay API headers",
+      "paths": [
+        "plugins/sdr_sources/sdrplay_sdr_support/sdrplay"
+      ],
+      "version": "3.15",
+      "version_from": {
+        "file": "plugins/sdr_sources/sdrplay_sdr_support/sdrplay/sdrplay_api.h",
+        "regex": "#define SDRPLAY_API_VERSION\\s+\\(float\\)\\(([^)]+)\\)"
+      },
+      "upstream": "https://www.sdrplay.com/api/",
+      "license": "SDRplay API licence (headers only; the library is loaded at run time)",
+      "debian": null,
+      "sha256": "8dd4e8ef133521df397e0b47f2d09f18e2a99019f16106a5121796bdfa9910c2"
+    },
+    {
+      "name": "SDR++ server client",
+      "paths": [
+        "plugins/sdr_sources/sdrpp_server_support/sdrpp_server"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/AlexandreRouma/SDRPlusPlus",
+      "license": "GPL-3.0",
+      "debian": null,
+      "sha256": "9d98c225361665a045710d40ce9a61b4ca9364b989d126478aae3788fdff56ba"
+    },
+    {
+      "name": "SpyServer client (from SDR++)",
+      "paths": [
+        "plugins/sdr_sources/spyserver_support/spyserver"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://github.com/AlexandreRouma/SDRPlusPlus",
+      "license": "GPL-3.0 (protocol header: Airspy/Youssef Touil)",
+      "debian": null,
+      "sha256": "e930ddb3fff386a0e8d464e81c52a981f163ce267b011ccbad680c627988552e"
+    },
+    {
+      "name": "serial (wjwwood)",
+      "paths": [
+        "plugins/experimental_devices_support/libserial"
+      ],
+      "version": "0.1",
+      "version_from": {
+        "file": "plugins/experimental_devices_support/libserial/serial.h",
+        "regex": "\\\\version (\\S+)"
+      },
+      "version_note": "the \\version comment upstream never updated; the code is from the 1.2 line",
+      "upstream": "https://github.com/wjwwood/serial",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "9110e57a11c956cd9cdff079c16104ee3fe533c6405531a8fd76098461309662"
+    },
+    {
+      "name": "PublicDecompWT",
+      "paths": [
+        "plugins/xrit_support/DecompWT"
+      ],
+      "version": "unversioned",
+      "version_from": null,
+      "upstream": "https://gitlab.eumetsat.int/open-source/PublicDecompWT",
+      "license": "Apache-2.0",
+      "debian": null,
+      "sha256": "f53c22cee012b429a20ac199629ff0584cb1820240bfaf4836f9174d0de773eb"
+    },
+    {
+      "name": "SOHO Rice decompressor (ricerecon64, NRL)",
+      "paths": [
+        "plugins/stereo_support/stereo/instruments/secchi/rice_decomp.cpp",
+        "plugins/stereo_support/stereo/instruments/secchi/rice_decomp.h"
+      ],
+      "version": "1996-07-11",
+      "version_from": null,
+      "version_note": "date in the file header (RECON.C for SOHO LASCO/EIT); ported to C++ by SatDump",
+      "upstream": "U.S. Naval Research Laboratory code by Mitchell R. Grunes and Karl Hoppel (no public upstream known)",
+      "license": "not stated in the file",
+      "debian": null,
+      "sha256": "1ac6e001e4336eae061155c47f606ece490c8f83f8d5603b76473d685cbd3628"
+    },
+    {
+      "name": "LDPC decoder (xdsopl)",
+      "paths": [
+        "plugins/dvb_support/codings/dvb-s2/ldpc"
+      ],
+      "version": "unversioned (2018)",
+      "version_from": null,
+      "upstream": "https://github.com/xdsopl/LDPC",
+      "license": "0BSD",
+      "debian": null,
+      "sha256": "65b368e0777f7ede32d22515fb9bdeb69cb7521138899fb5cd7846ef84f0685f"
+    },
+    {
+      "name": "BCH decoder (gr-dtv)",
+      "paths": [
+        "plugins/dvb_support/codings/dvb-s2/bch"
+      ],
+      "version": "unversioned (2018)",
+      "version_from": null,
+      "upstream": "https://github.com/gnuradio/gnuradio/tree/main/gr-dtv",
+      "license": "GPL-3.0-or-later",
+      "debian": null,
+      "sha256": "a1d41e5c301facacdebe939979894f6e50c638582e97ae78c84aa06d83bbf5fa"
+    },
+    {
+      "name": "ghc::filesystem",
+      "paths": [
+        "std_filesystem/filesystem"
+      ],
+      "version": "10510",
+      "version_from": {
+        "file": "std_filesystem/filesystem",
+        "regex": "#define GHC_FILESYSTEM_VERSION (\\d+)L"
+      },
+      "version_note": "10510 means 1.5.10",
+      "upstream": "https://github.com/gulrak/filesystem",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "18815e8dcfd846d436219fcbed75c666a7e3cc547c0d7f58b9c0e95d808de9a9"
+    },
+    {
+      "name": "VOLK volk_alloc.hh",
+      "paths": [
+        "volk_includes"
+      ],
+      "version": "unversioned (2019)",
+      "version_from": null,
+      "version_note": "used only when the system VOLK lacks volk_alloc.hh",
+      "upstream": "https://github.com/gnuradio/volk",
+      "license": "GPL-3.0-or-later",
+      "debian": "libvolk-dev 3.2.0-2",
+      "sha256": "fe95dcb261b22164fbfac7c2373f41ec773e9e71cc3aec4ca6070b0ee7aa468f"
+    },
+    {
+      "name": "doctest",
+      "paths": [
+        "tests/third_party/doctest"
+      ],
+      "version": "2.4.12",
+      "version_from": {
+        "file": "tests/third_party/doctest/doctest.h",
+        "regex": "#define DOCTEST_VERSION_MAJOR (\\d+)\\s+#define DOCTEST_VERSION_MINOR (\\d+)\\s+#define DOCTEST_VERSION_PATCH (\\d+)"
+      },
+      "upstream": "https://github.com/doctest/doctest",
+      "license": "MIT",
+      "debian": "doctest-dev 2.4.11-1",
+      "sha256": "143e6c96cf7fa28d8b21b8c8e9308db853f12c0db58e532e658492cefb9df79a"
+    },
+    {
+      "name": "stb (copies for the image text renderer)",
+      "paths": [
+        "src-core/image/font/imstb_truetype.h",
+        "src-core/image/font/imstb_rectpack.h",
+        "src-core/image/font/imstb_textedit.h",
+        "src-core/image/font_lib/imstb_truetype.h",
+        "src-core/image/font_lib/imstb_rectpack.h",
+        "src-core/image/font_lib/imstb_textedit.h"
+      ],
+      "version": "1.26",
+      "version_from": {
+        "file": "src-core/image/font/imstb_truetype.h",
+        "regex": "stb_truetype\\.h - v(\\S+)"
+      },
+      "version_note": "the version read is stb_truetype's; stb_rect_pack is v1.01 and stb_textedit v1.14",
+      "upstream": "https://github.com/nothings/stb",
+      "license": "MIT or public domain",
+      "debian": "libstb-dev 0.0~git20241109.5c20573+ds-1",
+      "sha256": "5eeba9b47b9939f428ab18d02f38f3dcc21edf3d8901a35568f8d2dacf58e489"
+    },
+    {
+      "name": "utfcpp",
+      "paths": [
+        "src-core/image/font/utf8.h",
+        "src-core/image/font/utf8"
+      ],
+      "version": "2.x",
+      "version_from": null,
+      "version_note": "no version string; the checked/unchecked/core layout is the 2.x series",
+      "upstream": "https://github.com/nemtrif/utfcpp",
+      "license": "BSL-1.0",
+      "debian": "libutfcpp-dev 4.0.5-1",
+      "sha256": "1bb02c641539f9d617afdfdc1a4a16ced4aa69ae7c1bd394f0471e5992da562c"
+    },
+    {
+      "name": "libdc1394 Bayer decoder",
+      "paths": [
+        "src-core/image/bayer"
+      ],
+      "version": "unversioned (libdc1394 2.x)",
+      "version_from": null,
+      "version_note": "no version string; bayer.cpp differs from libdc1394 2.2.6's dc1394/bayer.c mostly in formatting, plus SatDump's changes to build it on its own as C++",
+      "upstream": "https://sourceforge.net/projects/libdc1394/",
+      "license": "LGPL-2.1-or-later (VNG and AHD parts from DCRAW)",
+      "debian": "libdc1394-dev 2.2.6-5",
+      "sha256": "aa55ec4183fdf7a8cab5571b987ac37b1b002eb44d3ab6b5d6ed1d7e04ca3060"
+    },
+    {
+      "name": "readerwriterqueue",
+      "paths": [
+        "src-core/dsp/base/atomicops.h",
+        "src-core/dsp/base/readerwritercircularbuffer.h"
+      ],
+      "version": "unversioned (newer than 1.0.6)",
+      "version_from": null,
+      "upstream": "https://github.com/cameron314/readerwriterqueue",
+      "license": "BSD-2-Clause (embedded semaphore: Zlib)",
+      "debian": "libreaderwriterqueue-dev 1.0.6-1",
+      "sha256": "2e8196f28f05dc80b25a1a2e5ca799f8e275fd984e352fad9d3dbbf128c17ebc",
+      "version_note": "no version string; readerwritercircularbuffer.h has peek() and try_pop(), which release 1.0.6 lacks, but not upstream's later PowerPC cache-line size; atomicops.h's thread-sanitizer detection differs from upstream (origin not recorded)"
+    },
+    {
+      "name": "maidenhead (sp6q)",
+      "paths": [
+        "src-core/common/map/maidenhead.c",
+        "src-core/common/map/maidenhead.h"
+      ],
+      "version": "unversioned (2021)",
+      "version_from": null,
+      "upstream": "https://github.com/sp6q/maidenhead",
+      "license": "MIT",
+      "debian": null,
+      "sha256": "cced41bc977096f3bc43ebcc6ee5fc0b22b0ad20cbd875eb87d3af5f4b16d393"
+    }
+  ]
+}
