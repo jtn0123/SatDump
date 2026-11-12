@@ -6,6 +6,9 @@
 #include "nlohmann/json.hpp"
 #include "utils/file_url.h"
 #include "utils/http.h"
+#include "utils/sha1.h"
+#include <array>
+#include <cstdint>
 #include <exception>
 #include <sstream>
 #include <utility>
@@ -153,18 +156,52 @@ namespace satdump
         logger->info("%d IERS Records in database!", h->get_table_size("iers"));
     }
 
+    // Fork: the digits of a line of the leap second list up to its comment, as its hash is made of
+    // the digits of the "#$" and "#@" times and of the entries, in the order of the file
+    static void addLeapHashDigits(std::string &to, const std::string &text)
+    {
+        for (char ch : text)
+        {
+            if (ch == '#')
+                break;
+            if (ch >= '0' && ch <= '9')
+                to += ch;
+        }
+    }
+
+    // Fork: the five hexadecimal words after "#h" (as in "a9bad145 84c31c70 758402aa b37bfd54
+    // 5923836a"). A word with leading zeros may be written without them, so each is read as a
+    // number. False unless there are five words of 1 to 8 hexadecimal digits
+    static bool readLeapHashLine(const std::string &words, std::array<uint32_t, 5> &hash)
+    {
+        std::istringstream fields(words);
+        std::string w;
+        size_t n = 0;
+        while (fields >> w)
+        {
+            if (n == hash.size() || w.size() > 8 || w.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
+                return false;
+            hash[n++] = (uint32_t)std::stoul(w, nullptr, 16);
+        }
+        return n == hash.size();
+    }
+
     // Fork: replaces the parser that split lines on single spaces, so the tab-separated list
     // published by IERS stored nothing. The whole list is refused, with one warning, unless the
-    // times and the TAI-UTC values both go up from each entry to the next and it has its expiry
-    // line ("#@" and a time), as both published layouts do: a list cut short inside its last value
-    // ("3692217600<tab>3") was stored as 3 s from 2017 on
+    // times and the TAI-UTC values both go up from each entry to the next, it has its expiry line
+    // ("#@" and a time), and it matches its hash line ("#h", a SHA-1 of the times and entries),
+    // as both published layouts do. A list cut short inside its last value ("3692217600<tab>3")
+    // was stored as 3 s from 2017 on; one cut short between two lines (before "3692217600 37")
+    // has no hash line, as that is the last line, and gave 36 s from 2017 on
     bool IersDBHandler::storeLeapSeconds(const std::string &text)
     {
         std::vector<std::pair<long long, int>> entries;
         std::istringstream ls_stream(text);
         std::string l;
         int line_number = 0;
-        bool has_expiry = false;
+        bool has_expiry = false, has_hash = false;
+        std::string hashed;
+        std::array<uint32_t, 5> hash = {};
         while (std::getline(ls_stream, l))
         {
             line_number++;
@@ -173,11 +210,18 @@ namespace satdump
                 continue;
             if (l[first] == '#')
             {
-                std::istringstream expiry_fields(l.substr(first + 1));
-                char at = 0;
-                long long expiry = 0;
-                if (expiry_fields.get(at) && at == '@' && expiry_fields >> expiry)
-                    has_expiry = true;
+                char kind = first + 1 < l.size() ? l[first + 1] : ' ';
+                if (kind == '@')
+                {
+                    std::istringstream expiry_fields(l.substr(first + 2));
+                    long long expiry = 0;
+                    if (expiry_fields >> expiry)
+                        has_expiry = true;
+                }
+                if (kind == '@' || kind == '$') // the expiry time, and the time of the last update
+                    addLeapHashDigits(hashed, l.substr(first + 2));
+                if (kind == 'h')
+                    has_hash = readLeapHashLine(l.substr(first + 2), hash);
                 continue;
             }
 
@@ -202,6 +246,7 @@ namespace satdump
                 return false;
             }
             entries.push_back({ntp_time - 2208988800LL, leaps});
+            addLeapHashDigits(hashed, l);
         }
 
         if (entries.empty())
@@ -211,7 +256,18 @@ namespace satdump
         }
         if (!has_expiry)
         {
-            logger->warn("The leap second list has no expiry line (#@ and a time), so it may be cut short; the leap seconds already loaded are kept");
+            logger->warn("The leap second list has no expiry line (#@ and a time), which both published layouts have; the leap seconds already loaded are kept");
+            return false;
+        }
+        if (!has_hash)
+        {
+            logger->warn("The leap second list has no hash line (#h and five hexadecimal words, the last line of a published list), so it may be cut short; "
+                         "the leap seconds already loaded are kept");
+            return false;
+        }
+        if (sha1Digest(hashed) != hash)
+        {
+            logger->warn("The leap second list does not match its hash line (#h), so it was cut short or changed; the leap seconds already loaded are kept");
             return false;
         }
 

@@ -122,13 +122,15 @@ not_logged() { ! logged "$@"; }
 count() { plain "$1" | grep -c "$2"; }
 # Anything that would have gone online: a download message, a web address, a curl error
 no_download() { ! plain "$1" | grep -E -i "Downloading|https?://|curl_easy_perform|Updating Keplers.*http|Retrying"; }
-# The files were read, and nothing went wrong with them
+# The files were read, and nothing went wrong with them (the leap second list's warnings all
+# start "The leap second list": one that is refused, for its hash line or anything else, shows)
 read_files() {
     logged "$1" "Read 3 orbit elements from file://$D/data/elements.tle" &&
         logged "$1" "Reading the IERS bulletin from file://$D/data/finals2000A.daily.json" &&
         logged "$1" "Reading the leap second list from file://$D/data/leap-seconds.list" &&
         logged "$1" "4 IERS Records in database" &&
-        ! logged "$1" "Cannot read the"
+        ! logged "$1" "Cannot read the" &&
+        ! logged "$1" "The leap second list"
 }
 
 # The synthetic MetOp recording of the golden test, decoded to products

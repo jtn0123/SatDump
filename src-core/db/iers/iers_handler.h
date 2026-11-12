@@ -38,7 +38,9 @@ namespace satdump
 
         // Fork: stores the leap second list (leap-seconds.list: NTP time, TAI-UTC and a comment
         // on each line). False, with one warning and nothing stored, when any line cannot be
-        // read or there are no entries.
+        // read, there are no entries, the times or the TAI-UTC values do not go up from each
+        // entry to the next, or the list has no expiry line ("#@") or does not match its hash
+        // line ("#h", the SHA-1 both published layouts end with).
         bool storeLeapSeconds(const std::string &text);
 
         // Fork: where the IERS bulletin and the leap second list come from: the settings

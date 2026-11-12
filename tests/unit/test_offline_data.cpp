@@ -4,10 +4,11 @@
 // once (no ten retries); a damaged or empty file changing nothing, including one with values a
 // TLE cannot be made from, and stored elements of that kind being skipped; international
 // designators (full 8-character ones, the OMM form, a quote); the leap second list in the layouts
-// it is published in, and refused when damaged; the IERS entry nearest in time being the one
-// used; JSON that is not a bulletin; the IERS addresses as SatDump reads them (settings.json
-// merged over the installed defaults). The IERS data is a short copy of the published files
-// (tests/offline); the orbit elements are made up.
+// it is published in, and refused when damaged or when it does not match its hash line (so one
+// cut short between two lines is refused too), with the SHA-1 that checks it; the IERS entry
+// nearest in time being the one used; JSON that is not a bulletin; the IERS addresses as SatDump
+// reads them (settings.json merged over the installed defaults). The IERS data is a short copy of
+// the published files (tests/offline); the orbit elements are made up.
 
 #include "db/iers/iers_handler.h"
 #include "db/kepler/kepler_handler.h"
@@ -16,8 +17,12 @@
 #include "log_capture.h"
 #include "offline_rig.h"
 #include "utils/file_url.h"
+#include "utils/sha1.h"
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -600,8 +605,9 @@ TEST_CASE("IERS: the leap second list in both published layouts; a damaged one c
     test_rig::OfflineRig rig(test_rig::general("Never", false));
 
     // The copy in tzdata (IANA) has tabs between the columns (the fixture has spaces). Both have
-    // the expiry line, "#@" and a time
-    CHECK(rig.iers->storeLeapSeconds("#\tleap seconds\n#@\t4023129600\n2272060800\t10\t# 1 Jan 1972\n3692217600\t37\t# 1 Jan 2017\n"));
+    // the expiry line, "#@" and a time, and end with the hash line, "#h" and the SHA-1 of the data
+    CHECK(rig.iers->storeLeapSeconds("#\tleap seconds\n#@\t4023129600\n2272060800\t10\t# 1 Jan 1972\n3692217600\t37\t# 1 Jan 2017\n"
+                                     "#h\t8a926661 247bf802 7ce3dbc4 992c37ed a7b37e89\n"));
     CHECK(rig.db->get_table_size("leap_seconds") == 2);
     CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
 
@@ -622,8 +628,8 @@ TEST_CASE("IERS: the leap second list in both published layouts; a damaged one c
     CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n3692217600 37 # 1 Jan 2017\n2272060800 10 # 1 Jan 1972\n"));
     CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 10 # 1 Jan 2017\n"));
     CHECK(warnings(c) == 7);
-    // No expiry line, or one with no time: a list cut short between two lines cannot be told
-    // from a whole one without it
+    // No expiry line, or one with no time (both published layouts have one). A list cut short
+    // between two lines still has it, as it comes before the entries: the next test covers that
     CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"));
     CHECK_FALSE(rig.iers->storeLeapSeconds("#@\n2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"));
     CHECK(c.has(slog::LOG_WARN, "no expiry line"));
@@ -637,6 +643,89 @@ TEST_CASE("IERS: the leap second list in both published layouts; a damaged one c
     CHECK_FALSE(rig.iers->storeBulletinA(R"({"EOP": {"data": {"timeSeries": []}}})"));
     CHECK(c.has(slog::LOG_WARN, "no entries that can be used"));
     CHECK(rig.db->get_table_size("iers") == 0);
+}
+
+TEST_CASE("IERS: a leap second list is used only when it matches its hash line, so one cut short is refused")
+{
+    const std::string whole = fixture("leap-seconds.list");
+    const size_t last_entry = whole.find("3692217600 ");
+    const size_t hash_line = whole.find("#h\t");
+    REQUIRE(last_entry != std::string::npos);
+    REQUIRE(hash_line != std::string::npos);
+    REQUIRE(whole.find("#@\t") < last_entry);
+
+    test_rig::OfflineRig rig(test_rig::general("Never", false));
+    LogCapture c;
+
+    // Cut short between two lines: the expiry line and the entries up to 2015 are there, the last
+    // line (the hash) is not. It was stored, and gave 36 s from 2017 on, not 37
+    CHECK_FALSE(rig.iers->storeLeapSeconds(whole.substr(0, last_entry)));
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "no hash line"));
+    CHECK(rig.db->get_table_size("leap_seconds") == 0);
+    CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 0);
+    // Cut short after the last entry, before the hash line: the same
+    CHECK_FALSE(rig.iers->storeLeapSeconds(whole.substr(0, hash_line)));
+    // A hash line that is not five words of 1 to 8 hexadecimal digits is no hash line
+    const std::string data = whole.substr(0, hash_line);
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54 5923836a 5923836a\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54 5923836g\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54 15923836a\n"));
+    CHECK(warnings(c) == 6);
+    // Cut short inside the hash line, or with an entry changed: the data does not match the hash
+    CHECK_FALSE(rig.iers->storeLeapSeconds(whole.substr(0, whole.size() - 4)));
+    std::string changed = whole;
+    changed.replace(changed.find("3692217600      37"), 18, "3692217600      38");
+    CHECK_FALSE(rig.iers->storeLeapSeconds(changed));
+    std::string changed_expiry = whole;
+    changed_expiry.replace(changed_expiry.find("#@\t4023129600"), 13, "#@\t4038854400");
+    CHECK_FALSE(rig.iers->storeLeapSeconds(changed_expiry));
+    CHECK(c.has(slog::LOG_WARN, "does not match its hash line"));
+    CHECK(warnings(c) == 9);
+    CHECK(rig.db->get_table_size("leap_seconds") == 0);
+
+    // The hash is made of the digits of the entries and of the "#$" and "#@" times, in the order of
+    // the file: other comments, tabs for spaces and \r\n line ends do not change it
+    std::string retyped = whole;
+    size_t at = 0;
+    while ((at = retyped.find("      ", at)) != std::string::npos)
+        retyped.replace(at, 6, "\t");
+    retyped.replace(retyped.find("# 1 Jan 2017"), 12, "# 1 January 2017, the last one so far");
+    at = 0;
+    while ((at = retyped.find('\n', at)) != std::string::npos)
+    {
+        retyped.replace(at, 1, "\r\n");
+        at += 2;
+    }
+    CHECK(rig.iers->storeLeapSeconds(retyped));
+    CHECK(rig.db->get_table_size("leap_seconds") == 28);
+    CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
+
+    // A word of the hash may be written without its leading zeros (the second is 00a81a2b here)
+    CHECK(rig.iers->storeLeapSeconds("#$\t3992312699\n#@\t4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"
+                                     "#h\t4ad02730 a81a2b 564bc7c7 55c125b0 dc8802a1\n"));
+    CHECK(warnings(c) == 9);
+}
+
+TEST_CASE("IERS: SHA-1 of the standard test texts, and of lengths at the end of a block")
+{
+    auto hex = [](const std::string &bytes)
+    {
+        std::array<uint32_t, 5> d = satdump::sha1Digest(bytes);
+        char text[48];
+        snprintf(text, sizeof(text), "%08x %08x %08x %08x %08x", (unsigned)d[0], (unsigned)d[1], (unsigned)d[2], (unsigned)d[3], (unsigned)d[4]);
+        return std::string(text);
+    };
+    // FIPS 180-2, appendix A, and the empty text
+    CHECK(hex("") == "da39a3ee 5e6b4b0d 3255bfef 95601890 afd80709");
+    CHECK(hex("abc") == "a9993e36 4706816a ba3e2571 7850c26c 9cd0d89d");
+    CHECK(hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") == "84983e44 1c3bd26e baae4aa1 f95129e5 e54670f1");
+    CHECK(hex(std::string(1000000, 'a')) == "34aa973c d4c4daa4 f61eeb2b dbad2731 6534016f");
+    // 55 bytes leave room in their block for the end mark and the length, 56 and 64 do not
+    CHECK(hex(std::string(55, 'a')) == "c1c8bbdc 22796e28 c0e15163 d20899b6 5621d65a");
+    CHECK(hex(std::string(56, 'a')) == "c2db330f 6083854c 99d4b5bf b6e8f29f 201be699");
+    CHECK(hex(std::string(64, 'a')) == "0098ba82 4b5c1642 7bd7a112 2a5a442a 25ec644d");
 }
 
 TEST_CASE("IERS: JSON that is not a bulletin changes nothing and leaves no transaction open")
