@@ -116,6 +116,15 @@ namespace
         size_t end = line.find(',', start);
         return line.substr(0, start) + value + (end == std::string::npos ? "" : line.substr(end));
     }
+
+    // METOP-B's elements, as read from TLE_TEXT
+    satdump::KeplerData metop_elements()
+    {
+        int bad = -1;
+        std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(TLE_TEXT, bad);
+        REQUIRE(keps.size() == 3);
+        return keps[0];
+    }
 } // namespace
 
 TEST_CASE("Orbit elements: TLE text and OMM CSV are both read")
@@ -241,6 +250,38 @@ TEST_CASE("Orbit elements: a designator that fills all 8 columns is read as it i
     REQUIRE(keps.size() == 1);
     CHECK(keps[0].designator == "99025BGQ");
     CHECK(satdump::keplerToTle(keps[0]).line1.substr(9, 8) == "99025BGQ");
+}
+
+TEST_CASE("Orbit elements: OMM designators are written in TLE form, the longer ones too")
+{
+    // Only "YYYY-NNNP" (a one-letter piece) was turned into TLE form; "2019-074AB" was cut to
+    // "2019-074"
+    satdump::KeplerData kep = metop_elements();
+    for (auto &d : std::vector<std::pair<std::string, std::string>>{{"2012-049A", "12049A  "},
+                                                                     {"2019-074AB", "19074AB "},
+                                                                     {"1999-025BGQ", "99025BGQ"},
+                                                                     {"12049A", "12049A  "},
+                                                                     {"99025BGQ", "99025BGQ"},
+                                                                     {"", "        "}})
+    {
+        CAPTURE(d.first);
+        kep.designator = d.first;
+        satdump::TLE tle = satdump::keplerToTle(kep);
+        CHECK(tle.line1.substr(9, 8) == d.second);
+        CHECK(tle.line1.size() == 69);
+    }
+
+    // From an OMM file, through the database
+    TempDir dir;
+    dir.write("elements.csv", OMM_HEADER + omm_with(OMM_METOP, 1, "2019-074AB") + "\n");
+    test_rig::OfflineRig rig(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.csv")}));
+    std::optional<satdump::TLE> tle = rig.keplers->get_from_norad(38771);
+    REQUIRE(tle.has_value());
+    CHECK(tle->line1.substr(0, 18) == "1 38771U 19074AB  ");
+    predict_orbital_elements_t *elements = predict_parse_tle(tle->line1.c_str(), tle->line2.c_str());
+    REQUIRE(elements != nullptr);
+    CHECK(std::string(elements->designator) == "19074AB");
+    predict_destroy_orbital_elements(elements);
 }
 
 TEST_CASE("Orbit elements: a designator with a quote is stored, with the rest of its file")

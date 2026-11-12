@@ -71,6 +71,17 @@ namespace satdump
             throw satdump_exception("Error, value must be below 1!");
     }
 
+    // Fork: whether a designator has the OMM form, YYYY-NNN then 1 to 3 letters for the piece
+    static bool isOmmDesignator(const std::string &d)
+    {
+        if (d.size() < 9 || d.size() > 11 || d[4] != '-')
+            return false;
+        for (size_t i = 0; i < d.size(); i++)
+            if (i != 4 && !(i < 8 ? isdigit((unsigned char)d[i]) : isalpha((unsigned char)d[i])))
+                return false;
+        return true;
+    }
+
     TLE keplerToTle(KeplerData kep)
     {
         TLE tle;
@@ -90,27 +101,14 @@ namespace satdump
 
         double days = (kep.epoch - yearT) / (3600.0 * 24.0);
 
+        // Fork: an OMM designator ("2019-074AB") is written in TLE form ("19074AB "). Only the one
+        // with a one-letter piece was, and longer ones were cut to "2019-074". Every designator is
+        // padded with spaces to 8, as in a TLE; resize(8) padded the shorter ones TLE text gives
+        // ("12049A") with NUL characters
         std::string des = kep.designator;
-        if (des.size() == 9)
-        {
-            std::string ori = des;
-            des.resize(8);
-
-            for (auto &c : des)
-                c = ' ';
-
-            des[0] = ori[2];
-            des[1] = ori[3];
-
-            des[2] = ori[5];
-            des[3] = ori[6];
-            des[4] = ori[7];
-
-            des[5] = ori[8];
-        }
-        else
-            des.resize(8, ' '); // Fork: padded with spaces, as in a TLE; resize(8) padded the shorter
-                                // designators TLE text gives ("12049A") with NUL characters
+        if (isOmmDesignator(des))
+            des = des.substr(2, 2) + des.substr(5, 3) + des.substr(8);
+        des.resize(8, ' ');
 
         tle.line1 = "1 " +                                              // Line Number
                     strL(tle_id, 5) +                                   // Satellite Number
