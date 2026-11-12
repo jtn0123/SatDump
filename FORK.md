@@ -38,6 +38,10 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Bug fix | AMSU: channel 2 (AMSU-A2) took its low byte from the high byte, so every value was wrong; a damaged MetOp AMSU packet that is too short after the fill words are removed is dropped instead of read past its end | 2026-11-11 |
 | Bug fix | MetOp GOME: band 1 (365 channels) was never filled, the first channel of each later band was blank, and one channel was read past the end of an array | 2026-11-11 |
 | Crash fix | MetOp-A or an unknown MetOp: the MHS telemetry no longer stops the instruments step for lack of calibration coefficients (AMSU, GOME and the rest were lost); it is saved without temperatures and currents | 2026-11-11 |
+| Crash fix | NOAA HIRS: every HIRS frame read one byte past its buffer while the 13-bit words were unpacked | 2026-11-11 |
+| Crash fix | NOAA HIRS calibration: a calibration sequence on the first or last line, or a pass in which one of the thermometers (PRTs) has no reading, no longer reads outside the readings (or crashes); the nearest reading is used, and when a thermometer has no reading at all the lines are left uncalibrated | 2026-11-11 |
+| Bug fix | NOAA HIRS: averaging samples that are all 0 (dropped frames) gives 0 instead of a NaN converted to an integer (undefined behaviour) | 2026-11-11 |
+| Bug fix | MetOp IASI imager: a pixel whose warm and cold calibration views read the same is now 0 (no data) instead of white or an undefined value | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |

@@ -86,6 +86,16 @@ namespace metop
                             double initial = img.get((y2 * 64 + y) * 36 * 64 + (x2 * 64) + x);
                             if (initial == 0)
                                 continue;
+                            // Fork: a detector pixel whose warm and cold views read the same (a dead
+                            // pixel, or a line whose warm and cold frames were both lost) has no gain.
+                            // Dividing by 0 gave +inf (clamped to 65535, white), -inf (0) or NaN,
+                            // which passed both clamps and was converted to int (undefined
+                            // behaviour). Such a pixel is now 0, which this reader uses for "no data".
+                            if (count_warm[x][y].get<double>() == count_cold[x][y].get<double>())
+                            {
+                                img.set((y2 * 64 + y) * 36 * 64 + (x2 * 64) + x, 0);
+                                continue;
+                            }
                             initial = (initial - count_cold[x][y].get<double>()) / (count_warm[x][y].get<double>() - count_cold[x][y].get<double>());
                             initial = initial * (count_warm[31][0].get<double>() - count_cold[31][0].get<double>()) + count_cold[31][0].get<double>();
                             if (initial > 65535)

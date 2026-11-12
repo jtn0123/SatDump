@@ -1,4 +1,5 @@
 #include "hirs_reader.h"
+#include <algorithm>
 #include <cmath>
 #include "common/repack.h"
 #include "common/calibration.h"
@@ -34,7 +35,10 @@ namespace noaa
                 last_timestamp = ttp.getTimestamp(days, millisec);
             }
 
-            uint8_t HIRS_data[36] = {};
+            // Fork: 36 HIRS bytes plus one spare 0. shift_array_left() below reads one byte past
+            // the 33 it shifts, which was HIRS_data[36], past the end of the array. The spare byte
+            // only fills bits after the last 13-bit word, so the words are unchanged.
+            uint8_t HIRS_data[37] = {};
             int pos = 0;
             for (int j : HIRSPositions)
             {
@@ -171,6 +175,14 @@ namespace noaa
             if (c_sequences.size() > 0)
                 c_sequences.pop_back(); // Last sequence is always incomplete
 
+            // Fork: if any of the five PRTs has no reading (no element 58 frame, for PRTs 1-4, or no
+            // element 59 frame, for PRT 5, was received) there is no blackbody temperature, so no
+            // line can be calibrated: each gets the "no calibration" value below. The empty vector
+            // was read anyway, through a null pointer.
+            for (int p = 0; p < 5; p++)
+                if (PRT_counts[p].empty())
+                    c_sequences.clear();
+
             for (int channel = 0; channel < 19; channel++)
             {
                 for (uint8_t i = 0; i < c_sequences.size(); i++) // per channel per calib sequence
@@ -180,7 +192,14 @@ namespace noaa
                     {
                         uint16_t w_avg = 0;
                         for (int l = 0; l < 3; l++)
-                            w_avg += PRT_counts[p][c_sequences[i].position - 1 + l] * ((l % 2) + 1);
+                        {
+                            // Fork: the readings of the lines before, at and after the sequence. A
+                            // sequence on the first line asked for line -1, and one at the end of the
+                            // pass for a line after the last reading: both were read from outside the
+                            // vector. The nearest reading stands in (the temperature changes slowly).
+                            int prt_line = std::clamp(c_sequences[i].position - 1 + l, 0, (int)PRT_counts[p].size() - 1);
+                            w_avg += PRT_counts[p][prt_line] * ((l % 2) + 1);
+                        }
                         w_avg /= 4;
                         for (int deg = 0; deg < 6; deg++)
                         {
@@ -292,6 +311,11 @@ namespace noaa
                 else
                     ignored++;
             }
+            // Fork: with every sample 0 (dropped frames) there is nothing to average. The mean was
+            // 0 / 0, a NaN that was then converted to int (undefined behaviour). 0 is what callers
+            // already treat as "no value".
+            if (count == ignored)
+                return 0;
             mean /= (count - ignored);
 
             for (int i = 0; i < count; i++)
