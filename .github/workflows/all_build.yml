@@ -1,6 +1,7 @@
 name: Build All
 
-on: [push]
+# Fork: upstream's full multi-platform build only runs when started by hand.
+on: [workflow_dispatch]
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
