@@ -47,9 +47,19 @@ namespace noaa_metop
                 perLine_perChannel = d_cfg["vars"]["perLine_perChannel"];
             perChannel = d_cfg["vars"]["perChannel"];
             for (int i = 0; i < 3; i++)
-                crossover[i] = (perChannel[i]["int_hi"].get<double>() - perChannel[i]["int_lo"].get<double>()) / (perChannel[i]["slope_lo"].get<double>() - perChannel[i]["slope_hi"].get<double>());
+            {
+                // Fork: a pass with no calibration data (for example no AVHRR lines) has no
+                // coefficients; compute() then returns CALIBRATION_INVALID_VALUE for that channel
+                const nlohmann::json ch = perChannel.is_array() && perChannel.size() > size_t(i) ? perChannel[i] : nlohmann::json();
+                auto num = [&ch](const char *k) { return ch.is_object() && ch.contains(k) && ch[k].is_number(); };
+                if (num("int_hi") && num("int_lo") && num("slope_lo") && num("slope_hi"))
+                    crossover[i] = (ch["int_hi"].get<double>() - ch["int_lo"].get<double>()) / (ch["slope_lo"].get<double>() - ch["slope_hi"].get<double>());
+                else
+                    crossover[i] = 0;
+            }
 
-            factor = pow(2, 10 - d_pro->images[0].bit_depth); // All channels got the same bit hdepth
+            // All channels got the same bit depth
+            factor = d_pro->images.empty() ? 1 : pow(2, 10 - d_pro->images[0].bit_depth);
         }
 
         double radiance_factors[3] = {1.0345143074006786, 1.2401744729666442, 1.3026239067055392}; // MetOp-C
@@ -62,7 +72,7 @@ namespace noaa_metop
             {
                 double reflectance = 0;
                 int px = px_val * factor;
-                if (!perChannel[channel].contains("slope_lo"))
+                if (size_t(channel) >= perChannel.size() || !perChannel[channel].contains("slope_lo"))
                     return CALIBRATION_INVALID_VALUE;
                 if (px <= crossover[channel])
                     reflectance = (perChannel[channel]["slope_lo"].get<double>() * px + perChannel[channel]["int_lo"].get<double>()) / 100.0;

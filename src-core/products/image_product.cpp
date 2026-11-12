@@ -122,7 +122,8 @@ namespace satdump
 #endif
 
             image::Image img_matrix;
-            if (save_as_matrix)
+            // Fork: save() writes no matrix file for a product with no images (for example a pass with no data)
+            if (save_as_matrix && contents["images"].is_array() && !contents["images"].empty())
             {
                 if (file.find("http") == 0)
                 {
