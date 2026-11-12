@@ -41,7 +41,7 @@
         //
         // Other settings. We utilize the same parameter system, easier that way :-)
         "theme": {
-            "value": "Dark"
+            "value": "Soft OLED"
         },
         "manual_dpi_scaling": {
             "type": "float",
