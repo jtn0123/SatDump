@@ -30,6 +30,8 @@ add_executable(satdump-unit-tests
     unit/test_aec.cpp
     unit/test_j2k.cpp
     unit/test_j2k_stream.cpp
+    unit/test_mqtt.cpp
+    unit/test_mqtt_client.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp

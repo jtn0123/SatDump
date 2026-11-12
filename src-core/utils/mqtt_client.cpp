@@ -29,12 +29,31 @@ namespace satdump
 
     void *MQTTClient::client_refresher(void *client)
     {
-        while (((MQTTClient *)((mqtt_client *)client)->publish_response_callback_state)->run_refresh)
+        MQTTClient *tthis = (MQTTClient *)((mqtt_client *)client)->publish_response_callback_state;
+        enum MQTTErrors last = MQTT_OK;
+        while (tthis->run_refresh)
         {
-            mqtt_sync((struct mqtt_client *)client);
+            enum MQTTErrors result = mqtt_sync((struct mqtt_client *)client);
+            // Fork: the result used to be dropped, so a lost connection or a bad packet from the
+            // broker stopped every MQTT message without a word. It is now logged once (the error
+            // stays, and this loop retries every 100 us); not while the client is being closed
+            if (tthis->run_refresh)
+                last = log_sync_result(result, last);
             std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
         return NULL;
+    }
+
+    enum MQTTErrors MQTTClient::log_sync_result(enum MQTTErrors result, enum MQTTErrors previous)
+    {
+        if (result != previous)
+        {
+            if (result != MQTT_OK)
+                logger->error("MQTT connection failed: %s", mqtt_error_str(result));
+            else
+                logger->info("MQTT connection working again");
+        }
+        return result;
     }
 
     MQTTClient::MQTTClient(std::string addr, std::string port, int bufsize, std::function<void(std::string topic, uint8_t *data, int len)> callback) : callback(callback)

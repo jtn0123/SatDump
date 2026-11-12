@@ -111,12 +111,12 @@ extern "C" {
  * @defgroup unpackers Control Packet Deserialization
  * @brief Developer documentation of the functions and datastructures used for deserializing MQTT 
  *        control packets.
- * 
- * @defgroup details Utilities
- * @brief Developer documentation for the utilities used to implement the MQTT-C client.
  *
  * @note To deserialize a packet from a buffer use \ref mqtt_unpack_response (it's the only 
  *       function you need).
+ * 
+ * @defgroup details Utilities
+ * @brief Developer documentation for the utilities used to implement the MQTT-C client.
  */
 
 
@@ -330,6 +330,7 @@ struct mqtt_response_connack {
 
  /**
   * @brief A publish packet received from the broker.
+  * @ingroup api
   * @ingroup unpackers
   * 
   * A publish packet is received from the broker when a client publishes to a topic that the 
@@ -666,7 +667,7 @@ ssize_t mqtt_pack_fixed_header(uint8_t *buf, size_t bufsz, const struct mqtt_fix
 
 /**
  * @brief An enumeration of CONNECT packet flags.
- * @ingroup packers
+ * @ingroup api
  * 
  * @see <a href="http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718030">
  * MQTT v3.1.1: CONNECT Variable Header.
@@ -734,7 +735,7 @@ ssize_t mqtt_pack_connection_request(uint8_t* buf, size_t bufsz,
 
 /**
  * @brief An enumeration of the PUBLISH flags.
- * @ingroup packers
+ * @ingroup api
  * 
  * @see <a href="http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718037">
  * MQTT v3.1.1: PUBLISH - Publish Message.
@@ -1087,6 +1088,7 @@ struct mqtt_queued_message* mqtt_mq_find(const struct mqtt_message_queue *mq, en
 
 /**
  * @brief An MQTT client. 
+ * @ingroup api
  * @ingroup details
  * 
  * @note All members can be manipulated via the related functions.
@@ -1326,23 +1328,12 @@ enum MQTTErrors mqtt_sync(struct mqtt_client *client);
  * 
  * @attention Only initialize an MQTT client once (i.e. don't call \ref mqtt_init or 
  *            \ref mqtt_init_reconnect more than once per client).
- * @attention \p sendbuf internally mapped to client's message-to-send queue that actively uses
- *            pointer access. In the case of unaligned \p sendbuf, that may lead to
- *            Segmentation/Hard/Memory Faults on systems that do not support unaligned pointer
- *            access (e.g. ARMv6, ARMv7-M). To avoid that, you may use the following technique:
- *            \code{.c}
- *            // example for ARMv7-M that requires pointers to be word aligned (4 byte boundary)
- *            static unsigned char mqtt_tx_buffer[MAX_TX_BUFFER_SIZE] __attribute__((aligned(4)));
- *            static unsigned char mqtt_rx_buffer[MAX_RX_BUFFER_SIZE];
- *            // ...
- *            int main(void) {
- *                // ...
- *                mqtt_init(p_client, p_client->socketfd, mqtt_tx_buffer, sizeof mqtt_tx_buffer, mqtt_rx_buffer,
- *                          sizeof mqtt_rx_buffer, message_callback);
- *                // ...
- *            }
- *            \endcode
- * 
+ * @note \p sendbuf holds the client's message queue, whose bookkeeping entries are stored at
+ *       the end of \p sendbuf. The end is rounded down to the alignment of those entries
+ *       (typically 4 or 8 bytes), so up to that many bytes minus one at the end of \p sendbuf
+ *       may go unused. To use all of \p sendbuf, align it and make \p sendbufsz a multiple of
+ *       that alignment.
+ *
  * @returns \c MQTT_OK upon success, an \ref MQTTErrors otherwise.
  */
 enum MQTTErrors mqtt_init(struct mqtt_client *client,
@@ -1606,7 +1597,7 @@ enum MQTTErrors mqtt_disconnect(struct mqtt_client *client);
  * @ingroup api
  * 
  * @note The user must provide a reconnect callback function for this to 
- * work as expected. See \r mqtt_client_reconnect.
+ * work as expected. See \ref mqtt_reconnect.
  * 
  * @pre mqtt_connect must have been called
 * 

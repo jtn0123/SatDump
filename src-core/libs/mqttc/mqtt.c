@@ -189,6 +189,7 @@ void mqtt_reinit(struct mqtt_client* client,
     client->socketfd = socketfd;
 
     mqtt_mq_init(&client->mq, sendbuf, sendbufsz);
+    client->send_offset = 0;
 
     client->recv_buffer.mem_start = recvbuf;
     client->recv_buffer.mem_size = recvbufsz;
@@ -614,12 +615,14 @@ ssize_t __mqtt_send(struct mqtt_client *client)
                 msg->state = MQTT_QUEUED_AWAITING_ACK;
             }
             break;
+        case MQTT_CONTROL_PINGREQ:
+            client->number_of_keep_alives += 1;
+            /* fall through */
         case MQTT_CONTROL_CONNECT:
         case MQTT_CONTROL_PUBREC:
         case MQTT_CONTROL_PUBREL:
         case MQTT_CONTROL_SUBSCRIBE:
         case MQTT_CONTROL_UNSUBSCRIBE:
-        case MQTT_CONTROL_PINGREQ:
             msg->state = MQTT_QUEUED_AWAITING_ACK;
             break;
         default:
@@ -880,6 +883,14 @@ ssize_t __mqtt_recv(struct mqtt_client *client)
                 client->error = MQTT_ERROR_MALFORMED_RESPONSE;
                 mqtt_recv_ret = MQTT_ERROR_MALFORMED_RESPONSE;
                 break;
+        }
+        if ((size_t) consumed
+            > (size_t) (client->recv_buffer.curr - client->recv_buffer.mem_start)) {
+            /* Defensive: an unpacker must never report more bytes consumed than it
+             * was given. Refuse rather than memmove() with a wrapped size. */
+            client->error = MQTT_ERROR_MALFORMED_RESPONSE;
+            mqtt_recv_ret = MQTT_ERROR_MALFORMED_RESPONSE;
+            break;
         }
         {
           /* we've handled the response, now clean the buffer */
@@ -1362,6 +1373,17 @@ ssize_t mqtt_unpack_publish_response(struct mqtt_response *mqtt_response, const 
     /* parse variable header */
     response->topic_name_size = __mqtt_unpack_uint16(buf);
     buf += 2;
+
+    /* The topic name, plus the packet identifier when QoS > 0, must fit in the
+     * declared remaining length (MQTT 3.1.1 section 3.3). Without this check a
+     * topic length larger than the packet walks the cursor out of the buffer and
+     * makes the payload size computed below underflow. */
+    if ((size_t) response->topic_name_size + 2u
+            + ((response->qos_level > 0) ? 2u : 0u)
+        > (size_t) fixed_header->remaining_length) {
+        return MQTT_ERROR_MALFORMED_RESPONSE;
+    }
+
     response->topic_name = buf;
     buf += response->topic_name_size;
 
@@ -1613,10 +1635,25 @@ ssize_t mqtt_pack_unsubscribe_request(uint8_t *buf, size_t bufsz, unsigned int p
 }
 
 /* MESSAGE QUEUE */
+
+/* Queued messages are stored as an array growing down from mem_end, so mem_end must be
+   aligned for struct mqtt_queued_message. This gets that alignment without C11's _Alignof. */
+struct mqtt_mq_alignment_probe {
+    char c;
+    struct mqtt_queued_message msg;
+};
+#define MQTT_MQ_ALIGNMENT (sizeof(struct mqtt_mq_alignment_probe) - sizeof(struct mqtt_queued_message))
+
 void mqtt_mq_init(struct mqtt_message_queue *mq, void *buf, size_t bufsz) 
 {  
+    /* round mem_end down to MQTT_MQ_ALIGNMENT (only the low bits of the address matter) */
+    size_t misalignment = ((size_t) buf + bufsz) % MQTT_MQ_ALIGNMENT;
+    if (misalignment > bufsz) {
+        misalignment = bufsz;
+    }
+
     mq->mem_start = buf;
-    mq->mem_end = (uint8_t *)buf + bufsz;
+    mq->mem_end = (uint8_t *)buf + bufsz - misalignment;
     mq->curr = (uint8_t *)buf;
     mq->queue_tail = (struct mqtt_queued_message *)mq->mem_end;
     mq->curr_sz = buf == NULL ? 0 : mqtt_mq_currsz(mq);
@@ -1776,15 +1813,16 @@ static const char * const MQTT_ERRORS_STR[] = {
 };
 
 const char* mqtt_error_str(enum MQTTErrors error) {
-    int offset = error - MQTT_ERROR_UNKNOWN;
-    if (offset >= 0) {
-        return MQTT_ERRORS_STR[offset];
+    if (error < 0) {
+        unsigned int offset = (unsigned int) (error - MQTT_ERROR_UNKNOWN);
+        if (offset < sizeof(MQTT_ERRORS_STR) / sizeof(MQTT_ERRORS_STR[0])) {
+            return MQTT_ERRORS_STR[offset];
+        }
+        return MQTT_ERRORS_STR[0];
     } else if (error == 0) {
         return "MQTT_ERROR: Buffer too small.";
-    } else if (error > 0) {
-        return "MQTT_OK";
     } else {
-        return MQTT_ERRORS_STR[0];
+        return "MQTT_OK";
     }
 }
 

@@ -2,6 +2,7 @@
 #define __POSIX_SOCKET_TEMPLATE_H__
 
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 #if !defined(WIN32)
 #include <sys/socket.h>
@@ -21,7 +22,10 @@
 int open_nb_socket(const char* addr, const char* port);
 
 int open_nb_socket(const char* addr, const char* port) {
-    struct addrinfo hints = {0};
+    // Fork: "= {0}" names only the first field, which C++ warns about (-Wmissing-field-initializers);
+    // the hints are now cleared with memset, the same all-zero start without the warning
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
 
     hints.ai_family = AF_UNSPEC; /* IPv4 or IPv6 */
     hints.ai_socktype = SOCK_STREAM; /* Must be TCP */
