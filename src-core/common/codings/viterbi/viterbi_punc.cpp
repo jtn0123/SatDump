@@ -72,7 +72,8 @@ namespace viterbi
                         if (lenp % 2)
                             lenp--;
 
-                        cc_decoder_ber.work(ber_depunc_buffer, ber_decoded_buffer, lenp);      // Decode....
+                        // Fork: the deprecated work() with a size argument (never used) is gone; the decoding is the same
+                        cc_decoder_ber.work(ber_depunc_buffer, ber_decoded_buffer);            // Decode....
                         cc_encoder_ber.work(ber_decoded_buffer, ber_encoded_buffer, lenp / 2); // ....then reencode for comparison
 
                         test_bit_len = lenp;
@@ -108,7 +109,7 @@ namespace viterbi
             int sz = depunc->depunc_cont(soft_buffer, depunc_buffer, size); // Depuncturing
 
 #if 0
-            cc_decoder.work(depunc_buffer, output, sz); // Decode entire buffer
+            cc_decoder.work(depunc_buffer, output); // Decode entire buffer
             out_n = sz / 2;
 
             cc_encoder_ber.work(output, ber_encoded_buffer);                     // Re-encoded for a BER check

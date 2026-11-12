@@ -300,16 +300,4 @@ namespace viterbi
 
         init_viterbi(&d_vp, *d_start_state);
     }
-
-    void CCDecoder::work(uint8_t *in, uint8_t *out, int size)
-    {
-        int frm_size = size / d_k;
-        int veclen = frm_size + d_k - 1;
-
-        update_viterbi_blk((unsigned char *)(&in[0]), d_veclen);
-        d_end_state_chaining = find_endstate();
-        d_start_state_chaining = chainback_viterbi(&out[0], d_frame_size, *d_end_state, veclen - frm_size);
-
-        init_viterbi(&d_vp, *d_start_state);
-    }
 }

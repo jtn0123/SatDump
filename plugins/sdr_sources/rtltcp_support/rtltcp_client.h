@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include "logger.h"
 
 #ifdef _WIN32
 #include <WinSock2.h>
@@ -128,11 +129,17 @@ public:
         command_t cmd;
         cmd.cmd = command;
         cmd.param = htonl(param);
+        // Fork: the result of write() was thrown away with a (void) cast, so a command the server
+        // never got went unnoticed, and GCC with _FORTIFY_SOURCE (on by default on Ubuntu) still
+        // reports the ignored result, which is now a build error. A failed or short send is now logged.
 #ifdef _WIN32
-        send(sock, (char*)&cmd, sizeof(command_t), 0);
+        long sent = send(sock, (char*)&cmd, sizeof(command_t), 0);
 #else
-        (void)write(sockfd, &cmd, sizeof(command_t));
+        long sent = write(sockfd, &cmd, sizeof(command_t));
 #endif
+        if (sent != (long)sizeof(command_t)) {
+            logger->warn("RTL-TCP command %d was not sent (%ld of %d bytes)", (int)command, sent, (int)sizeof(command_t));
+        }
     }
 
     void receiveData(uint8_t* buf, size_t count) {

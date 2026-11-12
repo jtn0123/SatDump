@@ -1,6 +1,8 @@
 #pragma once
 
+#ifndef IMGUI_DEFINE_MATH_OPERATORS // Fork: imconfig.h may have defined it already ("redefined" warning)
 #define IMGUI_DEFINE_MATH_OPERATORS
+#endif
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 

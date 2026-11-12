@@ -76,7 +76,9 @@ namespace elektro_arktika
             int pos = 5 * 38;
 
             // Convert to 10 bits values
-            for (int i = 0; i < 12044; i += 4)
+            // Fork: only the 6004 * 2 values used below; the old count (12044) read 35 bytes past
+            // the end of the 15210-byte line frame into values that were never used
+            for (int i = 0; i < 6004 * 2; i += 4)
             {
                 msuLineBuffer[i] = (data[pos + 0] << 2) | (data[pos + 1] >> 6);
                 msuLineBuffer[i + 1] = ((data[pos + 1] % 64) << 4) | (data[pos + 2] >> 4);
@@ -92,7 +94,9 @@ namespace elektro_arktika
                 imageBuffer2[counter * 6004 + i] = msuLineBuffer[i * 2 + 1] << 6;
             }
 
-            uint64_t data_time = data[10] << 32 | data[11] << 24 | data[12] << 16 | data[13] << 8 | data[14];
+            // Fork: the 40-bit count was built in 32-bit int, so the top byte was shifted out (undefined
+            // behaviour) and byte 11 >= 0x80 made the value negative, giving times around 1e17
+            uint64_t data_time = (uint64_t)data[10] << 32 | (uint64_t)data[11] << 24 | (uint64_t)data[12] << 16 | (uint64_t)data[13] << 8 | (uint64_t)data[14];
             //  data_time = 0;
             double timestamp = data_time / 256.0; //.56570155902006;
             timestamp += 1735204808.2837029;

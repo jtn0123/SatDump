@@ -80,7 +80,15 @@ protected:
 
                 // Optionally re-scale to be in the more "standard" 1.0f range
                 if (d_rescale)
-                    volk_32fc_s32fc_multiply_32fc((lv_32fc_t *)output_stream->writeBuf, (lv_32fc_t *)packet.fp32, d_rescale_val, cnt);
+                {
+                    const lv_32fc_t rescale = lv_32fc_t(d_rescale_val, 0.0f);
+                    // Fork: VOLK 3.1 deprecated volk_32fc_s32fc_multiply_32fc for the same kernel taking the scalar by pointer
+#if VOLK_VERSION >= 30100
+                    volk_32fc_s32fc_multiply2_32fc((lv_32fc_t *)output_stream->writeBuf, (lv_32fc_t *)packet.fp32, &rescale, cnt);
+#else
+                    volk_32fc_s32fc_multiply_32fc((lv_32fc_t *)output_stream->writeBuf, (lv_32fc_t *)packet.fp32, rescale, cnt);
+#endif
+                }
                 else
                     memcpy(output_stream->writeBuf, (complex_t *)packet.fp32, cnt * sizeof(complex_t));
 

@@ -219,7 +219,8 @@ namespace viterbi
 
             if (d_rate == RATE_1_2)
             {
-                cc_decoder_12.work(soft_buffer + d_shift, output, size); // Decode entire buffer
+                // Fork: the deprecated work() with a size argument (never used) is gone; the decoding is the same
+                cc_decoder_12.work(soft_buffer + d_shift, output); // Decode entire buffer
                 out_n = size / 2;
 
                 cc_encoder_ber_12.work(output, ber_encoded_buffer);                                // Re-encoded for a BER check
@@ -229,7 +230,7 @@ namespace viterbi
             {
                 int sz = depunc_23.depunc_cont(soft_buffer, depunc_buffer, size); // Depuncturing
 #if 0
-                cc_decoder_23.work(depunc_buffer, output, sz); // Decode entire buffer
+                cc_decoder_23.work(depunc_buffer, output); // Decode entire buffer
                 out_n = sz / 2;
 
                 cc_encoder_ber_23.work(output, ber_encoded_buffer);                               // Re-encoded for a BER check
@@ -254,7 +255,8 @@ namespace viterbi
             {
                 int sz = depuncture_34(soft_buffer, depunc_buffer, size, d_shift); // Depuncturing
 
-                cc_decoder_34.work(depunc_buffer, output, sz); // Decode entire buffer
+                // Fork: the deprecated work() with a size argument (never used) is gone; the decoding is the same
+                cc_decoder_34.work(depunc_buffer, output); // Decode entire buffer
                 out_n = sz / 2;
 
                 cc_encoder_ber_34.work(output, ber_encoded_buffer);                            // Re-encoded for a BER check
@@ -264,7 +266,7 @@ namespace viterbi
             {
                 int sz = depunc_56.depunc_cont(soft_buffer, depunc_buffer, size); // Depuncturing
 #if 0
-                cc_decoder_56.work(depunc_buffer, output, sz); // Decode entire buffer
+                cc_decoder_56.work(depunc_buffer, output); // Decode entire buffer
                 out_n = sz / 2;
 
                 cc_encoder_ber_56.work(output, ber_encoded_buffer);                             // Re-encoded for a BER check
@@ -289,7 +291,8 @@ namespace viterbi
             {
                 int sz = depuncture_78(soft_buffer, depunc_buffer, size, d_shift); // Depuncturing
 
-                cc_decoder_78.work(depunc_buffer, output, sz); // Decode entire buffer
+                // Fork: the deprecated work() with a size argument (never used) is gone; the decoding is the same
+                cc_decoder_78.work(depunc_buffer, output); // Decode entire buffer
                 out_n = sz / 2;
 
                 cc_encoder_ber_78.work(output, ber_encoded_buffer);                              // Re-encoded for a BER check

@@ -103,14 +103,23 @@ endif()
 
 if(UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
-    # Fork: a throw that can only end in std::terminate (in a destructor or other noexcept code) is an error.
-    # GCC only: clang has no -Wterminate (its -Wexceptions is close but also covers other cases), so the
-    # check below leaves the flag off there.
+
+    # Fork: warnings that are real bugs are errors: a throw that can only end in std::terminate
+    # (in a destructor or other noexcept code), a function that can end without returning its
+    # value, a shift by at least the width of its type, a switch on a bool, an ignored result
+    # that must be used (such as std::remove_if, or write() under _FORTIFY_SOURCE, which Ubuntu's
+    # GCC turns on), and a pointer to a member of a packed struct that may be unaligned. The Pi
+    # build has none of these left, with or without _FORTIFY_SOURCE. Each flag is added only if
+    # the compiler knows it (clang has no -Wterminate; its -Wexceptions also covers other cases).
     include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag(-Werror=terminate SATDUMP_HAS_WERROR_TERMINATE)
-    if(SATDUMP_HAS_WERROR_TERMINATE)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=terminate")
-    endif()
+    foreach(_satdump_werror terminate return-type shift-count-overflow switch-bool unused-result address-of-packed-member)
+        string(MAKE_C_IDENTIFIER "SATDUMP_HAS_WERROR_${_satdump_werror}" _satdump_werror_var)
+        check_cxx_compiler_flag("-Werror=${_satdump_werror}" ${_satdump_werror_var})
+        if(${_satdump_werror_var})
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=${_satdump_werror}")
+        endif()
+    endforeach()
+
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 

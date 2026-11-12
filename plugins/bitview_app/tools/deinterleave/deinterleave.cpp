@@ -4,6 +4,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_stdlib.h"
 #include "logger.h"
+#include "utils/file.h"
 #include <cstdint>
 #include <fstream>
 
@@ -51,9 +52,8 @@ namespace satdump
 
         for (int i = 0; i < idepth; i++)
         {
-            char name[1000];
-            tmpnam(name);
-            std::string tmpfile = name;
+            // Fork: tmpnam() only picked a name, which another program could take before the file was made
+            std::string tmpfile = createTempFile("satdump-bitview-");
             chs_outs.emplace(i, std::make_shared<ChOut>(tmpfile));
         }
 

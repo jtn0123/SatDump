@@ -1,5 +1,4 @@
 # Warning baseline for tests/gate.sh (count, file, flag). Only lower it.
-1 (other) the use of `tmpnam' is dangerous, better use `mkstemp'
 1 /usr/include/c++/14/tuple -Wmaybe-uninitialized
 1 plugins/analog_support/sstv/lineproc.h -Wsign-compare
 1 plugins/analog_support/sstv/lineproc.h -Wunused-variable
@@ -29,17 +28,14 @@
 1 plugins/dvb_support/codings/dvb-s2/bbframe_ldpc.cpp -Wmaybe-uninitialized
 1 plugins/dvb_support/codings/dvb-s2/ldpc/neon.hh -Wuninitialized
 1 plugins/dvb_support/codings/dvb-s2/s2_deinterleaver.cpp -Wmaybe-uninitialized
-3 plugins/dvb_support/dvbs/viterbi_all.cpp -Wdeprecated-declarations
 3 plugins/elektro_arktika_support/cli/ggak_ingestor.cpp -Wunused-parameter
 2 plugins/elektro_arktika_support/cli/ggak_merger.cpp -Wunused-parameter
 1 plugins/elektro_arktika_support/cli/ggak_merger.cpp -Wunused-variable
 1 plugins/elektro_arktika_support/elektro_arktika/ggak/debug.cpp -Wunused-but-set-variable
 1 plugins/elektro_arktika_support/elektro_arktika/ggak/debug.cpp -Wunused-parameter
 2 plugins/elektro_arktika_support/elektro_arktika/ggak/merger.h -Wsign-compare
-1 plugins/elektro_arktika_support/elektro_arktika/ggak/merger.h -Wunused-result
 1 plugins/elektro_arktika_support/elektro_arktika/ggak/plot.cpp -Wunused-parameter
 2 plugins/elektro_arktika_support/elektro_arktika/instruments/msugs/module_msugs.cpp -Wunused-variable
-1 plugins/elektro_arktika_support/elektro_arktika/instruments/msugs/msu_vis_reader.cpp -Wshift-count-overflow
 3 plugins/eos_support/aqua/instruments/ceres/ceres_reader.cpp -Wunused-variable
 1 plugins/eos_support/aqua/instruments/gbad/gbad_reader.cpp -Wtype-limits
 2 plugins/experimental_devices_support/libserial/impl/list_ports/list_ports_linux.cpp -Wsign-compare
@@ -88,9 +84,7 @@
 1 plugins/radiosonde_support/m10/m10_decoder.cpp -Wsign-compare
 1 plugins/radiosonde_support/m10/m10_decoder.h -Wunused-parameter
 1 plugins/radiosonde_support/m10/m10_parser.h -Wunused-parameter
-1 plugins/sdr_sources/aaronia_sdr_support/aaronia_sdr.h -Wdeprecated-declarations
 1 plugins/sdr_sources/aaronia_sdr_support/spectran_v6_dev.cpp -Wunused-parameter
-1 plugins/sdr_sources/aaronia_sdr_support/spectran_v6_dev.h -Wdeprecated-declarations
 1 plugins/sdr_sources/airspy_sdr_support/airspy_dev.cpp -Wunused-parameter
 1 plugins/sdr_sources/airspyhf_sdr_support/airspyhf_dev.cpp -Wclass-memaccess
 1 plugins/sdr_sources/airspyhf_sdr_support/airspyhf_dev.cpp -Wunused-parameter
@@ -98,7 +92,6 @@
 2 plugins/sdr_sources/rfnm_sdr_support/librfnm/librfnm.cpp -Wunused-label
 4 plugins/sdr_sources/rfnm_sdr_support/librfnm/librfnm.cpp -Wunused-parameter
 5 plugins/sdr_sources/rfnm_sdr_support/librfnm/librfnm.cpp -Wunused-variable
-1 plugins/sdr_sources/rfnm_sdr_support/librfnm/librfnm/librfnm.h "RFNM_PACKED_STRUCT" redefined
 1 plugins/sdr_sources/rtlsdr_sdr_support/rtlsdr_dev.cpp -Wunused-parameter
 1 plugins/tools_app/lutgen/lut_generator.cpp -Wformat=
 2 plugins/tools_app/lutgen/lut_generator.cpp -Wsign-compare
@@ -132,7 +125,6 @@
 5 src-core/angelscript/scriptstdstring/scriptstdstring.cpp -Wtype-limits
 1 src-core/angelscript/scriptstdstring/scriptstdstring_utils.cpp -Wunused-but-set-variable
 1 src-core/common/ccsds/ccsds.cpp -Wparentheses
-1 src-core/common/codings/viterbi/viterbi_punc.cpp -Wdeprecated-declarations
 2 src-core/common/geodetic/calc_azel.cpp -Wunused-variable
 1 src-core/common/tracking/tle.cpp -Wmissing-field-initializers
 2 src-core/common/tracking/tle.cpp -Wsign-compare
@@ -152,7 +144,6 @@
 6 src-core/db/kepler/kepler_utils.cpp -Wsign-compare
 1 src-core/dsp/benchmark/helpers.h -Wdelete-non-virtual-dtor
 3 src-core/dsp/benchmark/render/imgui_sw.cpp -Wsign-compare
-1 src-core/dsp/channel_model/channel_model_simple.cpp -Wdeprecated-declarations
 1 src-core/dsp/channel_model/channel_model_simple.cpp -Wsign-compare
 1 src-core/dsp/channel_model/channel_model_simple.cpp -Wunused-but-set-variable
 1 src-core/dsp/channel_model/model/antenna/dipole.cpp -Wunused-parameter
@@ -166,7 +157,6 @@
 2 src-core/dsp/channel_model/model/attenuation/atmospheric_gases_itu.h -Wreorder
 2 src-core/dsp/channel_model/model/attenuation/free_space_path_loss.cpp -Wunused-variable
 1 src-core/dsp/channel_model/model/new/channel_model_leo.cpp -Wreorder
-1 src-core/dsp/channel_model/model/new/channel_model_leo.cpp -Wswitch-bool
 1 src-core/dsp/channel_model/model/new/channel_model_leo.cpp -Wunused-parameter
 7 src-core/dsp/channel_model/model/new/channel_model_leo.h -Wreorder
 1 src-core/dsp/conv/complex_conjugate.h -Wunused-parameter
@@ -271,7 +261,6 @@
 1 src-core/handlers/product/punctiform_product_handler.cpp -Wsign-compare
 1 src-core/handlers/product/punctiform_product_handler.h -Wunused-parameter
 1 src-core/handlers/projection/projection_handler.cpp -Wsign-compare
-2 src-core/handlers/vector/shapefile_handler.cpp -Waddress-of-packed-member
 1 src-core/handlers/vector/shapefile_handler.cpp -Wunused-parameter
 1 src-core/image/brightness_contrast.cpp -Wsign-compare
 1 src-core/image/hue_saturation.cpp -Wsign-compare
@@ -281,8 +270,6 @@
 2 src-core/image/spectral_align.cpp -Wsign-compare
 1 src-core/imgui/dialogs/pfd_utils.cpp -Wsign-compare
 1 src-core/imgui/dialogs/pfd_utils.cpp -Wunused-parameter
-1 src-core/imgui/imconfig.h "IMGUI_DEFINE_MATH_OPERATORS" redefined
-1 src-core/imgui/imnodes/imnodes_internal.h "IMGUI_DEFINE_MATH_OPERATORS" redefined
 1 src-core/imgui/implot3d/implot3d.cpp -Wparentheses
 3 src-core/imgui/implot3d/implot3d.cpp -Wunused-but-set-variable
 3 src-core/imgui/implot3d/implot3d.cpp -Wunused-parameter

@@ -41,16 +41,11 @@ ChannelModelLEO::ChannelModelLEO(bool uplink_mode,                              
         throw std::runtime_error("Invalid Doppler shift enumeration!");
     }
 
-    switch (enable_link_margin)
+    // Fork: was a switch on a bool, with a default case that could never be reached
+    if (enable_link_margin)
     {
-    case true:
         d_link_margin = std::make_shared<LinkMargin>();
         d_link_margin_db = std::numeric_limits<double>::infinity();
-        break;
-    case false:
-        break;
-    default:
-        throw std::runtime_error("Invalid atmospheric gases attenuation!");
     }
 
     switch (atmo_gases_attenuation)

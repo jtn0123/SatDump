@@ -38,7 +38,13 @@ namespace satdump
             // Attenuate signal down to wanted level
             double att = (-noise_level) - (signal_level - noise_level) - 26.5;
             complex_t attenuation_linear = complex_t(1.0 / std::pow(10.0f, (att / 20.0f)), 0.0f);
-            volk_32fc_s32fc_multiply_32fc((lv_32fc_t *)out, (lv_32fc_t *)out, attenuation_linear, nsamples);
+            const lv_32fc_t attenuation_scalar = attenuation_linear;
+            // Fork: VOLK 3.1 deprecated volk_32fc_s32fc_multiply_32fc for the same kernel taking the scalar by pointer
+#if VOLK_VERSION >= 30100
+            volk_32fc_s32fc_multiply2_32fc((lv_32fc_t *)out, (lv_32fc_t *)out, &attenuation_scalar, nsamples);
+#else
+            volk_32fc_s32fc_multiply_32fc((lv_32fc_t *)out, (lv_32fc_t *)out, attenuation_scalar, nsamples);
+#endif
 
             // Add noise
             double noise_imp = 1;

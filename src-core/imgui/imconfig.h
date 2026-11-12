@@ -13,9 +13,9 @@
 //-----------------------------------------------------------------------------
 
 #pragma once
-
+#ifndef IMGUI_DEFINE_MATH_OPERATORS // Fork: files that define it before including imgui.h got a "redefined" warning
 #define IMGUI_DEFINE_MATH_OPERATORS 1
-
+#endif
 //---- Define assertion handler. Defaults to calling assert().
 // If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
 //#define IM_ASSERT(_EXPR)  MyAssert(_EXPR)

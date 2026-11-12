@@ -3,6 +3,7 @@
 #include "core/style.h"
 #include "imgui/imgui_stdlib.h"
 #include "logger.h"
+#include "utils/file.h"
 #include <fstream>
 #include <string>
 
@@ -40,9 +41,8 @@ namespace satdump
         uint8_t *ptr = container->get_ptr();
         size_t size = container->get_ptr_size();
 
-        char name[1000];
-        tmpnam(name);
-        std::string tmpfile = name;
+        // Fork: tmpnam() only picked a name, which another program could take before the file was made
+        std::string tmpfile = createTempFile("satdump-bitview-");
         std::ofstream file_out(tmpfile, std::ios::binary);
 
         char *syncword_endptr;

@@ -5,6 +5,7 @@
 #include "core/style.h"
 #include "imgui/imgui.h"
 #include "logger.h"
+#include "utils/file.h"
 #include <fstream>
 #include <map>
 #include <string>
@@ -71,9 +72,8 @@ namespace satdump
                 {
                     if (apids_outs.count(f.header.apid) == 0)
                     {
-                        char name[1000];
-                        tmpnam(name);
-                        std::string tmpfile = name;
+                        // Fork: tmpnam() only picked a name, which another program could take before the file was made
+                        std::string tmpfile = createTempFile("satdump-bitview-");
                         apids_outs.emplace(f.header.apid, std::make_shared<APIDOut>(tmpfile));
                     }
 
@@ -109,9 +109,8 @@ namespace satdump
         }
         else
         {
-            char name[1000];
-            tmpnam(name);
-            std::string tmpfile = name;
+            // Fork: tmpnam() only picked a name, which another program could take before the file was made
+            std::string tmpfile = createTempFile("satdump-bitview-");
             std::ofstream fileout = std::ofstream(tmpfile, std::ios::binary);
             std::vector<BitContainer::FrameDef> frms;
 

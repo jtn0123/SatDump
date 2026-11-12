@@ -228,11 +228,12 @@ namespace satdump
                 const char *name = rtlsdr_get_device_name(i);
                 char manufact[256], product[256], serial[256];
                 std::string _name;
+                // Fork: both lines also built a second string after a comma and threw it away (clang
+                // stops on that with -Werror=unused-result); the name is the same
                 if (rtlsdr_get_device_usb_strings(i, manufact, product, serial) != 0)
-                    _name = std::string(name) + " #" + std::to_string(i), std::to_string(i); //   results.push_back({"rtlsdr", std::string(name) + " #" + std::to_string(i), std::to_string(i)});
+                    _name = std::string(name) + " #" + std::to_string(i); //   results.push_back({"rtlsdr", std::string(name) + " #" + std::to_string(i), std::to_string(i)});
                 else
-                    _name = std::string(manufact) + " " + std::string(product) + " #" + std::string(serial),
-                    std::string(serial); //    results.push_back({"rtlsdr", std::string(manufact) + " " + std::string(product) + " #" + std::string(serial), std::string(serial)});
+                    _name = std::string(manufact) + " " + std::string(product) + " #" + std::string(serial); //    results.push_back({"rtlsdr", std::string(manufact) + " " + std::string(product) + " #" + std::string(serial), std::string(serial)});
 
                 nlohmann::ordered_json _c;
 

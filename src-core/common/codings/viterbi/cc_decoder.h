@@ -69,8 +69,8 @@ namespace viterbi
         CCDecoder(const CCDecoder &) = delete;
         CCDecoder &operator=(const CCDecoder &) = delete;
 
+        // Fork: the deprecated work(in, out, size) is gone; size never changed the result
         void work(uint8_t *inbuffer, uint8_t *outbuffer);
-        [[deprecated]] void work(uint8_t *inbuffer, uint8_t *outbuffer, int size);
 
         bool set_frame_size(unsigned int frame_size);
         double rate();

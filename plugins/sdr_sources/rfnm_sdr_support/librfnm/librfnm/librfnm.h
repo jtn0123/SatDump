@@ -14,12 +14,18 @@
 
 #pragma once
 
+// Fork: librfnm_api.h (included above) already defines RFNM_PACKED_STRUCT the same way; a
+// second definition gave a "redefined" warning
 #if defined(__GNUC__)
+#ifndef RFNM_PACKED_STRUCT
 #define RFNM_PACKED_STRUCT( __Declaration__ ) __Declaration__ __attribute__((__packed__))
+#endif
 #define MSDLL
 #elif defined(_MSC_VER)
+#ifndef RFNM_PACKED_STRUCT
 #define RFNM_PACKED_STRUCT( __Declaration__ ) __pragma(pack(push,1)) __Declaration__ __pragma(pack(pop))
-#define MSDLL __declspec(dllexport) 
+#endif
+#define MSDLL __declspec(dllexport)
 #endif
 
 enum librfnm_transport {

@@ -4,6 +4,7 @@
 #include "core/style.h"
 #include "imgui/imgui.h"
 #include "logger.h"
+#include "utils/file.h"
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -64,9 +65,8 @@ namespace satdump
                 output_files.emplace(vcid, std::pair<std::string, std::ofstream>{"", std::ofstream()});
                 vcid_counts.emplace(vcid, 0);
 
-                char name[1000];
-                tmpnam(name);
-                std::string tmpfile = name;
+                // Fork: tmpnam() only picked a name, which another program could take before the file was made
+                std::string tmpfile = createTempFile("satdump-bitview-");
                 output_files[vcid].first = tmpfile;
                 output_files[vcid].second = std::ofstream(tmpfile, std::ios::binary);
             }

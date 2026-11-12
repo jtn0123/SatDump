@@ -19,6 +19,10 @@ add_executable(satdump-unit-tests
     unit/test_hirs_iasi.cpp
     unit/test_init_ub.cpp
     unit/test_block_lifetime.cpp
+    unit/test_cc_decoder.cpp
+    unit/test_temp_file.cpp
+    unit/test_ggak_merger.cpp
+    unit/test_msugs_vis.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp
@@ -34,12 +38,15 @@ add_executable(satdump-unit-tests
     ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt/segment.cpp
     ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp
     ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt/idct.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/elektro_arktika_support/elektro_arktika/ggak/ggak.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/elektro_arktika_support/elektro_arktika/instruments/msugs/msu_vis_reader.cpp
 )
 target_include_directories(satdump-unit-tests PRIVATE
     third_party/doctest
     ${PROJECT_SOURCE_DIR}/src-core
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support
     ${PROJECT_SOURCE_DIR}/plugins/meteor_support
+    ${PROJECT_SOURCE_DIR}/plugins/elektro_arktika_support
 )
 target_link_libraries(satdump-unit-tests PRIVATE satdump_core)
 if(SATDUMP_WITH_RUST)

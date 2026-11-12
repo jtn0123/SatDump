@@ -92,7 +92,9 @@ namespace satdump
                             shapeID = dbf_file[num]["name"];
                     }
 
-                    ImPlot::PlotScatter(shapeID.c_str(), &coordinates.x, &coordinates.y, 1);
+                    // Fork: point_t is packed, so &coordinates.x may be unaligned for a double*; plot aligned copies
+                    double x = coordinates.x, y = coordinates.y;
+                    ImPlot::PlotScatter(shapeID.c_str(), &x, &y, 1);
                 };
 
                 for (shapefile::PolyLineRecord &polylineRecord : file->polyline_records)

@@ -56,6 +56,17 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Bug fix | A new-DSP setting that cannot be applied is logged with the block and setting name instead of being dropped silently | 2026-11-11 |
 | Build | On GCC, a throw that can only end in std::terminate (for example in a destructor) is now a build error | 2026-11-11 |
 | Tests | Unit tests for DSP blocks that fail, fail to start, end, or are destroyed, for multi-input blocks whose inputs end at different times, and for the CLI exit code after a block failure | 2026-11-11 |
+| Build | Warnings that are real bugs now stop the build: a function that can end without returning its value, a shift past the width of its type, a switch on a bool, an ignored result that must be used, and a pointer into a packed struct that may be unaligned (each added only if the compiler knows the flag) | 2026-11-11 |
+| Build | RTL-TCP client: the result of sending a command to the server was thrown away, which stops the build with GCC's _FORTIFY_SOURCE (on by default on Ubuntu) now that ignored results are errors; a failed or short send is now logged as a warning | 2026-11-11 |
+| Build | ImGui and RFNM headers no longer define the same macro twice (IMGUI_DEFINE_MATH_OPERATORS, RFNM_PACKED_STRUCT), which gave "redefined" warnings | 2026-11-11 |
+| Bug fix | Shapefile map layer: points were plotted through pointers into a packed struct that may be unaligned; they are now copied first | 2026-11-11 |
+| Build | LEO channel model: a switch on a bool (with a default case that could never run) is now a plain if | 2026-11-11 |
+| Build | Channel model and Aaronia sources use VOLK's current scalar multiply (the old one is deprecated since VOLK 3.1); the output is bit-identical | 2026-11-11 |
+| Build | Viterbi decoder: the deprecated work() with an unused size argument is removed and its callers (generic punctured Viterbi, DVB-S) use the normal one; decoding is byte-for-byte the same | 2026-11-11 |
+| Bug fix | ELEKTRO/Arktika GGAK merger: frames recovered after two arrived out of order were never removed from its queue, so it stayed in recovery and about 20 frames later dropped a good frame; it now goes back to normal once the missing frame arrives | 2026-11-11 |
+| Bug fix | ELEKTRO-L MSU-GS: the line time stamp lost its top byte (a shift past 32 bits, undefined behaviour) and became huge once byte 11 reached 0x80; it is now the full 40-bit count (no product uses these times yet). Each visible line also read 35 bytes past the end of its frame, into values never used; pictures are unchanged | 2026-11-11 |
+| Bug fix | BitView tools: temporary files are made safely (mkstemp, the name and the file in one step) instead of with tmpnam, whose name another program could take first | 2026-11-11 |
+| Build | RTL-SDR device list: two lines built a second string after a comma and threw it away; removed so clang builds with the new error flags (device names unchanged) | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |

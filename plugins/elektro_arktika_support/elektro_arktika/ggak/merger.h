@@ -117,7 +117,10 @@ namespace elektro_arktika
                                     ofrms.push_back(recovery_queue[i]);
                                     last_valid_frame_ctr = recovery_queue[i].master_counter;
 
-                                    std::remove_if(recovery_queue.begin(), recovery_queue.end(), [this](auto &v) { return v.master_counter == last_valid_frame_ctr; });
+                                    // Fork: remove_if() alone only moved the frames, so nothing ever left the queue: the merger
+                                    // stayed in WAIT and about 20 frames later the full queue dropped a good frame
+                                    recovery_queue.erase(std::remove_if(recovery_queue.begin(), recovery_queue.end(), [this](auto &v) { return v.master_counter == last_valid_frame_ctr; }),
+                                                         recovery_queue.end());
 
                                     goto retry;
                                 }
