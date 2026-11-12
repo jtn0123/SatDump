@@ -213,7 +213,8 @@ namespace meteor
                 {
                     lastTime = time(NULL);
                     std::string deframer_state = ""; // def->getState() == 0 ? "NOSYNC" : (def->getState() == 2 || def->getState() == 6 ? "SYNCING" : "SYNCED");
-                    logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%, Deframer : " + deframer_state +
+                    // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                    logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%, Deframer : " + deframer_state +
                                  ", Frames : " + std::to_string(frame_count));
                 }
             }

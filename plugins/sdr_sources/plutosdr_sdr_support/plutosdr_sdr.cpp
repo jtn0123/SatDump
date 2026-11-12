@@ -6,6 +6,7 @@ F5OEO FixMe :
 */
 
 #include "plutosdr_sdr.h"
+#include <cinttypes>
 
 // Adapted from https://github.com/altillimity/SatDump/pull/111 and SDR++
 
@@ -22,7 +23,8 @@ void PlutoSDRSource::set_rfinput()
         iio_device_reg_read(phy, 0x00000003, &val);
         val = (val & 0x3F) | ((rf_input + 1) << 6);
         iio_device_reg_write(phy, 0x00000003, val);
-        logger->trace("RFInput %d", rf_input + 1l);
+        // Fork: %ld for a long (was %d)
+        logger->trace("RFInput %ld", rf_input + 1l);
         iio_device_debug_attr_write_longlong(phy, "adi,1rx-1tx-mode-use-rx-num", rf_input + 1);
         // WorkAround because ad9361 driver doesnt reflect well rx change with gain
         iio_channel_attr_write(iio_device_find_channel(phy, "voltage0", false), "gain_control_mode", "fast_attack");
@@ -128,7 +130,8 @@ void PlutoSDRSource::set_frequency(uint64_t frequency)
     if (is_open && is_started)
     {
         iio_channel_attr_write_longlong(iio_device_find_channel(phy, "altvoltage0", true), "frequency", round(frequency));
-        logger->debug("Set PlutoSDR frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set PlutoSDR frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

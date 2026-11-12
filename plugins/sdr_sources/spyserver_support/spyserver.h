@@ -6,6 +6,7 @@
 #include "logger.h"
 #include "imgui/imgui.h"
 #include "core/style.h"
+#include <cinttypes>
 
 class SpyServerSource : public dsp::DSPSampleSource
 {
@@ -51,7 +52,8 @@ protected:
         for (int dec_stage = client->devInfo.MinimumIQDecimation; dec_stage < (int)client->devInfo.DecimationStageCount; dec_stage++)
         {
             uint64_t rate = client->devInfo.MaximumSampleRate / (1 << dec_stage);
-            logger->trace("SpyServer has samplerate %d SPS", rate);
+            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+            logger->trace("SpyServer has samplerate %" PRIu64 " SPS", rate);
             available_samplerates.push_back(rate);
         }
 

@@ -80,15 +80,19 @@ namespace satdump
                 if (image::has_metadata(img))
                 {
                     nlohmann::json meta = image::get_metadata(img);
-                    if (meta.contains("proj_cfg"))
+                    // Fork: a picture with no projection (proj_cfg null, or without a "type", as
+                    // a crop has) gets no GeoTIFF tags without a message; reading it always failed
+                    if (meta.contains("proj_cfg") && meta["proj_cfg"].is_object() && meta["proj_cfg"].contains("type"))
                     {
                         try
                         {
                             proj::projection_t proj = meta["proj_cfg"];
                             geotiff::try_write_geotiff(tif, &proj);
                         }
-                        catch (std::exception &)
+                        catch (std::exception &e)
                         {
+                            // Fork: this was silent. The picture is still saved, without the tags
+                            logger->warn("GeoTIFF tags not written to %s, its projection could not be read: %s", file.c_str(), e.what());
                         }
                     }
                 }
@@ -141,7 +145,8 @@ namespace satdump
                 {
 
                     unsigned char *buf = (unsigned char *)_TIFFmalloc(TIFFTileSize(tif));
-                    logger->error("%d - %d - %d - %d", tile_width, tile_length, d_channels, TIFFTileSize(tif));
+                    // Fork: the tile size (a tmsize_t, 64 bits) was printed with %d
+                    logger->error("%u - %u - %d - %lld", tile_width, tile_length, d_channels, (long long)TIFFTileSize(tif));
                     for (size_t y = 0; y < d_height; y += tile_length)
                     {
                         for (size_t x = 0; x < d_width; x += tile_width)

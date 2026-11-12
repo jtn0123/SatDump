@@ -1,4 +1,5 @@
 #include "bladerf_sdr_sink.h"
+#include <cinttypes>
 
 void BladeRFSink::set_gains()
 {
@@ -137,7 +138,8 @@ void BladeRFSink::start(std::shared_ptr<dsp::stream<complex_t>> stream)
     rational_rate.num = (current_samplerate - rational_rate.integer) * rational_rate.den;
     bladerf_set_rational_sample_rate(bladerf_dev_obj, BLADERF_CHANNEL_TX(channel_id), &rational_rate, &actual);
     uint64_t actuals = actual.integer + (actual.num / static_cast<double>(actual.den));
-    logger->info("Actual samplerate %d", actuals);
+    // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+    logger->info("Actual samplerate %" PRIu64, actuals);
 
     bladerf_set_bandwidth(bladerf_dev_obj, BLADERF_CHANNEL_TX(channel_id), std::clamp<uint64_t>(current_samplerate, bladerf_range_bandwidth->min, bladerf_range_bandwidth->max), NULL);
 
@@ -189,7 +191,8 @@ void BladeRFSink::set_frequency(uint64_t frequency)
     if (is_open && is_started)
     {
         bladerf_set_frequency(bladerf_dev_obj, BLADERF_CHANNEL_TX(channel_id), frequency);
-        logger->debug("Set BladeRF frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set BladeRF frequency to %" PRIu64, frequency);
     }
     DSPSampleSink::set_frequency(frequency);
 }

@@ -62,7 +62,8 @@ namespace sstv
             if (md.timestamp != 0 && (d_parameters.contains("start_timestamp") ? d_parameters["start_timestamp"] == -1 : 1))
             {
                 d_parameters["start_timestamp"] = md.timestamp;
-                logger->trace("Has timestamp %d", md.timestamp);
+                // Fork: a time_t was printed with %d
+                logger->trace("Has timestamp " + std::to_string(md.timestamp));
             }
             else
             {
@@ -146,7 +147,8 @@ namespace sstv
                 if (time(NULL) % 10 == 0 && lastTime != time(NULL))
                 {
                     lastTime = time(NULL);
-                    logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%");
+                    // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                    logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%");
                 }
             }
             delete[] s16_buf;

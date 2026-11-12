@@ -1,4 +1,5 @@
 #include "mirisdr_sdr.h"
+#include <cinttypes>
 
 void MiriSdrSource::_rx_callback_8(unsigned char *buf, uint32_t len, void *ctx)
 {
@@ -154,7 +155,8 @@ void MiriSdrSource::set_frequency(uint64_t frequency)
     if (is_started)
     {
         mirisdr_set_center_freq(mirisdr_dev_obj, frequency);
-        logger->debug("Set MiriSDR frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set MiriSDR frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

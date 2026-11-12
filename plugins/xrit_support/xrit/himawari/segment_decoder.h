@@ -54,7 +54,8 @@ namespace satdump
                     return;
                 if (data.size() != seg_height * seg_width)
                 {
-                    logger->error("Image of the wrong size! (%s) %dx%d Got %dx%d", info.channel.c_str(), seg_width, seg_height, data.width(), data.height());
+                    // Fork: %zu for a size_t (was %d, the wrong printf type)
+                    logger->error("Image of the wrong size! (%s) %dx%d Got %zux%zu", info.channel.c_str(), seg_width, seg_height, data.width(), data.height());
                     return;
                 }
                 image::imemcpy(image, (seg_height * seg_width) * segc, data, 0, seg_height * seg_width);

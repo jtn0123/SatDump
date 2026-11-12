@@ -1,4 +1,5 @@
 #include "soapysdr_sdr.h"
+#include <cinttypes>
 
 // void SoapySdrSource::_rx_callback(unsigned char *buf, uint32_t len, void *ctx)
 //{
@@ -199,7 +200,8 @@ void SoapySdrSource::set_frequency(uint64_t frequency)
     if (is_started)
     {
         soapy_dev->setFrequency(SOAPY_SDR_RX, channel_id, frequency);
-        logger->debug("Set SoapySDR frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set SoapySDR frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

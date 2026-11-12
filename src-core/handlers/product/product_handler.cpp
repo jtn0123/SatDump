@@ -46,7 +46,8 @@ namespace satdump
                             }
                             catch (std::exception &e)
                             {
-                                logger->error("Common instrument configuration (" + path + ") invalid! %s", e.what());
+                                // Fork: the path is a %s argument; it was part of the format, so a % in it was read as a conversion
+                                logger->error("Common instrument configuration (%s) invalid! %s", path.c_str(), e.what());
                             }
                         }
 

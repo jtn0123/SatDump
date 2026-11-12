@@ -1,4 +1,5 @@
 #include "rfnm_sdr.h"
+#include <cinttypes>
 
 void RFNMSource::set_gains()
 {
@@ -170,7 +171,8 @@ void RFNMSource::set_frequency(uint64_t frequency)
         rfnm_api_failcode r = rfnm_dev_obj->set(channel == 1 ? LIBRFNM_APPLY_CH1_RX : LIBRFNM_APPLY_CH0_RX);
         if (r != rfnm_api_failcode::RFNM_API_OK)
             logger->error("RFNM Error %d", r);
-        logger->debug("Set RFNM frequency to %llu", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set RFNM frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

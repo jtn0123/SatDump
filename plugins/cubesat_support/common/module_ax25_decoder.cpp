@@ -67,7 +67,11 @@ namespace ax25
                 int ctrl = frm[14];
                 int pid = frm[15];
 
-                logger->trace("AX.25 Frame - SRC : " + source_callsign + ",%d DST : " + destination_callsign + ",%d CTRL : %d PID : %d", source_ssid, target_ssid, ctrl, pid);
+                // Fork: the callsigns come from the received frame and were part of the format, so
+                // a '%' in one (byte 0x4A) was read as a conversion and could crash; they are %s
+                // arguments now
+                logger->trace("AX.25 Frame - SRC : %s,%d DST : %s,%d CTRL : %d PID : %d", source_callsign.c_str(), source_ssid, destination_callsign.c_str(), target_ssid, ctrl,
+                              pid);
 
                 // Add a custom header to ease up forwarding to the next stuff
                 uint16_t pkt_sz = frm.size();

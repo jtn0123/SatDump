@@ -1,4 +1,5 @@
 #include "hackrf_sdr_source.h"
+#include <cinttypes>
 
 int HackRFSource::_rx_callback(hackrf_transfer *t)
 {
@@ -154,7 +155,8 @@ void HackRFSource::set_frequency(uint64_t frequency)
     if (is_open && is_started)
     {
         hackrf_set_freq(hackrf_dev_obj, frequency);
-        logger->debug("Set HackRF frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set HackRF frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

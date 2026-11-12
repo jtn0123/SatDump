@@ -96,7 +96,8 @@ namespace satdump
                         }
                         catch (std::exception &e)
                         {
-                            logger->error("Failed decompression! %d", e.what());
+                            // Fork: the error text was printed with %d (an unrelated number)
+                            logger->error("Failed decompression! %s", e.what());
                         }
 
                         // Fill our output buffer

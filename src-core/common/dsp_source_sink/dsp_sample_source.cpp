@@ -25,7 +25,8 @@ namespace dsp
             }
             catch (std::exception &e)
             {
-                logger->error("Error trying to list " + source.first + " sources! %s", e.what());
+                // Fork: the source name is a %s argument; it was part of the format
+                logger->error("Error trying to list %s sources! %s", source.first.c_str(), e.what());
             }
         }
 

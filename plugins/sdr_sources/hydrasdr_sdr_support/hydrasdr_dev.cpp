@@ -78,7 +78,8 @@ namespace satdump
             is_open = true;
 
             hydrasdr_set_samplerate(hydrasdr_dev_obj, p_samplerate);
-            logger->debug("Set HydraSDR samplerate to %d", p_samplerate);
+            // Fork: %.0f for a double (was %d)
+            logger->debug("Set HydraSDR samplerate to %.0f", p_samplerate);
 
             hydrasdr_set_packing(hydrasdr_dev_obj, 1);
             hydrasdr_set_sample_type(hydrasdr_dev_obj, HYDRASDR_SAMPLE_FLOAT32_IQ);

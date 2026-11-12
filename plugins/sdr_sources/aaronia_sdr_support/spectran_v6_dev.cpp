@@ -2,6 +2,7 @@
 #include "common/dsp/complex.h"
 #include "utils/string.h"
 #include <logger.h>
+#include <cinttypes>
 
 namespace satdump
 {
@@ -193,7 +194,8 @@ namespace satdump
                     while (decim <= 128)
                     {
                         uint64_t samprate = SPECTRAN_SAMPLERATE_61_44M / decim;
-                        logger->info("%llu %llu", p_samplerate, samprate);
+                        // Fork: the samplerates (a double and a uint64_t) were printed with %llu
+                        logger->info("%.0f %" PRIu64, p_samplerate, samprate);
                         if (samprate == p_samplerate)
                         {
                             current_decimation = decim;
@@ -211,7 +213,8 @@ namespace satdump
                     while (decim <= 128)
                     {
                         uint64_t samprate = SPECTRAN_SAMPLERATE_92M / decim;
-                        logger->info("%llu %llu", p_samplerate, samprate);
+                        // Fork: the samplerates (a double and a uint64_t) were printed with %llu
+                        logger->info("%.0f %" PRIu64, p_samplerate, samprate);
                         if (samprate == p_samplerate)
                         {
                             current_decimation = decim;

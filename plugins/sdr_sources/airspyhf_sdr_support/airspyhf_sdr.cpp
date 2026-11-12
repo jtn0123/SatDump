@@ -1,4 +1,5 @@
 #include "airspyhf_sdr.h"
+#include <cinttypes>
 
 int AirspyHFSource::_rx_callback(airspyhf_transfer_t *t)
 {
@@ -129,7 +130,8 @@ void AirspyHFSource::set_frequency(uint64_t frequency)
     if (is_started)
     {
         airspyhf_set_freq(airspyhf_dev_obj, frequency);
-        logger->debug("Set AirspyHF frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set AirspyHF frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

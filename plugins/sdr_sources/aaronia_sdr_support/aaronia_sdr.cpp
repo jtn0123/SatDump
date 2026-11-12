@@ -3,6 +3,7 @@
 #include "common/utils.h"
 #include "dynload.h"
 #include "utils/string.h"
+#include <cinttypes>
 
 // #define SPECTRAN_SAMPLERATE_46M 46080000
 #define SPECTRAN_SAMPLERATE_61_44M 61440000
@@ -249,7 +250,8 @@ void AaroniaSource::start()
             while (decim <= 128)
             {
                 uint64_t samprate = SPECTRAN_SAMPLERATE_61_44M / decim;
-                logger->info("%llu %llu", current_samplerate, samprate);
+                // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                logger->info("%" PRIu64 " %" PRIu64, current_samplerate, samprate);
                 if (samprate == current_samplerate)
                 {
                     current_decimation = decim;
@@ -267,7 +269,8 @@ void AaroniaSource::start()
             while (decim <= 128)
             {
                 uint64_t samprate = SPECTRAN_SAMPLERATE_92M / decim;
-                logger->info("%llu %llu", current_samplerate, samprate);
+                // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                logger->info("%" PRIu64 " %" PRIu64, current_samplerate, samprate);
                 if (samprate == current_samplerate)
                 {
                     current_decimation = decim;
@@ -359,7 +362,8 @@ void AaroniaSource::set_frequency(uint64_t frequency)
         // Set frequency
         if (rtsa_api->AARTSAAPI_ConfigFind(&aaronia_device, &root, &config, L"main/centerfreq") == AARTSAAPI_OK)
             rtsa_api->AARTSAAPI_ConfigSetFloat(&aaronia_device, &config, frequency);
-        logger->debug("Set Aaronia frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set Aaronia frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

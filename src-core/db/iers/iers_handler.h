@@ -28,6 +28,11 @@ namespace satdump
         void init();
         void updateIERS();
 
+        // Stores the Bulletin A entries of the IERS JSON (finals2000A) in the iers table and
+        // logs a summary of the entries that could not be read. False when the text is not
+        // IERS JSON at all.
+        bool storeBulletinA(const std::string &res);
+
         IERSInfo getBestIERSInfo(double time);
     };
 } // namespace satdump

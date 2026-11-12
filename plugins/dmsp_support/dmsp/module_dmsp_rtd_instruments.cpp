@@ -114,7 +114,8 @@ namespace dmsp
                     auto fs = ssmis_deframer->work(d.second.data(), d.second.size());
                     for (auto &f : fs)
                     {
-                        logger->critical("%d %d", d.first, fs.size());
+                        // Fork: %zu for a size_t (was %d, the wrong printf type)
+                        logger->critical("%d %zu", d.first, fs.size());
                         //  data_ou.write((char *)f.data(), 3375);
                         ssmis_reader.work(f.data(), last_timestamp);
                     }

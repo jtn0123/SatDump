@@ -1,4 +1,5 @@
 #include "sddc_sdr.h"
+#include <cinttypes>
 #include "core/resources.h"
 
 /*
@@ -138,7 +139,8 @@ void SDDCSource::set_frequency(uint64_t frequency)
             if (is_started)
                 sddc_start_streaming(sddc_dev_obj);
         }
-        logger->debug("Set SDDC frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set SDDC frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

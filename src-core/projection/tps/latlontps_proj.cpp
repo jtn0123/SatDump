@@ -66,7 +66,8 @@ namespace satdump
                     }
                 }
 
-                logger->info("Solving TPS equations for %d GCPs...", gcps.size());
+                // Fork: %zu for a size_t (was %d, the wrong printf type)
+                logger->info("Solving TPS equations for %zu GCPs...", gcps.size());
                 auto solve_start = std::chrono::system_clock::now();
                 bool solved = spline_transform->solve() != 0;
                 if (solved)
@@ -124,7 +125,8 @@ namespace satdump
                     }
                 }
 
-                logger->info("Solving TPS equations for %d GCPs...", gcps.size());
+                // Fork: %zu for a size_t (was %d, the wrong printf type)
+                logger->info("Solving TPS equations for %zu GCPs...", gcps.size());
                 auto solve_start = std::chrono::system_clock::now();
                 bool solved = spline_transform->solve() != 0;
                 if (solved)

@@ -74,52 +74,8 @@ namespace satdump
             return;
         }
 
-        try
-        {
-            nlohmann::json j = nlohmann::json::parse(res);
-
-            h->tr_begin();
-
-            for (auto &v : j["EOP"]["data"]["timeSeries"])
-            {
-                try
-                {
-                    if (v["dataEOP"]["pole"][0]["source"] == "BulletinA")
-                    {
-                        time_t time = ((std::stod(v["time"]["MJD"].get<std::string>()) - 40587) * 86400);
-                        double a_pole_x = std::stod(v["dataEOP"]["pole"][0]["X"].get<std::string>());
-                        double a_pole_y = std::stod(v["dataEOP"]["pole"][0]["Y"].get<std::string>());
-                        double ut1_utc = std::stod(v["dataEOP"]["UT"][0]["UT1-UTC"].get<std::string>());
-
-                        std::string sql = "INSERT INTO iers (time, a_pole_x, a_pole_y, ut1_utc) VALUES (" + std::to_string(time) + ", '" + std::to_string(a_pole_x) + "', '" +
-                                          std::to_string(a_pole_y) + "', '" + std::to_string(ut1_utc) + "') ON CONFLICT(time) DO UPDATE SET a_pole_x='" + std::to_string(a_pole_x) + "', a_pole_y='" +
-                                          std::to_string(a_pole_y) + "', ut1_utc='" + std::to_string(ut1_utc) + "';";
-
-                        char *err = NULL;
-                        if (sqlite3_exec(h->db, sql.c_str(), NULL, 0, &err))
-                        {
-                            logger->error(err);
-                            sqlite3_free(err);
-                        }
-                    }
-                    else
-                    {
-                        logger->error("First bulletin should be A!");
-                    }
-                }
-                catch (std::exception &e)
-                {
-                    // logger->error("Error parsing IERS data! %s", e.what());
-                }
-            }
-
-            h->tr_end();
-        }
-        catch (std::exception &e)
-        {
-            logger->error("Error parsing IERS data! %s", e.what());
+        if (!storeBulletinA(res))
             return;
-        }
 
         // Leap seconds (bulletin C)
         url_str = "https://hpiers.obspm.fr/iers/bul/bulc/ntp/leap-seconds.list";
@@ -174,13 +130,100 @@ namespace satdump
         }
         catch (std::exception &e)
         {
-            logger->error("Leap second parsing error!");
+            logger->error("Leap second parsing error! %s", e.what());
             return;
         }
 
         // Update last update timestamp & other stuff
         h->set_meta("iers_last_updated", std::to_string(time(0)));
         logger->info("%d IERS Records in database!", h->get_table_size("iers"));
+    }
+
+    // Fork: whether an IERS field is missing or blank, as in the rows for dates that have no
+    // prediction yet
+    static bool iers_field_blank(const nlohmann::json &f)
+    {
+        if (f.is_null())
+            return true;
+        if (!f.is_string())
+            return false;
+        return f.get_ref<const std::string &>().find_first_not_of(" \t") == std::string::npos;
+    }
+
+    // Fork: split out of updateIERS() so it can be tested without a download
+    bool IersDBHandler::storeBulletinA(const std::string &res)
+    {
+        try
+        {
+            nlohmann::json j = nlohmann::json::parse(res);
+
+            h->tr_begin();
+
+            // Fork: entries that cannot be read were skipped silently. Rows with no values yet
+            // (dates not predicted) are still skipped, with a count at debug level. Entries
+            // whose values cannot be read are skipped too, with one warning that counts them
+            // and names the first.
+            int entries = 0, not_predicted = 0, skipped = 0;
+            std::string first_skipped;
+
+            for (auto &v : j["EOP"]["data"]["timeSeries"])
+            {
+                entries++;
+                try
+                {
+                    if (v["dataEOP"]["pole"][0]["source"] == "BulletinA")
+                    {
+                        if (iers_field_blank(v["dataEOP"]["pole"][0]["X"]) && iers_field_blank(v["dataEOP"]["pole"][0]["Y"]) && iers_field_blank(v["dataEOP"]["UT"][0]["UT1-UTC"]))
+                        {
+                            not_predicted++;
+                            continue;
+                        }
+
+                        time_t time = ((std::stod(v["time"]["MJD"].get<std::string>()) - 40587) * 86400);
+                        double a_pole_x = std::stod(v["dataEOP"]["pole"][0]["X"].get<std::string>());
+                        double a_pole_y = std::stod(v["dataEOP"]["pole"][0]["Y"].get<std::string>());
+                        double ut1_utc = std::stod(v["dataEOP"]["UT"][0]["UT1-UTC"].get<std::string>());
+
+                        std::string sql = "INSERT INTO iers (time, a_pole_x, a_pole_y, ut1_utc) VALUES (" + std::to_string(time) + ", '" + std::to_string(a_pole_x) + "', '" +
+                                          std::to_string(a_pole_y) + "', '" + std::to_string(ut1_utc) + "') ON CONFLICT(time) DO UPDATE SET a_pole_x='" + std::to_string(a_pole_x) + "', a_pole_y='" +
+                                          std::to_string(a_pole_y) + "', ut1_utc='" + std::to_string(ut1_utc) + "';";
+
+                        char *err = NULL;
+                        if (sqlite3_exec(h->db, sql.c_str(), NULL, 0, &err))
+                        {
+                            logger->error(err);
+                            sqlite3_free(err);
+                        }
+                    }
+                    else
+                    {
+                        logger->error("First bulletin should be A!");
+                    }
+                }
+                catch (std::exception &e)
+                {
+                    if (skipped++ == 0)
+                    {
+                        const nlohmann::json &mjd = v["time"]["MJD"];
+                        first_skipped = "MJD " + (mjd.is_string() ? mjd.get<std::string>() : mjd.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)) + ": " + e.what();
+                    }
+                }
+            }
+
+            h->tr_end();
+
+            if (not_predicted > 0)
+                logger->debug("IERS: %d of %d entries have no values yet (dates not predicted), skipped", not_predicted, entries);
+            if (skipped > 0)
+                logger->warn("IERS: %d of %d entries could not be read and were skipped (the first, %s)", skipped, entries, first_skipped.c_str());
+        }
+        catch (std::exception &e)
+        {
+            logger->error("Error parsing IERS data! %s", e.what());
+            return false;
+        }
+
+        return true;
     }
 
     IERSInfo IersDBHandler::getBestIERSInfo(double time)

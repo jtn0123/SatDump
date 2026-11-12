@@ -10,6 +10,7 @@
 #include "nlohmann/json_utils.h"
 #include "utils/stats.h"
 #include <filesystem>
+#include <cinttypes>
 
 #include "common/dsp/filter/firdes.h"
 #include "core/resources.h"
@@ -100,7 +101,8 @@ namespace noaa_apt
             if (md.timestamp != 0 && (d_parameters.contains("start_timestamp") ? d_parameters["start_timestamp"] == -1 : 1))
             {
                 d_parameters["start_timestamp"] = md.timestamp;
-                logger->trace("Has timestamp %d", md.timestamp);
+                // Fork: a time_t was printed with %d
+                logger->trace("Has timestamp " + std::to_string(md.timestamp));
             }
             else
             {
@@ -110,7 +112,8 @@ namespace noaa_apt
             if (md.frequency == 0 && d_parameters.contains("frequency"))
                 md.frequency = d_parameters["frequency"].get<uint64_t>();
 
-            logger->trace("Freq from meta : %llu", md.frequency);
+            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+            logger->trace("Freq from meta : %" PRIu64, md.frequency);
 
             if (abs(md.frequency - 137.1e6) < 1e4)
             {
@@ -195,7 +198,8 @@ namespace noaa_apt
                 if (time(NULL) % 10 == 0 && lastTime != time(NULL))
                 {
                     lastTime = time(NULL);
-                    logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%");
+                    // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                    logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%");
                 }
             }
             delete[] s16_buf;
@@ -537,7 +541,8 @@ namespace noaa_apt
             if (channel_a1 != -1)
             {
                 auto space_a1 = space_a;
-                logger->info("%d, %d", switchy, space_a1.height());
+                // Fork: %zu for a size_t (was %d, the wrong printf type)
+                logger->info("%d, %zu", switchy, space_a1.height());
                 space_a1.crop(0, switchy - 1, space_a1.width(), space_a1.height());
 
                 for (size_t y = 0; y < space_a1.height() - 1; y++)
@@ -1159,7 +1164,8 @@ namespace noaa_apt
             }
             /////////////////////////////////////
 
-            logger->trace("Wedge %d Pos %d Cor %d CAL %d %d %d %d %d %d %d %d CHV %d CH %d", line, best_pos, best_cor, wed.ref1, wed.ref2, wed.ref3, wed.ref4, wed.ref5, wed.ref6, wed.ref7, wed.ref8,
+            // Fork: %zu for a size_t (was %d, the wrong printf type)
+            logger->trace("Wedge %zu Pos %d Cor %d CAL %d %d %d %d %d %d %d %d CHV %d CH %d", line, best_pos, best_cor, wed.ref1, wed.ref2, wed.ref3, wed.ref4, wed.ref5, wed.ref6, wed.ref7, wed.ref8,
                           wed.channel, best_wedge);
             logger->trace("StdDev %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d", wed.std_dev[0], wed.std_dev[1], wed.std_dev[2], wed.std_dev[3], wed.std_dev[4], wed.std_dev[5], wed.std_dev[6],
                           wed.std_dev[7], wed.std_dev[8], wed.std_dev[9], wed.std_dev[10], wed.std_dev[11], wed.std_dev[12], wed.std_dev[13], wed.std_dev[14], wed.std_dev[15]);

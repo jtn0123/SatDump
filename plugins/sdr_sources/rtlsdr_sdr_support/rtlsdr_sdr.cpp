@@ -1,4 +1,5 @@
 #include "rtlsdr_sdr.h"
+#include <cinttypes>
 
 void RtlSdrSource::_rx_callback(unsigned char *buf, uint32_t len, void *ctx)
 {
@@ -235,7 +236,8 @@ void RtlSdrSource::set_frequency(uint64_t frequency)
             logger->warn("Unable to set RTL-SDR frequency!");
         else if (attempts == 0)
         {
-            logger->debug("Set RTL-SDR frequency to %d", frequency);
+            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+            logger->debug("Set RTL-SDR frequency to %" PRIu64, frequency);
 
             // This is a dirty patch! PLL might not lock on the first attempt if the frequency
             // is above ~1 GHz, tuning down then back up locks it! This is a librtlsdr bug,
@@ -248,7 +250,8 @@ void RtlSdrSource::set_frequency(uint64_t frequency)
             }
         }
         else
-            logger->debug("Set RTL-SDR frequency to %d (%d attempts!)", frequency, attempts + 1);
+            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+            logger->debug("Set RTL-SDR frequency to %" PRIu64 " (%d attempts!)", frequency, attempts + 1);
     }
     DSPSampleSource::set_frequency(frequency);
 }

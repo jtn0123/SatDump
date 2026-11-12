@@ -159,7 +159,8 @@ namespace satdump
                                 lastTime = time(NULL);
 
                                 std::string viterbi_l = std::string(viterbi.getState() == 0 ? "NOSYNC" : "SYNC") + " " + rate;
-                                logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%, SNR : " + std::to_string(snr) +
+                                // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                                logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%, SNR : " + std::to_string(snr) +
                                              "dB, Viterbi : " + viterbi_l + ", Deframer Sync : " + std::to_string(def->isSynced()) + ", Peak SNR: " + std::to_string(peak_snr) + "dB");
                             }
 

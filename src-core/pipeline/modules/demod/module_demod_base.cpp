@@ -1,6 +1,7 @@
 #include "module_demod_base.h"
 #include "common/dsp_source_sink/format_notated.h"
 #include "core/config.h"
+#include "doppler_qth.h"
 #include "imgui/imgui.h"
 #include "logger.h"
 
@@ -140,26 +141,13 @@ namespace satdump
                         throw satdump_exception("Satellite NORAD is required for doppler correction!");
 
                     // QTH, with a way to override it
-                    double qth_lon = 0, qth_lat = 0, qth_alt = 0;
-                    try
-                    {
-                        qth_lon = satdump::satdump_cfg.getValueFromSatDumpGeneral<double>("qth_lon");
-                        qth_lat = satdump::satdump_cfg.getValueFromSatDumpGeneral<double>("qth_lat");
-                        qth_alt = satdump::satdump_cfg.getValueFromSatDumpGeneral<double>("qth_alt");
-                    }
-                    catch (std::exception &)
-                    {
-                    }
-
-                    if (d_parameters.count("qth_lon"))
-                        qth_lon = d_parameters["qth_lon"].get<double>();
-                    if (d_parameters.count("qth_lat"))
-                        qth_lat = d_parameters["qth_lat"].get<double>();
-                    if (d_parameters.count("qth_alt"))
-                        qth_alt = d_parameters["qth_alt"].get<double>();
+                    // Fork: resolve_doppler_qth() warns when a settings value cannot be read and
+                    // when the position is still 0/0 (no station set). Both were silent, so the
+                    // correction could quietly be computed for 0/0/0.
+                    DopplerQTH qth = resolve_doppler_qth(satdump::satdump_cfg.main_cfg["satdump_general"], d_parameters);
 
                     doppler_shift = std::make_shared<dsp::DopplerCorrectBlock>(d_frequency_shift != 0 ? freq_shift->output_stream : input_data, d_samplerate, d_doppler_alpha, frequency, norad,
-                                                                               qth_lon, qth_lat, qth_alt);
+                                                                               qth.lon, qth.lat, qth.alt);
                     if (input_data_type == DATA_FILE)
                     {
                         if (d_parameters.count("start_timestamp") > 0)

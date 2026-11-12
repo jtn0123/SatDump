@@ -1,5 +1,6 @@
 #include "sdrpp_server.h"
 #include "imgui/imgui_stdlib.h"
+#include <cinttypes>
 
 void SDRPPServerSource::set_settings(nlohmann::json settings)
 {
@@ -69,7 +70,8 @@ void SDRPPServerSource::set_frequency(uint64_t frequency)
     if (is_open && is_connected)
     {
         client->setFrequency(frequency);
-        logger->debug("Set SDR++ Server frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set SDR++ Server frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }
@@ -147,7 +149,8 @@ uint64_t SDRPPServerSource::get_samplerate()
         samplerate = client->getSampleRate();
     else
         samplerate = 0;
-    logger->debug("Got samplerate %d", samplerate);
+    // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+    logger->debug("Got samplerate %" PRIu64, samplerate);
     return samplerate;
 }
 

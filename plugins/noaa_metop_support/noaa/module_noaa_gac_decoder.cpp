@@ -106,7 +106,8 @@ namespace noaa
             if (time(NULL) % 10 == 0 && lastTime != time(NULL))
             {
                 lastTime = time(NULL);
-                logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%, Frames : " + std::to_string(frame_count));
+                // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%, Frames : " + std::to_string(frame_count));
             }
         }
 

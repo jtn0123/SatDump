@@ -68,13 +68,15 @@ protected:
 
                 if (cnt > dsp::STREAM_BUFFER_SIZE)
                 {
-                    logger->critical("Spectran buffer too big!", cnt);
+                    // Fork: the sample count was passed without a %d to print it
+                    logger->critical("Spectran buffer too big! (%d samples)", cnt);
                     continue;
                 }
 
                 if (cnt > dsp::STREAM_BUFFER_SIZE)
                 {
-                    logger->critical("Spectran buffer too big!", cnt);
+                    // Fork: the sample count was passed without a %d to print it
+                    logger->critical("Spectran buffer too big! (%d samples)", cnt);
                     continue;
                 }
 

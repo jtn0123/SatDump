@@ -260,11 +260,13 @@ namespace server
         }
         else if (_this->r_pkt_hdr->type == PACKET_TYPE_ERROR)
         {
-            logger->error("SDR++ Server Error: {0}", buf[sizeof(PacketHeader)]);
+            // Fork: {0} is not a printf format, so the error code was never shown
+            logger->error("SDR++ Server Error: %d", buf[sizeof(PacketHeader)]);
         }
         else
         {
-            logger->error("Invalid packet type: {0}", _this->r_pkt_hdr->type);
+            // Fork: {0} is not a printf format, so the packet type was never shown
+            logger->error("Invalid packet type: %u", _this->r_pkt_hdr->type);
         }
 
         // Restart an async read

@@ -1,4 +1,5 @@
 #include "usrp_sdr.h"
+#include <cinttypes>
 
 void USRPSource::set_gains()
 {
@@ -223,7 +224,8 @@ void USRPSource::set_frequency(uint64_t frequency)
     if (is_started)
     {
         usrp_device->set_rx_freq(frequency, channel);
-        logger->debug("Set USRP frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set USRP frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

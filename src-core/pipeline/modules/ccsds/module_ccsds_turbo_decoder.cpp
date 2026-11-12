@@ -247,7 +247,8 @@ namespace satdump
                     {
                         lastTime = time(NULL);
                         std::string lock_state = locked ? "SYNCED" : "NOSYNC";
-                        logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0f) / 10.0f) + "%%, Lock : " + lock_state);
+                        // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                        logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0f) / 10.0f) + "%, Lock : " + lock_state);
                     }
                 }
 

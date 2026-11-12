@@ -1,4 +1,5 @@
 #include "lime_sdr.h"
+#include <cinttypes>
 
 #if LIMESUITENG
 #include <limesuiteng/limesuiteng.hpp>
@@ -189,7 +190,8 @@ void LimeSDRSource::set_frequency(uint64_t frequency)
 
         LMS_SetLOFrequency(limeDevice, false, channel_id, frequency);
 
-        logger->debug("Set LimeSDR frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set LimeSDR frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

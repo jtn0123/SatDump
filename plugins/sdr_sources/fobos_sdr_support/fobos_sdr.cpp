@@ -1,4 +1,5 @@
 #include "fobos_sdr.h"
+#include <cinttypes>
 #include "common/utils.h"
 #include "imgui/imgui.h"
 #include "utils/string.h"
@@ -92,7 +93,8 @@ void FobosSource::start()
     // We cannot actually change the samplerate here... No LPF under 50M
     double actual_sr;
     fobos_rx_set_samplerate(fobos_dev_ovj, (current_samplerate >= 50e6) ? current_samplerate : 50e6, &actual_sr);
-    logger->debug("Set Fobos samplerate to " + std::to_string(current_samplerate) + " (%f)", actual_sr);
+    // Fork: one literal format (a format built at run time is refused by the logger)
+    logger->debug("Set Fobos samplerate to %" PRIu64 " (%f)", current_samplerate, actual_sr);
 
     fobos_rx_set_direct_sampling(fobos_dev_ovj, direct_sampling);
     fobos_rx_set_clk_source(fobos_dev_ovj, 0);
@@ -150,7 +152,8 @@ void FobosSource::set_frequency(uint64_t frequency)
     {
         double real_freq;
         fobos_rx_set_frequency(fobos_dev_ovj, frequency, &real_freq);
-        logger->debug("Set Fobos frequency to %d (%f)", frequency, real_freq);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set Fobos frequency to %" PRIu64 " (%f)", frequency, real_freq);
     }
     DSPSampleSource::set_frequency(frequency);
 }

@@ -29,7 +29,8 @@ namespace satdump
                     logger->warn("Unable to set RTL-SDR frequency!");
                 else if (attempts == 0)
                 {
-                    logger->debug("Set RTL-SDR frequency to %d", p_frequency);
+                    // Fork: %.0f for a double (was %d, which printed an unrelated number)
+                    logger->debug("Set RTL-SDR frequency to %.0f", p_frequency);
 
                     // This is a dirty patch! PLL might not lock on the first attempt if the frequency
                     // is above ~1 GHz, tuning down then back up locks it! This is a librtlsdr bug,
@@ -42,7 +43,8 @@ namespace satdump
                     }
                 }
                 else
-                    logger->debug("Set RTL-SDR frequency to %d (%d attempts!)", p_frequency, attempts + 1);
+                    // Fork: %.0f for a double (was %d, which printed an unrelated number)
+                    logger->debug("Set RTL-SDR frequency to %.0f (%d attempts!)", p_frequency, attempts + 1);
             }
         }
 
@@ -169,7 +171,8 @@ namespace satdump
             }
 
             rtlsdr_set_sample_rate(rtlsdr_dev_obj, p_samplerate);
-            logger->debug("Set RTL-SDR samplerate to %d", p_samplerate);
+            // Fork: %.0f for a double (was %d, which printed an unrelated number)
+            logger->debug("Set RTL-SDR samplerate to %.0f", p_samplerate);
 
             init();
 

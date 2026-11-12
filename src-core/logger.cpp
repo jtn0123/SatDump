@@ -38,38 +38,6 @@ namespace slog
     const std::string log_schar[] = {"T", "D", "I", "N", "W", "E", "C"};
     const std::string colors[] = {"\033[37m", "\033[36m", "\033[32m", "\033[35m", "\033[33m\033[1m", "\033[31m\033[1m", "\033[1m\033[41m"};
 
-    template <typename... T>
-    std::string vformat(const char *fmt, T &&...args)
-    {
-        // Allocate a buffer on the stack that's big enough for us almost
-        // all the time.
-        size_t size = 1024;
-        std::vector<char> buf;
-        buf.resize(size);
-
-        // Try to vsnprintf into our buffer.
-        size_t needed = snprintf((char *)&buf[0], size, fmt, args...);
-        // NB. On Windows, vsnprintf returns -1 if the string didn't fit the
-        // buffer.  On Linux & OSX, it returns the length it would have needed.
-
-        if (needed <= size)
-        {
-            // It fit fine the first time, we're done.
-            return std::string(&buf[0]);
-        }
-        else
-        {
-            // vsnprintf reported that it wanted to write more characters
-            // than we allotted.  So do a malloc of the right size and try again.
-            // This doesn't happen very often if we chose our initial size
-            // well.
-            size = needed;
-            buf.resize(size);
-            needed = snprintf((char *)&buf[0], size, fmt, args...);
-            return std::string(&buf[0]);
-        }
-    }
-
     std::string LoggerSink::format_log(LogMsg m, bool color, int *cpos)
     {
         time_t ct = time(0);
@@ -85,10 +53,18 @@ namespace slog
         if (cpos != nullptr)
             *cpos = timestamp.size() + 3;
 
+        // Fork: the line is put together directly. It went through snprintf with a buffer one
+        // byte short whenever the line was 1024 bytes or longer, which cut off its last
+        // character (the line break). The message still ends at a zero byte, as before.
+        std::string line = "[" + timestamp + "] ";
         if (color)
-            return vformat("[%s] %s(%s) %s\033[m\n", timestamp.c_str(), colors[m.lvl].c_str(), log_schar[m.lvl].c_str(), m.str.c_str());
-        else
-            return vformat("[%s] (%s) %s\n", timestamp.c_str(), log_schar[m.lvl].c_str(), m.str.c_str());
+            line += colors[m.lvl];
+        line += "(" + log_schar[m.lvl] + ") ";
+        line += m.str.c_str();
+        if (color)
+            line += "\033[m";
+        line += "\n";
+        return line;
     }
 
     void StdOutSink::receive(LogMsg log)
@@ -164,7 +140,7 @@ namespace slog
         }
     }
 
-    void Logger::log(LogLevel lvl, std::string v)
+    void Logger::log(LogLevel lvl, const std::string &v)
     {
         sink_mtx.lock();
         LogMsg m;
@@ -189,24 +165,41 @@ namespace slog
         sink_mtx.unlock();
     }
 
-    void Logger::logf(LogLevel lvl, std::string fmt, va_list args)
+    // Fork: the message is exactly as long as the text. It used to be padded with zero bytes
+    // to 1024, a message of exactly 1024 bytes lost its last character, a longer one kept a
+    // zero byte at its end, and a format vsnprintf could not print (it returns -1) gave an
+    // empty message; that now logs the format text itself. The copy of the arguments is
+    // released (va_end).
+    void Logger::logf(LogLevel lvl, const char *fmt, va_list args)
     {
-        std::string output;
-        output.resize(1024);
+        if (fmt == nullptr)
+        {
+            log(lvl, std::string("(null)"));
+            return;
+        }
 
         va_list argscopy;
         va_copy(argscopy, args);
 
-        size_t size = vsnprintf((char *)output.c_str(), output.size(), fmt.c_str(), args);
+        char first_try[1024];
+        int size = vsnprintf(first_try, sizeof(first_try), fmt, args);
 
-        if (size <= output.size())
+        if (size < 0)
         {
-            log(lvl, output);
+            va_end(argscopy);
+            log(lvl, std::string("(message could not be formatted) ") + fmt);
+        }
+        else if ((size_t)size < sizeof(first_try))
+        {
+            va_end(argscopy);
+            log(lvl, std::string(first_try, size));
         }
         else
         {
-            output.resize(size + 1);
-            size = vsnprintf((char *)output.c_str(), output.size(), fmt.c_str(), argscopy);
+            std::string output(size + 1, '\0'); // room for the terminating zero vsnprintf writes
+            vsnprintf(&output[0], output.size(), fmt, argscopy);
+            va_end(argscopy);
+            output.resize(size);
             log(lvl, output);
         }
     }

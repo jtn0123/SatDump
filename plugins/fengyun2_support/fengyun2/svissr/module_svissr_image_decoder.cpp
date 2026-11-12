@@ -228,7 +228,8 @@ namespace fengyun_svissr
         }
         else
         {
-            logger->debug("Minor frame size is not valid, skipping! %d bytes, %f groups", current_subcom_frame.size(), current_subcom_frame.size() / SUBCOM_GROUP_SIZE);
+            // Fork: a size_t was printed with %d and with %f (an unrelated number); the groups are now a fraction, as %f meant
+            logger->debug("Minor frame size is not valid, skipping! %zu bytes, %f groups", current_subcom_frame.size(), current_subcom_frame.size() / (double)SUBCOM_GROUP_SIZE);
             current_subcom_frame.clear();
         }
     }
@@ -294,7 +295,8 @@ namespace fengyun_svissr
         bool process_subcom_data = false;
 
         // Ensures we can and should decode it in the first place
-        logger->debug("Pulled %d subcommunication frames", subcommunication_frames.size());
+        // Fork: %zu for a size_t (was %d, the wrong printf type)
+        logger->debug("Pulled %zu subcommunication frames", subcommunication_frames.size());
         if (!subcommunication_frames.empty())
         {
             final_subcom_frame = satdump::majority_law_vec(subcommunication_frames);

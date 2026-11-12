@@ -1,4 +1,5 @@
 #include "rtaudio_sdr.h"
+#include <cinttypes>
 
 int RtAudioSource::callback_stereo(void * /*outputBuffer*/, void *inputBuffer, unsigned int nBufferFrames, double /*streamTime*/, RtAudioStreamStatus /*status*/, void *userData)
 {
@@ -96,7 +97,8 @@ void RtAudioSource::set_frequency(uint64_t frequency)
     if (is_started)
     {
         // No Freq for audio!
-        logger->debug("Set RtAudio frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set RtAudio frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

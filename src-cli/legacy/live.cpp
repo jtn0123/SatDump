@@ -10,6 +10,7 @@
 #include "logger.h"
 #include "pipeline/live_pipeline.h"
 #include "webserver.h"
+#include <cinttypes>
 #include <filesystem>
 #include <signal.h>
 
@@ -308,7 +309,8 @@ int main_live(int argc, char *argv[])
                     splitter_vfo->set_vfo_enabled(cfg.key(), true);
 
                     all_pipelines.emplace(cfg.key(), live_pipeline);
-                    logger->info("Added VFO for " + cfg.key() + " at %f", final_shift);
+                    // Fork: the VFO name (from the settings) is a %s argument; it was part of the format
+                    logger->info("Added VFO for %s at %f", cfg.key().c_str(), final_shift);
                 }
 
                 // If requested, boot up webserver
@@ -343,7 +345,8 @@ int main_live(int argc, char *argv[])
                         uint64_t elapsed_time = time(0) - start_time;
                         if (elapsed_time >= timeout)
                         {
-                            logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                            logger->warn("Timeout is over! (%" PRIu64 "s >= %" PRIu64 "s) Stopping.", elapsed_time, timeout);
                             break;
                         }
 
@@ -506,7 +509,8 @@ int main_live(int argc, char *argv[])
                         uint64_t elapsed_time = time(0) - start_time;
                         if (elapsed_time >= timeout)
                         {
-                            logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                            logger->warn("Timeout is over! (%" PRIu64 "s >= %" PRIu64 "s) Stopping.", elapsed_time, timeout);
                             break;
                         }
 

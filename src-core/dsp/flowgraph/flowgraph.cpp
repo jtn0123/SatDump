@@ -146,7 +146,8 @@ namespace satdump
                             }
                             catch (std::exception &e)
                             {
-                                logger->error("Error adding node with ID : " + n.value()["int_id"].get<std::string>() + ", Error : %s", e.what());
+                                // Fork: the node id (from the flowgraph file) is a %s argument; it was part of the format
+                                logger->error("Error adding node with ID : %s, Error : %s", n.value()["int_id"].get<std::string>().c_str(), e.what());
                             }
                         }
                         else
@@ -168,7 +169,8 @@ namespace satdump
                             }
                             catch (std::exception &e)
                             {
-                                logger->error("Error adding missing node with ID : " + n.value()["int_id"].get<std::string>() + ", Error : %s", e.what());
+                                // Fork: the node id (from the flowgraph file) is a %s argument; it was part of the format
+                                logger->error("Error adding missing node with ID : %s, Error : %s", n.value()["int_id"].get<std::string>().c_str(), e.what());
                             }
                         }
                     }

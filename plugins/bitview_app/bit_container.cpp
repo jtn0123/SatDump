@@ -81,7 +81,8 @@ namespace satdump
         d_chunk_size = 512;
         if (d_display_bits > 1 && (d_chunk_size % d_display_bits != 0))
             d_chunk_size += d_display_bits - (d_chunk_size % d_display_bits);
-        logger->debug("Using chunksize : %d", d_chunk_size);
+        // Fork: %zu for a size_t (was %d, the wrong printf type)
+        logger->debug("Using chunksize : %zu", d_chunk_size);
 
         // Init chunk count in X/Y
         if (d_frame_mode)
@@ -149,7 +150,8 @@ namespace satdump
                     }
 
                     if (part.highlights.size())
-                        logger->critical("%d %d %d", ii, iii, part.highlights.size());
+                        // Fork: %zu for a size_t (was %d, the wrong printf type)
+                        logger->critical("%zu %zu %zu", ii, iii, part.highlights.size());
                 }
 
                 offset += d_bitperiod * d_chunk_size;

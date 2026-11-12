@@ -86,7 +86,8 @@ image::Image downloadTileMap(std::string url_source, double lat0, double lon0, d
             }
             catch (std::exception &e)
             {
-                logger->error("Error downloading tile from: " + url + " %s", e.what());
+                // Fork: the URL is a %s argument; it was part of the format, so a % in it was read as a conversion
+                logger->error("Error downloading tile from: %s %s", url.c_str(), e.what());
             }
         }
     }

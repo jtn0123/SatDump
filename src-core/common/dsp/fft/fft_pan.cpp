@@ -1,6 +1,7 @@
 #include "fft_pan.h"
 #include "logger.h"
 #include "common/dsp/window/window.h"
+#include <cinttypes>
 
 namespace dsp
 {
@@ -31,7 +32,8 @@ namespace dsp
         rbuffer_rate = (samplerate / rate);
         rbuffer_size = std::min<int>(rbuffer_rate, fft_size);
         rbuffer_skip = rbuffer_rate - rbuffer_size;
-        logger->trace("FFT Rate %d, Samplerate %d, Final Size %d, Skip %d", rbuffer_rate, samplerate, rbuffer_size, rbuffer_skip);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->trace("FFT Rate %d, Samplerate %" PRIu64 ", Final Size %d, Skip %d", rbuffer_rate, samplerate, rbuffer_size, rbuffer_skip);
 
         // Init taps, rectangular window
         fft_taps.resize(rbuffer_size);

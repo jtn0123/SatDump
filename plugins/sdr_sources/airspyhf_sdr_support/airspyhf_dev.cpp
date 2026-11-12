@@ -73,7 +73,8 @@ namespace satdump
             is_open = true;
 
             airspyhf_set_samplerate(airspyhf_dev_obj, p_samplerate);
-            logger->debug("Set AirspyHF samplerate to %d", p_samplerate);
+            // Fork: %.0f for a double (was %d, which printed an unrelated number)
+            logger->debug("Set AirspyHF samplerate to %.0f", p_samplerate);
 
             init();
 

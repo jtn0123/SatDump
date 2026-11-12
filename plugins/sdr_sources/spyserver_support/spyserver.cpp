@@ -1,6 +1,7 @@
 #include "spyserver.h"
 #include "imgui/imgui_stdlib.h"
 #include "common/widgets/stepped_slider.h"
+#include <cinttypes>
 
 SpyServerStreamFormat depth_to_format(int depth)
 {
@@ -105,7 +106,8 @@ void SpyServerSource::set_frequency(uint64_t frequency)
     if (is_open && is_connected)
     {
         client->setSetting(SPYSERVER_SETTING_IQ_FREQUENCY, frequency);
-        logger->debug("Set SpyServer frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set SpyServer frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

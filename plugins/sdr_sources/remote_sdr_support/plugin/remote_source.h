@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
+#include <cinttypes>
 #include "logger.h"
 #include "imgui/imgui.h"
 #include "core/style.h"
@@ -87,7 +88,8 @@ public:
         if (pkt_type == dsp::remote::PKT_TYPE_SAMPLERATEFBK)
         {
             samplerate_current = *((uint64_t *)&buffer[1]);
-            logger->debug("Samplerate sent %llu", samplerate_current);
+            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+            logger->debug("Samplerate sent %" PRIu64, samplerate_current);
         }
 
         if (pkt_type == dsp::remote::PKT_TYPE_IQ)

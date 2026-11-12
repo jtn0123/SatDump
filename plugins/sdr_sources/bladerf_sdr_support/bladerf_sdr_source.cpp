@@ -1,4 +1,5 @@
 #include "bladerf_sdr_source.h"
+#include <cinttypes>
 
 void BladeRFSource::set_gains()
 {
@@ -185,7 +186,8 @@ void BladeRFSource::start()
     {
 #endif
         bladerf_set_sample_rate(bladerf_dev_obj, BLADERF_CHANNEL_RX(channel_id), current_samplerate, NULL);
-        logger->info("Actual samplerate %d (precise)", current_samplerate);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->info("Actual samplerate %" PRIu64 " (precise)", current_samplerate);
 #ifdef BLADERF_HAS_WIDEBAND
     }
     else
@@ -196,7 +198,8 @@ void BladeRFSource::start()
         rational_rate.num = (current_samplerate - rational_rate.integer) * rational_rate.den;
         bladerf_set_rational_sample_rate(bladerf_dev_obj, BLADERF_CHANNEL_RX(channel_id), &rational_rate, &actual);
         uint64_t actuals = actual.integer + (actual.num / static_cast<double>(actual.den));
-        logger->info("Actual samplerate %d (rational)", actuals);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->info("Actual samplerate %" PRIu64 " (rational)", actuals);
     }
 #endif
 
@@ -263,7 +266,8 @@ void BladeRFSource::set_frequency(uint64_t frequency)
     if (is_open && is_started)
     {
         bladerf_set_frequency(bladerf_dev_obj, BLADERF_CHANNEL_RX(channel_id), frequency);
-        logger->debug("Set BladeRF frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set BladeRF frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

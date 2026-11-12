@@ -49,7 +49,8 @@ namespace satdump
                 if (y2 < y1)
                     std::swap(y1, y2);
 
-                logger->critical("CROPPING %d %d, %d %d, %d %d", x1, y1, x2, y2, getImage().width(), getImage().height());
+                // Fork: %zu for a size_t (was %d, the wrong printf type)
+                logger->critical("CROPPING %d %d, %d %d, %zu %zu", x1, y1, x2, y2, getImage().width(), getImage().height());
 
                 auto img = getImage().crop_to(x1, y1, x2, y2);
                 auto proj_cfg = image::get_metadata_proj_cfg(getImage());

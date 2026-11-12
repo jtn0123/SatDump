@@ -1,4 +1,5 @@
 #include "hackrf_sdr_sink.h"
+#include <cinttypes>
 
 int HackRFSink::_tx_callback(hackrf_transfer *t)
 {
@@ -166,7 +167,8 @@ void HackRFSink::set_frequency(uint64_t frequency)
     if (is_open && is_started)
     {
         hackrf_set_freq(hackrf_dev_obj, frequency);
-        logger->debug("Set HackRF frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set HackRF frequency to %" PRIu64, frequency);
     }
     DSPSampleSink::set_frequency(frequency);
 }

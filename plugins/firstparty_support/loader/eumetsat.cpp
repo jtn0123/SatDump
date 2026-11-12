@@ -302,6 +302,10 @@ namespace satdump
                                         }
                                         catch (std::exception &e)
                                         {
+                                            // Fork: this was silent. A small download that is not an error report is still
+                                            // opened as before
+                                            logger->warn("EUMETSAT: the download %s is small (%zu bytes) but not an error report (%s); opening it anyway",
+                                                         download_path.c_str(), size, e.what());
                                         }
                                     }
 

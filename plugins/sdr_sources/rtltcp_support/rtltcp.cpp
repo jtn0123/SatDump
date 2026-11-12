@@ -1,6 +1,7 @@
 #include "rtltcp.h"
 #include "imgui/imgui_stdlib.h"
 #include "common/widgets/stepped_slider.h"
+#include <cinttypes>
 
 void RTLTCPSource::set_gains()
 {
@@ -154,7 +155,8 @@ void RTLTCPSource::set_frequency(uint64_t frequency)
     if (is_open && is_started)
     {
         client.setFrequency(frequency);
-        logger->debug("Set RTL-TCP frequency to %d", frequency);
+        // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+        logger->debug("Set RTL-TCP frequency to %" PRIu64, frequency);
     }
     DSPSampleSource::set_frequency(frequency);
 }

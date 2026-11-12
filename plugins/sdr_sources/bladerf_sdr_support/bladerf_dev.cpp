@@ -1,4 +1,5 @@
 #include "bladerf_dev.h"
+#include <cinttypes>
 #include "dsp/block.h"
 #include "nlohmann/json.hpp"
 #include <bladeRF2.h>
@@ -166,7 +167,8 @@ namespace satdump
                 rational_rate.num = (samplerate - rational_rate.integer) * rational_rate.den;
                 bladerf_set_rational_sample_rate(bladerf_dev_obj, BLADERF_CHANNEL_RX(0), &rational_rate, &actual);
                 uint64_t actuals = actual.integer + (actual.num / static_cast<double>(actual.den));
-                logger->info("Actual samplerate %d (rational)", actuals);
+                // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                logger->info("Actual samplerate %" PRIu64 " (rational)", actuals);
             }
 #endif
 

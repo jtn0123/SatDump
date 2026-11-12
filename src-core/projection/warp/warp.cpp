@@ -99,7 +99,8 @@ namespace satdump
                 }
             }
 
-            logger->info("Solving TPS equations for %d GCPs...", gcps.size());
+            // Fork: %zu for a size_t (was %d, the wrong printf type)
+            logger->info("Solving TPS equations for %zu GCPs...", gcps.size());
             auto solve_start = std::chrono::system_clock::now();
             bool solved = spline_transform->solve() != 0;
             if (solved)
@@ -306,7 +307,8 @@ namespace satdump
                 clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &size_wg, NULL);
                 clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(size_t), &compute_units, NULL);
 
-                logger->debug("Workgroup size %d", size_wg * compute_units);
+                // Fork: %zu for a size_t (was %d, the wrong printf type)
+                logger->debug("Workgroup size %zu", size_wg * compute_units);
 
                 // Run the kernel!
                 size_t total_wg_size = int(size_wg) * int(compute_units);
@@ -417,7 +419,8 @@ namespace satdump
                 clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), &size_wg, NULL);
                 clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(size_t), &compute_units, NULL);
 
-                logger->debug("Workgroup size %d", size_wg * compute_units);
+                // Fork: %zu for a size_t (was %d, the wrong printf type)
+                logger->debug("Workgroup size %zu", size_wg * compute_units);
 
                 // Run the kernel!
                 size_t total_wg_size = int(size_wg) * int(compute_units);

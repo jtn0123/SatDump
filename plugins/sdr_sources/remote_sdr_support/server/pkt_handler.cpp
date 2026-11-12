@@ -1,4 +1,5 @@
 #include "pkt_handler.h"
+#include <cinttypes>
 #include "logger.h"
 #include "main.h"
 #include "gui.h"
@@ -124,7 +125,8 @@ void tcp_rx_handler(uint8_t *buffer, int len)
         {
             source_mtx.lock();
             memcpy(&last_samplerate, &buffer[1], sizeof(uint64_t));
-            logger->debug("Samplerate sent %llu", last_samplerate);
+            // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+            logger->debug("Samplerate sent %" PRIu64, last_samplerate);
             if (source_is_open)
                 current_sample_source->set_samplerate(last_samplerate);
 

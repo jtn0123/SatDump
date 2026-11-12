@@ -10,6 +10,7 @@
 #include "logger.h"
 #include "webserver.h"
 #include <signal.h>
+#include <cinttypes>
 
 // Catch CTRL+C to exit live properly!
 bool rec_should_exit = false;
@@ -229,7 +230,8 @@ int main_record(int argc, char *argv[])
         {
             if (elapsed_time >= timeout)
             {
-                logger->warn("Timeout is over! (%ds >= %ds) Stopping.", elapsed_time, timeout);
+                // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                logger->warn("Timeout is over! (%" PRIu64 "s >= %" PRIu64 "s) Stopping.", elapsed_time, timeout);
                 break;
             }
         }

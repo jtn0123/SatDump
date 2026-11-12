@@ -53,7 +53,8 @@ namespace satdump
             }
 #endif
             std::vector<OCLDevice> devices = resetOCLContext();
-            logger->info("Found OpenCL Devices (%d) :", devices.size());
+            // Fork: %zu for a size_t (was %d, the wrong printf type)
+            logger->info("Found OpenCL Devices (%zu) :", devices.size());
             for (OCLDevice &d : devices)
                 logger->debug(" - " + d.name.substr(0, d.name.size() - 1));
         }

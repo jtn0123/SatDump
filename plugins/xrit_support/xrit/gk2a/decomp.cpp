@@ -64,7 +64,8 @@ namespace satdump
 
                     if (img.width() < image_structure_record.columns_count || img.height() < image_structure_record.lines_count)
                     {
-                        logger->warn("JPEG decomp error! %d", img.size());
+                        // Fork: %zu for a size_t (was %d, the wrong printf type)
+                        logger->warn("JPEG decomp error! %zu", img.size());
                         img.init(image_structure_record.bit_per_pixel > 8 ? 16 : 8, image_structure_record.columns_count, image_structure_record.lines_count, 1); // Just in case it's corrupted!
                     }
                     file.lrit_data.erase(file.lrit_data.begin() + primary_header.total_header_length, file.lrit_data.end());

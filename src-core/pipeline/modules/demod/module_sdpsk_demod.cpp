@@ -132,7 +132,8 @@ namespace satdump
                     if (time(NULL) % 10 == 0 && lastTime != time(NULL))
                     {
                         lastTime = time(NULL);
-                        logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%, SNR : " + std::to_string(snr) + "dB," +
+                        // Fork: one % now; a message given alone is logged as it is, not read as a printf format
+                        logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%, SNR : " + std::to_string(snr) + "dB," +
                                      " Peak SNR: " + std::to_string(peak_snr) + "dB");
                     }
                 }
