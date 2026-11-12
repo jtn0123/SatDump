@@ -86,6 +86,8 @@ namespace ccsds
 
     bool crcCheckCCITT(CCSDSPacket &pkt)
     {
+        if (pkt.payload.size() < 2) // Fork: too short to hold a CRC (corrupt length field)
+            return false;
         uint16_t crc2 = pkt.payload[pkt.payload.size() - 2] << 8 | pkt.payload[pkt.payload.size() - 1];
         uint16_t crc = 0xFFFF;
 
@@ -110,6 +112,10 @@ namespace ccsds
 
     bool crcCheckHLDC32(CCSDSPacket &pkt)
     {
+        if (pkt.payload.size() < 4) // Fork: too short to hold a CRC (corrupt length field)
+            return false;
+        // Fork note: the comparison below parses as crc ^ (0xFFFFFFFF == crc2), so this check
+        // accepts almost everything. Only GK-2A uses it; fixing it needs GK-2A data to verify.
         uint32_t crc2 = pkt.payload[pkt.payload.size() - 4] << 24 | pkt.payload[pkt.payload.size() - 3] << 16 | pkt.payload[pkt.payload.size() - 2] << 8 | pkt.payload[pkt.payload.size() - 1];
         uint32_t crc = 0xFFFFFFFF;
 
@@ -134,6 +140,8 @@ namespace ccsds
 
     bool crcCheckVerticalParity(CCSDSPacket &pkt)
     {
+        if (pkt.payload.size() < 2) // Fork: too short to hold a checksum (corrupt length field)
+            return false;
         uint16_t crc2 = pkt.payload[pkt.payload.size() - 2] << 8 | pkt.payload[pkt.payload.size() - 1];
 
         uint16_t checksum = 0;
