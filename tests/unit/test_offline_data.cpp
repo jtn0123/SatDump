@@ -792,9 +792,11 @@ TEST_CASE("IERS: the addresses as SatDump reads them, settings.json merged over 
     CHECK(web_leap.rfind("https://", 0) == 0);
     CHECK(defaults["satdump_general"]["iers_auto_update"]["value"] == false);
 
-    // An address settings.json leaves out, or gives as an object without "value", is that web
-    // address (and is downloaded in the background when the update is on). Only an empty value,
-    // null or a value that is not an object is no address. (This test once replaced the whole
+    // An address is used only when settings.json gives it as {"value": "<text>"}, or leaves it
+    // out (or gives an object without "value"), which means that web address (downloaded in the
+    // background when the update is on). Anything else is no address: {"value": ""},
+    // {"value": null} (the merge removes "value"), a value that is not text, null (the merge
+    // removes the setting) or a setting that is not an object. (This test once replaced the whole
     // "satdump_general" part, which a run never has, so a left-out address seemed to be none.)
     const nlohmann::ordered_json old_cfg = satdump::satdump_cfg.main_cfg;
     nlohmann::ordered_json update_on;
@@ -815,7 +817,9 @@ TEST_CASE("IERS: the addresses as SatDump reads them, settings.json merged over 
     CHECK(bulletin_with({{"value", ""}}) == "");
     CHECK(bulletin_with(nullptr) == "");
     CHECK(bulletin_with({{"value", nullptr}}) == "");
+    CHECK(bulletin_with({{"value", 42}}) == "");
     CHECK(bulletin_with("file:///data/finals.json") == "");
+    CHECK(bulletin_with(42) == "");
     satdump::satdump_cfg.main_cfg = old_cfg;
 
     TempDir dir;

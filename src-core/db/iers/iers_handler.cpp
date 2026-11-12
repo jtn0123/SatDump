@@ -88,12 +88,14 @@ namespace satdump
         }
     }
 
-    // Fork: a text setting of satdump_general ({"value": "<address>"}), or "" when it is missing,
-    // empty or not in that form, and then nothing is fetched. The code has no address of its own.
-    // But settings.json is merged over the installed satdump_cfg.json, whose values are the web
-    // addresses SatDump always used: an address settings.json leaves out, or gives as an object
-    // without "value", is that web address. Only {"value": ""}, null, or a value that is not an
-    // object leaves it unset
+    // Fork: a text setting of satdump_general ({"value": "<address>"}), or "" when it is in any
+    // other form or empty, and then nothing is fetched. The code has no address of its own. But
+    // settings.json is merged over the installed satdump_cfg.json, whose values are the web
+    // addresses SatDump always used. So an address is used only when settings.json gives it as
+    // {"value": "<text>"}, or leaves the setting out (or gives an object without "value"), which
+    // means that web address. Anything else is no address: {"value": ""}, {"value": null} (the
+    // merge removes "value"), a value that is not text, null (the merge removes the setting) or
+    // a setting that is not an object
     static std::string iersUrlSetting(const std::string &name)
     {
         const nlohmann::ordered_json &cfg = satdump_cfg.main_cfg;

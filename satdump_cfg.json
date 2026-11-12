@@ -254,9 +254,11 @@
         // (file:///folder/file). When neither is a web address (a local file, or not set) they
         // are read when SatDump starts, before anything is processed; otherwise in the
         // background, as upstream. Their values are the web addresses SatDump has always used,
-        // and settings.json is merged over this file: an address that settings.json leaves out,
-        // or gives as an object without "value", is the web address below. Only {"value": ""},
-        // null or a value that is not an object is no address, and nothing is fetched for it.
+        // and settings.json is merged over this file. So an address is used only when
+        // settings.json gives it as {"value": "<text>"}, or leaves it out (or gives an object
+        // without "value"), which means the web address below. Anything else is no address, and
+        // nothing is fetched for it: {"value": ""}, {"value": null}, a value that is not text,
+        // null, or a setting that is not an object.
         "iers_auto_update": {
             "type": "bool",
             "value": false,

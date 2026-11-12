@@ -45,8 +45,10 @@ namespace satdump
 
         // Fork: where the IERS bulletin and the leap second list come from: the settings
         // "iers_bulletin_url" and "leap_seconds_url" of satdump_general. Either can be a local
-        // file (file://). "" when the setting is missing, empty or not {"value": "<address>"}:
-        // that file is then not updated (there is no built-in address to fall back on).
+        // file (file://). "" unless the setting is {"value": "<text>"}: that file is then not
+        // updated. The code has no address of its own, but the settings are settings.json merged
+        // over the installed satdump_cfg.json, which holds the web addresses SatDump always used
+        // (see iersUrlSetting in iers_handler.cpp).
         static std::string bulletinUrl();
         static std::string leapSecondsUrl();
 
