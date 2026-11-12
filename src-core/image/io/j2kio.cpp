@@ -1,8 +1,10 @@
 #include "../io.h"
-#include "libs/openjp2/openjpeg.h"
+#include "../j2k_stream.h"
 #include "logger.h"
 #include <cstring>
 #include <filesystem>
+#include <openjpeg.h>
+#include <vector>
 
 #define INVERT_ENDIAN_16(x) ((x >> 8) | (x << 8))
 
@@ -29,10 +31,16 @@ namespace satdump
 
             opj_set_default_encoder_parameters(&parameters);
             parameters.numresolution = 5;
+            // Fork: OpenJPEG needs each side to be at least 2^(resolutions - 1) pixels, so a
+            // picture under 16 pixels wide or high (which could not be saved) gets fewer levels
+            while (parameters.numresolution > 1 && (d_width < (1u << (parameters.numresolution - 1)) || d_height < (1u << (parameters.numresolution - 1))))
+                parameters.numresolution--;
 
             {
-                opj_image_cmptparm_t comp_params[4];
-                memset(comp_params, 0, 4 * sizeof(opj_image_cmptparm_t));
+                // Fork: one entry per channel. There were always 4, so a picture with more
+                // channels was written past the end of the array (on the stack)
+                std::vector<opj_image_cmptparm_t> comp_params(d_channels);
+                memset(comp_params.data(), 0, comp_params.size() * sizeof(opj_image_cmptparm_t));
 
                 for (int i = 0; i < d_channels; i++)
                 {
@@ -45,13 +53,9 @@ namespace satdump
                     comp_params[i].h = d_height;
                 }
 
-                image = opj_image_create(d_channels, comp_params, d_channels == 1 ? OPJ_CLRSPC_GRAY : OPJ_CLRSPC_SRGB);
+                image = opj_image_create(d_channels, comp_params.data(), d_channels == 1 ? OPJ_CLRSPC_GRAY : OPJ_CLRSPC_SRGB);
 
-                if (image == NULL)
-                {
-                    logger->error("JP2 image is null? C");
-                }
-                else
+                if (image != NULL)
                 {
                     image->x0 = 0;
                     image->y0 = 0;
@@ -67,44 +71,58 @@ namespace satdump
 
             if (image == NULL)
             {
-                logger->error("JP2 image is null? F");
+                logger->error("Could not save J2K image %s: OpenJPEG could not create the picture", file.c_str());
                 return;
             }
 
             opj_stream_t *stream;
             opj_codec_t *codec;
+            // Fork: OpenJPEG's own messages give the reason for a failure (they were dropped)
+            J2KMessages messages;
 
             stream = NULL;
-            parameters.tcp_mct = image->numcomps == 1 ? 0 : 1;
+            // Fork: the colour transform works on the first three components, so it is only used
+            // when there are three or more. It was on for two, and OpenJPEG then read a third
+            // component that does not exist (a crash)
+            parameters.tcp_mct = image->numcomps >= 3 ? 1 : 0;
 
             codec = opj_create_compress(codec_format);
 
             if (codec == NULL)
+            {
+                logger->error("Could not save J2K image %s: could not create the encoder", file.c_str());
                 goto abort;
+            }
 
-            opj_setup_encoder(codec, &parameters, image);
+            j2k_capture_messages(codec, messages);
+            if (!opj_setup_encoder(codec, &parameters, image))
+            {
+                logger->error("Could not save J2K image %s: %s", file.c_str(), messages.reason("could not set up the encoder").c_str());
+                goto abort;
+            }
 
             stream = opj_stream_create_default_file_stream(file.c_str(), false);
 
             if (stream == NULL)
             {
-                logger->error("NULL STREAM");
+                logger->error("Could not save J2K image %s: could not open the file", file.c_str());
                 goto abort;
             }
 
             if (!opj_start_compress(codec, image, stream))
             {
-                logger->error("START COMPRESS ERROR");
+                logger->error("Could not save J2K image %s: %s", file.c_str(), messages.reason("could not start compressing").c_str());
                 goto abort;
             }
 
             if (!opj_encode(codec, stream))
             {
-                logger->error("ENCODE ERROR");
+                logger->error("Could not save J2K image %s: %s", file.c_str(), messages.reason("could not compress").c_str());
                 goto abort;
             }
 
-            opj_end_compress(codec, stream);
+            if (!opj_end_compress(codec, stream))
+                logger->error("Could not save J2K image %s: %s", file.c_str(), messages.reason("could not finish the file").c_str());
 
         abort:
 
@@ -127,73 +145,28 @@ namespace satdump
             if (!std::filesystem::exists(file))
                 return;
 
-            // Init decoder parameters
-            opj_dparameters_t core;
-            memset(&core, 0, sizeof(opj_dparameters_t));
-            opj_set_default_decoder_parameters(&core);
+            // Fork: a file that cannot be read or decoded is logged with OpenJPEG's reason (it was
+            // dropped silently), and a decoded picture is checked before it is copied: the copy
+            // read x1 x y1 samples of every component, which is more than OpenJPEG decodes when
+            // the picture does not start at 0,0 or is subsampled, and shifted by a negative
+            // amount above 16 bits
+            opj_stream_t *stream = opj_stream_create_file_stream(file.c_str(), OPJ_J2K_STREAM_CHUNK_SIZE, true);
+            std::string error, warning;
+            opj_image_t *decoded = j2k_decode(stream, error, warning);
+            if (stream != nullptr)
+                opj_stream_destroy(stream);
 
-            // Setup image, stream and codec
-            opj_image_t *image = NULL;
-            opj_stream_t *l_stream = opj_stream_create_file_stream(file.c_str(), OPJ_J2K_STREAM_CHUNK_SIZE, true);
-            opj_codec_t *l_codec = opj_create_decompress(OPJ_CODEC_J2K);
-
-            // Check we could open the stream
-            if (!l_stream)
+            if (decoded == nullptr)
             {
-                opj_destroy_codec(l_codec);
+                logger->error("Could not load J2K image %s: %s", file.c_str(), error.c_str());
                 return;
             }
+            if (!warning.empty())
+                logger->warn("J2K image %s loaded with problems: %s", file.c_str(), warning.c_str());
 
-            // Setup decoder
-            if (!opj_setup_decoder(l_codec, &core))
-            {
-                opj_stream_destroy(l_stream);
-                opj_destroy_codec(l_codec);
-                return;
-            }
-
-            // Read header
-            if (!opj_read_header(l_stream, l_codec, &image))
-            {
-                opj_stream_destroy(l_stream);
-                opj_destroy_codec(l_codec);
-                opj_image_destroy(image);
-                return;
-            }
-
-            // Decode image
-            if (!(opj_decode(l_codec, l_stream, image) && opj_end_decompress(l_codec, l_stream)))
-            {
-                opj_destroy_codec(l_codec);
-                opj_stream_destroy(l_stream);
-                opj_image_destroy(image);
-                return;
-            }
-
-            // Parse into image
-            int depth = image->comps[0].prec;
-            int d_depth = 8;
-            if (depth > 8)
-                d_depth = 16;
-            img.init(d_depth, image->x1, image->y1, image->numcomps);
-
-            if (depth > 8)
-            {
-                for (uint32_t c = 0; c < image->numcomps; c++)
-                    for (int i = 0; i < int(image->x1 * image->y1); i++)
-                        img.set(c, i, image->comps[c].data[i] << (16 - depth));
-            }
-            else
-            {
-                for (uint32_t c = 0; c < image->numcomps; c++)
-                    for (int i = 0; i < int(image->x1 * image->y1); i++)
-                        img.set(c, i, image->comps[c].data[i] << (8 - depth));
-            }
-
-            // Free everything up
-            opj_destroy_codec(l_codec);
-            opj_stream_destroy(l_stream);
-            opj_image_destroy(image);
+            if (!j2k_all_components(decoded, img, error))
+                logger->error("Could not load J2K image %s: %s", file.c_str(), error.c_str());
+            opj_image_destroy(decoded);
         }
     } // namespace image
 } // namespace satdump

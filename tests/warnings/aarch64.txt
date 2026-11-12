@@ -280,12 +280,6 @@
 1 src-core/imgui/implot3d/implot3d_items.cpp -Wunused-variable
 1 src-core/init.cpp -Wunused-parameter
 1 src-core/libs/mqttc/posix_sockets.h -Wmissing-field-initializers
-1 src-core/libs/muparserx/mpFuncCommon.cpp -Wunused-parameter
-1 src-core/libs/muparserx/mpFuncStr.cpp -Wunused-parameter
-5 src-core/libs/muparserx/mpOprtCmplx.cpp -Wunused-parameter
-1 src-core/libs/muparserx/mpOprtMatrix.cpp -Wunused-parameter
-5 src-core/libs/muparserx/mpOprtNonCmplx.cpp -Wunused-parameter
-1 src-core/libs/muparserx/mpTest.cpp -Wunused-parameter
 5 src-core/nlohmann/json.hpp -Wmaybe-uninitialized
 1 src-core/pipeline/modules/demod/module_demod_base.cpp -Wformat-truncation=
 7 src-core/products/image/calibration_converter.cpp -Wunused-parameter

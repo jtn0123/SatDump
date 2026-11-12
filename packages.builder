@@ -3,10 +3,12 @@ cmake
 g++
 git
 libad9361-dev
+libaec-dev
 libairspy-dev
 libairspyhf-dev
 libbladerf-dev
 libboost-dev
+libbz2-dev
 libcurl4-openssl-dev
 libdbus-1-dev
 libfftw3-dev
@@ -18,6 +20,7 @@ libjemalloc-dev
 liblimesuite-dev
 libnng-dev
 libomp-dev
+libopenjp2-7-dev
 libpng-dev
 librtlsdr-dev
 libsqlite3-dev

@@ -3,9 +3,10 @@
 #include "common/ccsds/ccsds.h"
 #include <cmath>
 #include "image/image.h"
+// Fork: the system libaec on Linux, the bundled copy elsewhere (cmake/fork/codecs.cmake)
 extern "C"
 {
-#include <libs/aec/szlib.h>
+#include <szlib.h>
 }
 
 namespace jpss

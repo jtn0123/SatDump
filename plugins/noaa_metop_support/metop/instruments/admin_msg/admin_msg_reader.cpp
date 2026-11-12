@@ -1,6 +1,6 @@
 #include "admin_msg_reader.h"
-#include "libs/bzlib/bzlib.h"
 #include "logger.h"
+#include <bzlib.h> // Fork: the system bzip2 on Linux, the bundled copy elsewhere (cmake/fork/codecs.cmake)
 #include <fstream>
 
 namespace metop

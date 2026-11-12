@@ -140,6 +140,7 @@ On Linux, building from source is recommended, but builds are provided for x64-b
 ```bash
 sudo apt install git build-essential cmake g++ pkgconf libfftw3-dev libpng-dev \
                  libtiff-dev libjemalloc-dev libcurl4-openssl-dev libsqlite3-dev
+sudo apt install libbz2-dev libopenjp2-7-dev libaec-dev                           # bzip2, OpenJPEG and libaec (required on Linux)
 sudo apt install libvolk-dev                                                      # If this package is not found, use libvolk2-dev or libvolk1-dev
 sudo apt install libnng-dev                                                       # If this package is not found, follow build instructions below for NNG
 
@@ -163,7 +164,7 @@ sudo apt install git build-essential cmake g++ pkgconf libfftw3-dev libpng-dev \
                  libglfw3-dev zenity portaudio19-dev libzstd-dev libhdf5-dev librtlsdr-dev \
                  libhackrf-dev libairspy-dev libairspyhf-dev libad9361-dev libiio-dev \
                  libbladerf-dev libomp-dev ocl-icd-opencl-dev intel-opencl-icd mesa-opencl-icd \
-                 libdbus-1-dev libarmadillo-dev libsqlite3-dev
+                 libdbus-1-dev libarmadillo-dev libsqlite3-dev libbz2-dev libopenjp2-7-dev libaec-dev
 ```
 
 </details>
@@ -174,6 +175,7 @@ sudo apt install git build-essential cmake g++ pkgconf libfftw3-dev libpng-dev \
 ```bash
 sudo dnf install git cmake g++ fftw-devel volk-devel libpng-devel jemalloc-devel \
                  libtiff-devel nng-devel curl-devel sqlite-devel
+sudo dnf install bzip2-devel openjpeg2-devel libaec-devel                         # bzip2, OpenJPEG and libaec (required on Linux)
 
 # (Optional)
 sudo dnf install glfw-devel zenity dbus-devel                                                       # Only if you want to build the GUI Version
@@ -189,7 +191,7 @@ sudo dnf install intel-opencl                                                   
 sudo dnf install git cmake g++ fftw-devel volk-devel libpng-devel jemalloc-devel hdf5-devel \
                  libtiff-devel nng-devel curl-devel glfw-devel zenity portaudio-devel \
                  libzstd-devel rtl-sdr-devel hackrf-devel airspyone_host-devel libomp-devel \
-                 ocl-icd intel-opencl
+                 ocl-icd intel-opencl bzip2-devel openjpeg2-devel libaec-devel
 ```
 </details>
 <details>
@@ -201,6 +203,7 @@ sudo dnf install git cmake g++ fftw-devel volk-devel libpng-devel jemalloc-devel
 # You need to build libnng from source, see below.
 sudo apk add git cmake make g++ pkgconf fftw-dev libvolk-dev libpng-dev \
              jemalloc-dev tiff-dev curl-dev sqlite-dev
+sudo apk add bzip2-dev openjpeg-dev libaec-dev                         # bzip2, OpenJPEG and libaec (required on Linux)
 
 # (Optional)
 sudo apk add glfw-dev zenity dbus-dev                                  # Only if you want to build the GUI Version
@@ -225,6 +228,7 @@ sudo apk add opencl-dev                                                # Optiona
 
 sudo emerge --ask dev-vcs/git sci-libs/fftw dev-libs/jemalloc sci-libs/volk \
                   media-libs/libpng media-libs/tiff net-misc/curl dev-db/sqlite
+sudo emerge --ask app-arch/bzip2 media-libs/openjpeg sci-libs/libaec  # bzip2, OpenJPEG and libaec (required on Linux)
 
 sudo emerge --ask media-libs/glfw gnome-extra/zenity sys-apps/dbus                                                      # Only if you want to build the GUI Version
 sudo emerge --ask media-libs/portaudio                    # Only if you want audio output
@@ -242,7 +246,7 @@ sudo emerge --ask dev-vcs/git sci-libs/fftw dev-libs/jemalloc sci-libs/volk \
                   media-libs/glfw gnome-extra/zenity media-libs/portaudio \
                   app-arch/zstd net-wireless/rtl-sdr net-libs/libhackrf   \
                   net-wireless/bladerf net-libs/libiio net-libs/libad9361-iio \
-                  dev-libs/opencl-icd-loader
+                  dev-libs/opencl-icd-loader app-arch/bzip2 media-libs/openjpeg sci-libs/libaec
 ```
 
 </details>
@@ -254,6 +258,7 @@ sudo emerge --ask dev-vcs/git sci-libs/fftw dev-libs/jemalloc sci-libs/volk \
 sudo zypper install git gcc-c++ cmake g++ pkgconf fftw3-devel libpng-devel \
                     libtiff-devel jemalloc-devel libcurl-devel volk-devel  \
                     nng-devel sqlite3-devel 
+sudo zypper install libbz2-devel openjpeg2-devel libaec-devel                   # bzip2, OpenJPEG and libaec (required on Linux)
 
 # (Optional)
 sudo zypper install libglfw-devel zenity dbus-1-devel                                                # Only if you want to build the GUI Version
@@ -272,7 +277,8 @@ sudo zypper install Mesa-libOpenCL                                              
 sudo zypper install git gcc-c++ cmake g++ pkgconf fftw3-devel libpng-devel libtiff-devel jemalloc-devel \
                     libcurl-devel hdf5-devel volk-devel nng-devel libglfw-devel zenity portaudio-devel \
                     libzstd-devel rtl-sdr-devel hackrf-devel airspy-devel airspyhf-devel libad9361-iio-devel \
-                    libiio-devel bladeRF-devel libomp-devel opencl-headers libOpenCL1 intel-opencl Mesa-libOpenCL
+                    libiio-devel bladeRF-devel libomp-devel opencl-headers libOpenCL1 intel-opencl Mesa-libOpenCL \
+                    libbz2-devel openjpeg2-devel libaec-devel
 
 ```
 

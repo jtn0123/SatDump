@@ -1,6 +1,6 @@
 #include "doctest.h"
-#include "libs/bzlib/bzlib.h"
 #include "metop/instruments/admin_msg/admin_msg_reader.h"
+#include <bzlib.h>
 #include <filesystem>
 #include <string>
 #include <unistd.h>

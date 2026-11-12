@@ -6,9 +6,10 @@
 #include "image/image.h"
 #include "channels.h"
 
+// Fork: the system libaec on Linux, the bundled copy elsewhere (cmake/fork/codecs.cmake)
 extern "C"
 {
-#include "libs/aec/libaec.h"
+#include <libaec.h>
 }
 
 namespace jpss

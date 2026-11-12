@@ -27,6 +27,9 @@ add_executable(satdump-unit-tests
     unit/test_msugs_vis.cpp
     unit/test_thread_faults.cpp
     unit/test_autotrack_faults.cpp
+    unit/test_aec.cpp
+    unit/test_j2k.cpp
+    unit/test_j2k_stream.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp
@@ -53,6 +56,8 @@ target_include_directories(satdump-unit-tests PRIVATE
     ${PROJECT_SOURCE_DIR}/plugins/elektro_arktika_support
 )
 target_link_libraries(satdump-unit-tests PRIVATE satdump_core)
+# Fork: libaec for test_aec.cpp (cmake/fork/codecs.cmake)
+satdump_link_aec(satdump-unit-tests)
 if(SATDUMP_WITH_RUST)
     target_sources(satdump-unit-tests PRIVATE unit/test_rust_bridge.cpp)
 endif()
@@ -112,6 +117,10 @@ if(SATDUMP_RELOCATABLE)
     add_test(NAME cli_install_layout COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_layout.sh ${SATDUMP_CHECK_PREFIX})
     set_tests_properties(cli_install_layout PROPERTIES LABELS cli)
 endif()
+
+# Fork: no headers are installed for code the core does not build (cmake/fork/codecs.cmake)
+add_test(NAME cli_install_headers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_headers.sh ${CMAKE_BINARY_DIR})
+set_tests_properties(cli_install_headers PROPERTIES LABELS cli)
 
 # Rust builds (-DSATDUMP_WITH_RUST=ON): the crate's own tests, clippy with warnings as errors,
 # the golden pictures once more with Rust switched off, and how the Rust code is linked

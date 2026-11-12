@@ -1,8 +1,8 @@
 // Fuzz the MetOp admin message reader with arbitrary packet payloads. With the first byte
 // odd, the rest of the input is taken as the message text and bzip2-compressed here, so the
 // fuzzer reaches the XML reading directly instead of having to find valid bzip2 data.
-#include "libs/bzlib/bzlib.h"
 #include "metop/instruments/admin_msg/admin_msg_reader.h"
+#include <bzlib.h>
 #include <cstdint>
 #include <filesystem>
 #include <string>

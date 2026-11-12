@@ -1,6 +1,7 @@
 #pragma once
 
-#include "bzlib/bzlib.h"
+// Fork: the system bzip2 on Linux, the bundled copy elsewhere (cmake/fork/codecs.cmake)
+#include <bzlib.h>
 
 // Slightly modified version of the original,
 // to return how many bytes were consumed as well,

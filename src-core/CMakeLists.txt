@@ -18,13 +18,14 @@ configure_file(${PROJECT_SOURCE_DIR}/src-core/satdump_varst.cxx ${PROJECT_BINARY
 # Fork: the library folder name relative to the prefix, for finding plugins next to the executable
 set_source_files_properties(satdump_vars.cpp PROPERTIES COMPILE_DEFINITIONS "SATDUMP_INSTALL_LIBDIR=\"${CMAKE_INSTALL_LIBDIR}\"")
 
+# Fork: libs/libtom and libs/tiny-regex-c (no such folders) and a second libs/bzlib were removed
+# from this list; cmake/fork/codecs.cmake takes muparserx and, on Linux, the bundled codecs out
 file(GLOB_RECURSE SatDump_core_CPPS *.cpp
     ${PROJECT_BINARY_DIR}/satdump_varst.cpp
     libs/aec/*.c
     libs/predict/*.c
     libs/bzlib/*.c
     libs/miniz/*.c
-    libs/libtom/*.c
     libs/jpeg/*.c
     libs/jpeg12/*.c
     libs/dlfcn/dlfcn.c
@@ -32,8 +33,6 @@ file(GLOB_RECURSE SatDump_core_CPPS *.cpp
     libs/correct/*.c
     libs/openjp2/*.c
     libs/deepspace-turbo/*.c
-    libs/bzlib/*.c
-    libs/tiny-regex-c/*.c
     libs/supernovas/*.c
     libs/calceph/*.c
     libs/bpe/*.c
@@ -128,6 +127,7 @@ find_package(PkgConfig)
 
 add_library(satdump_core SHARED ${SatDump_core_CPPS})
 include(${PROJECT_SOURCE_DIR}/cmake/fork/rust.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/fork/codecs.cmake)
 target_include_directories(satdump_core PUBLIC .)
 #target_precompile_headers(satdump_core PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/nlohmann/json.hpp>")
 
@@ -327,5 +327,7 @@ else()
     install(TARGETS satdump_core DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
-install(DIRECTORY . DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY . DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump FILES_MATCHING PATTERN "*.hpp")
+# Fork: SATDUMP_CORE_HEADERS_EXCLUDE leaves out the headers of code the core does not build
+# (cmake/fork/codecs.cmake)
+install(DIRECTORY . DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump FILES_MATCHING PATTERN "*.h" ${SATDUMP_CORE_HEADERS_EXCLUDE})
+install(DIRECTORY . DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump FILES_MATCHING PATTERN "*.hpp" ${SATDUMP_CORE_HEADERS_EXCLUDE})
