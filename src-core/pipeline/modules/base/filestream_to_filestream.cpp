@@ -53,6 +53,8 @@ namespace satdump
                 {
                     data_in.read((char *)buffer, size);
                     got = data_in.gcount();
+                    if (got < size)
+                        memset(buffer + got, 0, size - got);
                     if (data_in.good())
                         progress = data_in.tellg();
                     else
@@ -60,11 +62,12 @@ namespace satdump
                 }
                 else
                 {
+                    // A read stopped part-way (the end of a stream) returns -1 but keeps the bytes it
+                    // copied, so clear the buffer first: it then holds that last data followed by zeros
+                    memset(buffer, 0, size);
                     const int r = input_fifo->read((uint8_t *)buffer, size);
                     got = r < 0 ? 0 : r;
                 }
-                if (got < size)
-                    memset(buffer + got, 0, size - got);
 
                 if (time(0) - time_)
                 {

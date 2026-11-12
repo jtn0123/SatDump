@@ -11,6 +11,7 @@ add_executable(satdump-unit-tests
     unit/test_reedsolomon.cpp
     unit/test_ccsds.cpp
     unit/test_admin_msg.cpp
+    unit/test_filestream.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
 )
