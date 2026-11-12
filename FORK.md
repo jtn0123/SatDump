@@ -35,6 +35,9 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Bug fix | CCSDS AOS packet splitter: a packet cut short by a new packet header (damaged frame) is dropped instead of being passed on cut off, one byte of the next header included, or empty | 2026-11-11 |
 | Bug fix | CCSDS AOS packet splitter: after a packet header cut across two frames, a damaged frame could make it write past the end of the packet, lose that packet and put its bytes in front of the next one | 2026-11-11 |
 | Bug fix | CCSDS AOS packet splitter: in the MetOp decoder, a lost frame (found from the virtual channel's frame counter) drops the packet in progress; in every AOS decoder, a frame with an impossible packet pointer does too. Before, that packet was finished with bytes from a later frame | 2026-11-11 |
+| Bug fix | AMSU: channel 2 (AMSU-A2) took its low byte from the high byte, so every value was wrong; a damaged MetOp AMSU packet that is too short after the fill words are removed is dropped instead of read past its end | 2026-11-11 |
+| Bug fix | MetOp GOME: band 1 (365 channels) was never filled, the first channel of each later band was blank, and one channel was read past the end of an array | 2026-11-11 |
+| Crash fix | MetOp-A or an unknown MetOp: the MHS telemetry no longer stops the instruments step for lack of calibration coefficients (AMSU, GOME and the rest were lost); it is saved without temperatures and currents | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |

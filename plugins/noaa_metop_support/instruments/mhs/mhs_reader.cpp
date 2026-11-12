@@ -469,6 +469,13 @@ namespace noaa_metop
                                          "receiver -15V",
                                          "RDM motor",
                                          "FDM motor"};
+
+            // Fork: the temperatures and currents need this satellite's coefficients. For a
+            // satellite missing from MHS.json (MetOp-A, or "Unknown MetOp") the caller passes null,
+            // and .get<double>() on it threw, which ended the whole instruments step before the
+            // later instruments were saved. Those two parts are now left out instead.
+            const bool have_coefs = calib_coefs.contains("g") && calib_coefs.contains("current_coefs");
+
             nlohmann::json telemetry;
             for (calib_line cl : calib_lines)
             {
@@ -522,6 +529,8 @@ namespace noaa_metop
                 telemetry["switches"]["RDM motor sensors selected"].push_back(AB((cl.HK[8] >> 2) & 1));
                 telemetry["switches"]["FDM zero position sensors"].push_back(AB((cl.HK[8] >> 1) & 1));
                 telemetry["switches"]["RDM zero position sensors"].push_back(AB(cl.HK[8] & 1));
+                if (!have_coefs)
+                    continue;
                 // temperature
                 for (int i = 0; i < 24; i++)
                 {

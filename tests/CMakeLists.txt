@@ -15,8 +15,12 @@ add_executable(satdump-unit-tests
     unit/test_image.cpp
     unit/test_task_scheduler.cpp
     unit/test_aos_demuxer.cpp
+    unit/test_metop_instruments.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/mhs/mhs_reader.cpp
+    ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/gome/gome_reader.cpp
 )
 target_include_directories(satdump-unit-tests PRIVATE
     third_party/doctest

@@ -80,7 +80,11 @@ namespace metop
 
                 for (int channel = 0; channel < max_channel; channel++)
                 {
-                    if (band_starts[band] >= max_channel || counter > 15)
+                    // Fork: this also skipped every band whose start is not below its own size, which
+                    // is band 1 (pixels 659-1023 of detector 0), so those 365 channels were always blank.
+                    // band_starts + channel is at most band_ends (<= 1023), so the read below stays
+                    // inside data[1024]; only counter needs checking (it picks the sample index).
+                    if (counter > 15)
                         continue;
 
                     // There might be a bug on metop?
@@ -111,7 +115,11 @@ namespace metop
             int coff = 0;
             int chan = channel;
 
-            while (channel > (coff + (band_ends[band] - band_starts[band] + 1)))
+            // Fork: >=, not >. With > the first channel of each band was taken from one past the
+            // end of the band before it (blank), and channel 3072 read channels[4][1024], past the
+            // end of the array. With the band layout in gome_reader.h, product channel i is now
+            // detector i / 1024, pixel i % 1024.
+            while (channel >= (coff + (band_ends[band] - band_starts[band] + 1)))
             {
                 chan -= band_ends[band] - band_starts[band] + 1;
                 coff += band_ends[band] - band_starts[band] + 1;

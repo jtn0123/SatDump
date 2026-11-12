@@ -40,7 +40,9 @@ namespace noaa_metop
             for (int i = 0; i < 240; i += 8)
             {
                 amsu_a2_dat[linesA2].channels[0][i / 8] = buffer[i + 12] << 8 | buffer[13 + i];
-                amsu_a2_dat[linesA2].channels[1][i / 8] = buffer[i + 14] << 8 | buffer[14 + i];
+                // Fork: channel 2 is the word in bytes 14-15, as channel 1 is in bytes 12-13. It was
+                // built from byte 14 twice (the low byte repeated the high byte), so every value was wrong.
+                amsu_a2_dat[linesA2].channels[1][i / 8] = buffer[i + 14] << 8 | buffer[15 + i];
             }
 
             // calibration
@@ -121,6 +123,11 @@ namespace noaa_metop
                         filtered.push_back(word & 0xFF);
                     }
                 }
+                // Fork: work_A1() reads bytes 0 to 1239. A damaged packet with extra 0x0001 words
+                // has fewer bytes left after the filter above, and its line was built from bytes
+                // past the end of the vector. Such a line is dropped, like a packet of the wrong size.
+                if (filtered.size() < 1240)
+                    return;
                 work_A1(filtered.data());
                 amsu_a1_dat[linesA1].timestamp = ccsds::crcCheckVerticalParity(packet) ? ccsds::parseCCSDSTimeFull(packet, 10957) : -1;
                 amsu_a1_dat.resize(amsu_a1_dat.size() + 1);
@@ -140,6 +147,8 @@ namespace noaa_metop
                         filtered.push_back(word & 0xFF);
                     }
                 }
+                if (filtered.size() < 312) // Fork: work_A2() reads bytes 0 to 311 (see A1 above)
+                    return;
                 work_A2(filtered.data());
                 amsu_a2_dat[linesA2].timestamp = ccsds::crcCheckVerticalParity(packet) ? ccsds::parseCCSDSTimeFull(packet, 10957) : -1;
                 amsu_a2_dat.resize(amsu_a2_dat.size() + 1);
