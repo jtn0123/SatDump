@@ -2,6 +2,7 @@
 #include "config.h"
 #include "logger.h"
 #include "nlohmann/json_utils.h"
+#include "utils/file.h"
 #include <filesystem>
 
 #if defined(__APPLE__)
@@ -101,10 +102,16 @@ namespace satdump
     {
         std::string final_path = "";
 
-        if (std::filesystem::exists("settings.json")) // First try loading in current folder
+        // Fork: neither check throws. A current folder that cannot be read counts as one with no
+        // settings.json (existsInCurrentFolder()). A user folder that cannot be checked, as when
+        // HOME is another user's home (su without -), is reported; the defaults are used
+        std::error_code ec;
+        if (existsInCurrentFolder("settings.json")) // First try loading in current folder
             final_path = "settings.json";
-        else if (std::filesystem::exists(user_path + "/settings.json"))
+        else if (std::filesystem::exists(user_path + "/settings.json", ec))
             final_path = user_path + "/settings.json";
+        else if (ec)
+            logger->warn("Cannot check for the settings file %s/settings.json (%s)", user_path.c_str(), ec.message().c_str());
 
         if (final_path != "")
         {

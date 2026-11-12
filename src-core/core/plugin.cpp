@@ -9,6 +9,7 @@
 #include "core/exception.h"
 #include "logger.h"
 #include "satdump_vars.h"
+#include "utils/file.h"
 #include <cstdlib>
 #include <filesystem>
 
@@ -69,10 +70,14 @@ void loadPlugins(std::map<std::string, std::shared_ptr<satdump::Plugin>> &loaded
 #ifdef __ANDROID__
     plugins_paths.push_back(android_plugins_dir + "/");
 #else
-    if (std::filesystem::exists("plugins")) // Try local plugins directory first
+    // Fork: the check in the current folder never throws (existsInCurrentFolder()). absolute()
+    // of ./plugins needs the current folder and threw when it had been deleted; now it gives an
+    // empty path then, which matches nothing, so the installed plugins are loaded
+    std::error_code cwd_error;
+    if (satdump::existsInCurrentFolder("plugins")) // Try local plugins directory first
         plugins_paths.push_back("./plugins");
     if (std::filesystem::exists(satdump::LIBPATH + "plugins") && // Followed by system
-        std::filesystem::absolute(satdump::LIBPATH + "plugins") != std::filesystem::absolute("./plugins"))
+        std::filesystem::absolute(satdump::LIBPATH + "plugins") != std::filesystem::absolute("./plugins", cwd_error))
         plugins_paths.push_back(satdump::LIBPATH + "plugins");
 #endif
 
@@ -96,13 +101,19 @@ void loadPlugins(std::map<std::string, std::shared_ptr<satdump::Plugin>> &loaded
     {
         logger->info("Loading plugins from " + plugins_path);
 
-        std::filesystem::recursive_directory_iterator pluginIterator(plugins_path);
+        // Fork: a plugin folder that cannot be read (a "plugins" folder in the current folder
+        // that belongs to another user) is skipped with a warning, and a file in it that cannot
+        // be checked is skipped like any other file that is not a plugin. Both stopped SatDump
+        std::error_code folderError, fileError;
+        std::filesystem::recursive_directory_iterator pluginIterator(plugins_path, folderError);
+        if (folderError)
+            logger->warn("Cannot read the plugin folder %s (%s); no plugins are loaded from it", plugins_path.c_str(), folderError.message().c_str());
         std::error_code iteratorError;
         while (pluginIterator != std::filesystem::recursive_directory_iterator())
         {
             std::string path = pluginIterator->path().string();
             std::string currfile = std::filesystem::path(path).stem().string();
-            if (!std::filesystem::is_regular_file(pluginIterator->path()) || pluginIterator->path().extension() != extension)
+            if (!std::filesystem::is_regular_file(pluginIterator->path(), fileError) || pluginIterator->path().extension() != extension)
                 goto skip_this;
 
 #ifdef __ANDROID__

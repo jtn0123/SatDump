@@ -110,6 +110,12 @@ set_tests_properties(cli_short_inputs PROPERTIES LABELS cli)
 add_test(NAME cli_startup COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/startup.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_startup PROPERTIES LABELS cli)
 
+# Fork: SatDump started from a folder it cannot read (or deleted), with HOME in one, or with a
+# "plugins" or "resources" folder there it cannot read. Ends with 77 (skipped) when run as root
+# and SatDump cannot be run as another user or without capabilities, as root reads any folder
+add_test(NAME cli_unreadable_folders COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/unreadable_folders.sh ${SATDUMP_CHECK_PREFIX})
+set_tests_properties(cli_unreadable_folders PROPERTIES LABELS cli SKIP_RETURN_CODE 77)
+
 # Modules that fail on purpose (tests/unit/fault_module.h), as a plugin for the cli test only;
 # never installed
 add_library(fork_fault_test_plugin SHARED unit/fault_plugin.cpp)

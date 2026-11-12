@@ -20,6 +20,7 @@
 #include "init.h"
 #include "logger.h"
 #include "satdump_vars.h"
+#include "utils/file.h"
 #include <filesystem>
 
 #include "db/db_handler.h"
@@ -126,7 +127,7 @@ namespace satdump
         logger->set_level(lvl);
 
 #ifdef _WIN32
-        if (std::filesystem::exists("satdump_cfg.json"))
+        if (existsInCurrentFolder("satdump_cfg.json")) // Fork: never throws, see utils/file.h
             user_path = "./config";
         else
             user_path = std::string(getenv("APPDATA")) + "/satdump";
@@ -148,7 +149,9 @@ namespace satdump
 
         try
         {
-            if (std::filesystem::exists("satdump_cfg.json"))
+            // Fork: a current folder that cannot be read counts as one with no portable
+            // satdump_cfg.json; it stopped SatDump (see existsInCurrentFolder())
+            if (existsInCurrentFolder("satdump_cfg.json"))
                 satdump_cfg.load("satdump_cfg.json", user_path);
             else
                 satdump_cfg.load(satdump::RESPATH + "satdump_cfg.json", user_path);

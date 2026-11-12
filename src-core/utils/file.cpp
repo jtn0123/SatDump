@@ -1,5 +1,7 @@
 #include "file.h"
 #include "core/exception.h"
+#include "logger.h"
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
@@ -57,5 +59,20 @@ namespace satdump
         close(fd);
         return std::string(path.data());
 #endif
+    }
+
+    // Fork: std::filesystem::exists() without an error_code throws when the path cannot be
+    // checked, so a current folder SatDump may not read (sudo -u from another user's home)
+    // stopped every command at start-up (exit 134). That situation is normal and changes
+    // nothing for an installed SatDump, so it is logged once at debug level, not warned about.
+    bool existsInCurrentFolder(const std::string &path)
+    {
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec))
+            return true;
+        static std::atomic<bool> logged(false);
+        if (ec && !logged.exchange(true))
+            logger->debug("Cannot check %s in the current folder (%s), so it counts as missing; later errors of this kind are not logged", path.c_str(), ec.message().c_str());
+        return false;
     }
 } // namespace satdump

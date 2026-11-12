@@ -7,6 +7,7 @@
 #include "nlohmann/json_utils.h" // TODOREWORK
 #include "pipeline.h"
 #include "pipeline/module.h"
+#include "utils/file.h"
 #include <exception>
 
 namespace satdump
@@ -192,9 +193,12 @@ namespace satdump
 
         void loadPipelines(std::string filepath)
         {
-            if (!std::filesystem::exists(filepath))
+            // Fork: a folder that cannot be checked counts as missing. In portable mode the path is
+            // in the current folder: a "resources" folder there that cannot be read stopped SatDump
+            std::error_code missing;
+            if (!std::filesystem::exists(filepath, missing))
             {
-                logger->error("Couldn't load pipelines! Was trying : " + filepath);
+                logger->error("Couldn't load pipelines! Was trying : " + filepath + (missing ? " (" + missing.message() + ")" : ""));
                 exit(1);
             }
 
@@ -231,10 +235,14 @@ namespace satdump
             bool has_user_pipelines = false;
             std::string final_path = "";
 
-            if (std::filesystem::exists("pipelines.json")) // First try loading in current folder
+            // Fork: neither check throws, as for settings.json (SatDumpConfigHandler::loadUser())
+            std::error_code ec;
+            if (existsInCurrentFolder("pipelines.json")) // First try loading in current folder
                 final_path = "pipelines.json";
-            else if (std::filesystem::exists(user_path + "/pipelines.json"))
+            else if (std::filesystem::exists(user_path + "/pipelines.json", ec))
                 final_path = user_path + "/pipelines.json";
+            else if (ec)
+                logger->warn("Cannot check for user pipelines %s/pipelines.json (%s)", user_path.c_str(), ec.message().c_str());
 
             if (final_path != "")
             {
