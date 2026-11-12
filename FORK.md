@@ -43,7 +43,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Security | The experimental TestRemoteRec server listens on 127.0.0.1 only | 2026-11-11 |
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
 | Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
-| Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
+| Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory, leak and undefined-behaviour checks | 2026-11-11 |
 | Rust | `SATDUMP_WITH_RUST` (off by default): the Rust crate in `rust/`, linked into the core library with its symbols hidden; `SATDUMP_NO_RUST=1` switches it off at run time | 2026-11-11 |
 | Rust | First Rust part: the CCSDS derandomiser, tested byte for byte against the C++ one | 2026-11-11 |
 | Tests | Fuzzing (`SATDUMP_FUZZ`, clang): random input for the MetOp/Meteor packet readers, the admin messages and Reed-Solomon | 2026-11-11 |
@@ -86,7 +86,7 @@ meant to alter the pictures, look at them first, then record the new fingerprint
 `tests/golden/golden.sh build/check-prefix --update`.
 
 A second build folder runs the same tests under AddressSanitizer and UBSan, which stop on
-any out-of-bounds read or write, use of freed memory, or undefined behaviour (exit code 86):
+any out-of-bounds read or write, use of freed memory, memory leak, or undefined behaviour (exit code 86):
 
 ```bash
 cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -DSATDUMP_SANITIZERS=address,undefined \
@@ -94,7 +94,9 @@ cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -DSATDUMP_SANITIZERS=address,und
 tests/gate.sh build-asan       # the warning check is skipped for this build
 ```
 
-Sanitizer builds are for testing only: they are slower and use more memory.
+Sanitizer builds are for testing only: they are slower and use more memory. Memory that
+SatDump keeps on purpose until it exits is listed, with the reason, in
+`tests/sanitizers/lsan.supp` (one entry today); anything else that leaks fails the tests.
 
 Fuzzing feeds the packet readers millions of random inputs and stops at the first memory
 error or undefined behaviour. It needs clang:

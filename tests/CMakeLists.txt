@@ -85,10 +85,11 @@ if(SATDUMP_FUZZ)
 endif()
 
 # Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
-# exit code 86. Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports as a
-# one-definition-rule violation when the plugins load; that one check is switched off.
+# exit code 86, memory leaks included (the few kept on purpose are listed in
+# sanitizers/lsan.supp). Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports
+# as a one-definition-rule violation when the plugins load; that one check is switched off.
 if(SATDUMP_SANITIZERS)
     get_property(_satdump_tests DIRECTORY PROPERTY TESTS)
     set_tests_properties(${_satdump_tests} PROPERTIES ENVIRONMENT
-        "ASAN_OPTIONS=detect_odr_violation=0:detect_leaks=0:exitcode=86;UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:exitcode=86")
+        "ASAN_OPTIONS=detect_odr_violation=0:detect_leaks=1:exitcode=86;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/sanitizers/lsan.supp:print_suppressions=0;UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:exitcode=86")
 endif()

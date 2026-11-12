@@ -1,0 +1,8 @@
+# LeakSanitizer exceptions for the sanitizer builds (tests/CMakeLists.txt). Each entry is
+# memory SatDump keeps on purpose for its whole run; the system frees it at exit. Anything
+# else that leaks fails the tests (exit code 86).
+#
+# The planet-position file (resources/spice/de440s.bsp) opened once at start-up
+# (src-core/init.cpp) and used by SuperNOVAS until exit. Closing it at exit could leave a
+# thread that is still running with a freed handle, which is worse than this one allocation.
+leak:calceph_spice_cache_init
