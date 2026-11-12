@@ -40,6 +40,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
 | Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
 | Tests | Fuzzing (`SATDUMP_FUZZ`, clang): random input for the MetOp/Meteor packet readers, the admin messages and Reed-Solomon | 2026-11-11 |
+| Tests | `tests/guard.sh`: on a receiving station the test gate never starts during a pass or when the disk is low | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |
 | CI | `fork_tests.yml`: the test gate, normal and sanitizer builds, on every push (arm64, Debian 13) | 2026-11-11 |
 
@@ -96,6 +97,13 @@ tests/fuzz/run.sh build-fuzz/fuzz_msumr_lrpt 600                     # 10 minute
 
 A long run keeps what it learned in `tests/fuzz/corpus/<name>` (not committed) and writes
 any input that fails to `crash-*` in the current folder.
+
+On a receiving station `tests/gate.sh` refuses to start while a pass is scheduled or running
+(the lock file `$SATDUMP_PASS_LOCK`, default `$XDG_RUNTIME_DIR/satdump-pass.lock`, or any
+running `satdump` process) and when less than `SATDUMP_MIN_FREE_GB` (default 4) GB is free.
+It runs at the lowest CPU and disk priority, caps ccache at 2 GB, and writes its process id
+to `$XDG_RUNTIME_DIR/satdump-gate.pid` so a pass scheduler can stop it. `SATDUMP_GUARD=off`
+skips the two checks on machines that never receive passes (CI does this).
 
 ## Known issues left as they are
 

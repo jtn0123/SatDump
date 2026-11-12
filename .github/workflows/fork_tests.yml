@@ -32,6 +32,7 @@ jobs:
           - name: sanitizers
             flags: -DSATDUMP_SANITIZERS=address,undefined -DSATDUMP_CPU_FLAGS= -DBUILD_GUI=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo
     env:
+      SATDUMP_GUARD: "off"  # the pass and disk checks are for receiving stations
       CCACHE_MAXSIZE: 1500M
       CCACHE_COMPRESS: "true"
     steps:

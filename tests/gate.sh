@@ -9,6 +9,7 @@
 # A second folder configured with -DSATDUMP_SANITIZERS=address,undefined runs the same tests
 # with memory and undefined-behaviour checks.
 # --update lowers the warning baseline after warnings were fixed.
+# On a receiving station it never starts during a pass or when the disk is low (tests/guard.sh).
 # Exit code: 0 all passed, 1 something failed.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,6 +21,7 @@ UPDATE=()
 grep -q '^SATDUMP_TESTS:BOOL=ON' "$B/CMakeCache.txt" 2>/dev/null ||
     { echo "gate: $B is not configured with -DSATDUMP_TESTS=ON"; exit 1; }
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+. "$ROOT/tests/guard.sh"
 FAIL=0
 start=$(date +%s)
 
