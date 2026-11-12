@@ -23,3 +23,8 @@ set(PLUGIN_SIMD_AVX2 OFF CACHE BOOL "")
 # No network radio servers: satdump_sdr_server listens on every address (port 5656) with
 # no password, and the plugin's discovery listens on every address too.
 set(PLUGIN_REMOTE_SDR_SUPPORT OFF CACHE BOOL "")
+
+# Installed programs (<prefix>/bin) and plugins (<prefix>/lib/satdump/plugins) find
+# libsatdump_core in <prefix>/lib, and plugins find the plugins they build on (such as
+# libxrit_support) beside them, so an install works wherever it is unpacked
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib;$ORIGIN/../..;$ORIGIN" CACHE STRING "")

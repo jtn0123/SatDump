@@ -15,6 +15,8 @@ else()
 endif()
 
 configure_file(${PROJECT_SOURCE_DIR}/src-core/satdump_varst.cxx ${PROJECT_BINARY_DIR}/satdump_varst.cpp @ONLY)
+# Fork: the library folder name relative to the prefix, for finding plugins next to the executable
+set_source_files_properties(satdump_vars.cpp PROPERTIES COMPILE_DEFINITIONS "SATDUMP_INSTALL_LIBDIR=\"${CMAKE_INSTALL_LIBDIR}\"")
 
 file(GLOB_RECURSE SatDump_core_CPPS *.cpp
     ${PROJECT_BINARY_DIR}/satdump_varst.cpp

@@ -13,6 +13,12 @@
 #include <shlwapi.h>
 #define LIBRARIES_SEARCH_PATH "\\..\\lib\\satdump\\"
 #define RESOURCES_SEARCH_PATH "\\..\\share\\satdump\\"
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <filesystem>
+#include <system_error>
+#ifndef SATDUMP_INSTALL_LIBDIR
+#define SATDUMP_INSTALL_LIBDIR "lib"
+#endif
 #endif
 
 namespace satdump
@@ -70,6 +76,24 @@ namespace satdump
 #elif defined(__ANDROID__)
     std::string init_res_path() { return "./"; }
     std::string init_lib_path() { return "./"; }
+#elif defined(__linux__)
+    // Fork: like macOS and Windows, prefer the folders next to the executable
+    // (<prefix>/bin/../share/satdump and <prefix>/bin/../<libdir>/satdump), so a complete
+    // install can be moved or kept beside others. Otherwise use the configured paths.
+    static std::string exe_relative(const char *rel, const std::string &fallback)
+    {
+        std::error_code ec;
+        const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (!ec)
+        {
+            const std::filesystem::path dir = exe.parent_path().parent_path() / rel;
+            if (std::filesystem::is_directory(dir, ec))
+                return dir.string() + "/";
+        }
+        return fallback;
+    }
+    std::string init_res_path() { return exe_relative("share/satdump", RESOURCES_PATH); }
+    std::string init_lib_path() { return exe_relative(SATDUMP_INSTALL_LIBDIR "/satdump", LIBRARIES_PATH); }
 #else
     std::string init_res_path() { return std::string(RESOURCES_PATH); }
     std::string init_lib_path() { return std::string(LIBRARIES_PATH); }
