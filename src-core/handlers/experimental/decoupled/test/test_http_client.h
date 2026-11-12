@@ -33,7 +33,7 @@ namespace satdump
             bool thread_should_run = true;
             std::thread rx_th;
 
-            const std::string address = "0.0.0.0:8080";
+            const std::string address = "127.0.0.1:8080";
             // const std::string address = "192.168.10.96:8080";
             const std::string ws_add = "ws://" + address + "/ws";
             const std::string ht_add = "http://" + address + "";

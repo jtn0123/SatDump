@@ -139,7 +139,8 @@ namespace satdump
                         nng_send(socket, send_buf.data(), send_buf.size(), NNG_FLAG_NONBLOCK);
                     });
 
-                std::string http_server_url = "http://0.0.0.0:8080";
+                // Fork: this test server has no password, so it answers only on this machine
+                std::string http_server_url = "http://127.0.0.1:8080";
 
                 nng_url *url;
                 {
@@ -176,7 +177,7 @@ namespace satdump
                         printf("pair open error\n");
                     }
 
-                    if (rv = nng_listen(socket, "ws://0.0.0.0:8080/ws", nullptr, 0); rv != 0)
+                    if (rv = nng_listen(socket, "ws://127.0.0.1:8080/ws", nullptr, 0); rv != 0)
                     {
                         printf("server listen error\n");
                     }
