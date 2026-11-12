@@ -1,10 +1,13 @@
 // Fork: orbit elements and Earth orientation (IERS) data from local files (file:// URLs), as the
 // Controller supplies them so SatDump never has to go online. Covers: TLE text and OMM CSV both
 // read; a local file read at start-up, before init() returns; a missing file reported once at
-// once (no ten retries); a damaged or empty file changing nothing; the leap second list in the
-// layouts it is published in; the IERS entry nearest in time being the one used; JSON that is not
-// a bulletin; an address setting that cannot be read never leading to a download. The IERS data
-// is a short copy of the published files (tests/offline); the orbit elements are made up.
+// once (no ten retries); a damaged or empty file changing nothing, including one with values a
+// TLE cannot be made from, and stored elements of that kind being skipped; international
+// designators (full 8-character ones, the OMM form, a quote); the leap second list in the layouts
+// it is published in, and refused when damaged; the IERS entry nearest in time being the one
+// used; JSON that is not a bulletin; the IERS addresses as SatDump reads them (settings.json
+// merged over the installed defaults). The IERS data is a short copy of the published files
+// (tests/offline); the orbit elements are made up.
 
 #include "db/iers/iers_handler.h"
 #include "db/kepler/kepler_handler.h"
@@ -687,29 +690,73 @@ TEST_CASE("IERS: local files are read at start-up; a missing one gives one warni
         test_rig::OfflineRig rig(test_rig::general("Never", false, dir.url("finals.json"), dir.url("leap.list")));
         CHECK(rig.db->get_table_size("iers") == 0);
     }
+}
 
+TEST_CASE("IERS: the addresses as SatDump reads them, settings.json merged over the installed defaults")
+{
+    // The installed satdump_cfg.json holds the web addresses SatDump always used (for the GUI's
+    // users who switch the update on), with the update off
+    const nlohmann::ordered_json defaults = test_rig::merged_over_defaults(nlohmann::ordered_json::object());
+    const std::string web_bulletin = defaults["satdump_general"]["iers_bulletin_url"]["value"];
+    const std::string web_leap = defaults["satdump_general"]["leap_seconds_url"]["value"];
+    CHECK(web_bulletin.rfind("https://", 0) == 0);
+    CHECK(web_leap.rfind("https://", 0) == 0);
+    CHECK(defaults["satdump_general"]["iers_auto_update"]["value"] == false);
+
+    // An address settings.json leaves out, or gives as an object without "value", is that web
+    // address (and is downloaded in the background when the update is on). Only an empty value,
+    // null or a value that is not an object is no address. (This test once replaced the whole
+    // "satdump_general" part, which a run never has, so a left-out address seemed to be none.)
+    const nlohmann::ordered_json old_cfg = satdump::satdump_cfg.main_cfg;
+    nlohmann::ordered_json update_on;
+    update_on["satdump_general"]["iers_auto_update"]["value"] = true;
+    satdump::satdump_cfg.main_cfg = test_rig::merged_over_defaults(update_on);
+    CHECK(satdump::IersDBHandler::bulletinUrl() == web_bulletin);
+    CHECK(satdump::IersDBHandler::leapSecondsUrl() == web_leap);
+    auto bulletin_with = [&update_on](const nlohmann::ordered_json &setting)
     {
-        // An address not in the form {"value": "<address>"} (here bare text naming a web address)
-        // is not set: that file is not updated, with one warning, and nothing is downloaded. The
-        // other file, local, is still read at start-up
+        nlohmann::ordered_json with = update_on;
+        with["satdump_general"]["iers_bulletin_url"] = setting;
+        satdump::satdump_cfg.main_cfg = test_rig::merged_over_defaults(with);
+        return satdump::IersDBHandler::bulletinUrl();
+    };
+    CHECK(bulletin_with(nlohmann::ordered_json::object()) == web_bulletin);
+    CHECK(bulletin_with({{"Value", "file:///data/finals.json"}}) == web_bulletin);
+    CHECK(bulletin_with({{"value", "file:///data/finals.json"}}) == "file:///data/finals.json");
+    CHECK(bulletin_with({{"value", ""}}) == "");
+    CHECK(bulletin_with(nullptr) == "");
+    CHECK(bulletin_with({{"value", nullptr}}) == "");
+    CHECK(bulletin_with("file:///data/finals.json") == "");
+    satdump::satdump_cfg.main_cfg = old_cfg;
+
+    TempDir dir;
+    dir.write("leap.list", fixture("leap-seconds.list"));
+    {
+        // No address for either, the update on: nothing is fetched, with one warning per file
+        nlohmann::ordered_json user;
+        user["satdump_general"]["iers_auto_update"]["value"] = true;
+        user["satdump_general"]["iers_bulletin_url"]["value"] = "";
+        user["satdump_general"]["leap_seconds_url"] = nullptr;
         LogCapture c;
-        nlohmann::ordered_json g = test_rig::general("Never", true, "", dir.url("leap.list"));
-        g["iers_bulletin_url"] = "https://example.invalid/finals2000A.all.json";
-        test_rig::OfflineRig rig(g);
-        CHECK(satdump::IersDBHandler::bulletinUrl() == "");
+        test_rig::OfflineRig rig(test_rig::WholeSettings{test_rig::merged_over_defaults(user)});
+        CHECK(warnings(c) == 2);
+        CHECK(c.has(slog::LOG_WARN, "No address is set for the IERS bulletin"));
+        CHECK(c.has(slog::LOG_WARN, "No address is set for the leap second list"));
+        CHECK_FALSE(c.has(slog::LOG_TRACE, "Downloading"));
+        CHECK(rig.db->get_table_size("leap_seconds") == 0);
+    }
+    {
+        // Bare text naming a web address is no address: one warning, nothing downloaded. The
+        // other file, local, is still read at start-up
+        nlohmann::ordered_json user;
+        user["satdump_general"]["iers_auto_update"]["value"] = true;
+        user["satdump_general"]["iers_bulletin_url"] = "https://example.invalid/finals2000A.all.json";
+        user["satdump_general"]["leap_seconds_url"]["value"] = dir.url("leap.list");
+        LogCapture c;
+        test_rig::OfflineRig rig(test_rig::WholeSettings{test_rig::merged_over_defaults(user)});
         CHECK(rig.db->get_table_size("leap_seconds") == 28);
         CHECK(warnings(c) == 1);
         CHECK(c.has(slog::LOG_WARN, "No address is set for the IERS bulletin"));
         CHECK_FALSE(c.has(slog::LOG_TRACE, "Downloading"));
     }
-
-    // No address in the settings at all: there is no built-in web address to fall back on (it
-    // used to be the one SatDump always used), so nothing is fetched, with one warning per file
-    LogCapture c;
-    test_rig::OfflineRig rig(test_rig::general("Never", true));
-    CHECK(satdump::IersDBHandler::bulletinUrl() == "");
-    CHECK(satdump::IersDBHandler::leapSecondsUrl() == "");
-    CHECK(warnings(c) == 2);
-    CHECK(c.has(slog::LOG_WARN, "No address is set for the leap second list"));
-    CHECK_FALSE(c.has(slog::LOG_TRACE, "Downloading"));
 }
