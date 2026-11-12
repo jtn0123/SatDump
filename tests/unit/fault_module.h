@@ -9,6 +9,8 @@
 //   fail_with   "std" (the default) throws a std::exception, "other" throws an int
 //   out_factor  bytes written per byte read (default 1)
 //   with_block  true to start a DSP block in process() and stop it in stop(), as demodulators do
+//   block_fails true for a DSP block (as with_block) whose work() throws at once; the module
+//               itself carries on, as a demodulator does when one of its blocks failed
 
 #include "common/dsp/block.h"
 #include "core/exception.h"
@@ -44,11 +46,15 @@ namespace fork_test
     private:
         void work() override
         {
+            if (fail)
+                throw satdump_exception("block failure on purpose");
             if (input_stream->read() > 0)
                 input_stream->flush();
         }
 
     public:
+        bool fail = false; // work() throws at once
+
         FaultBlock() : dsp::Block<complex_t, complex_t>(std::make_shared<dsp::stream<complex_t>>(4096)) {}
 
         ~FaultBlock()
@@ -74,6 +80,7 @@ namespace fork_test
         std::string d_fail_with = "std";
         int d_out_factor = 1;
         bool d_with_block = false;
+        bool d_block_fails = false;
         std::shared_ptr<FaultBlock> d_block;
 
         struct Running
@@ -105,6 +112,8 @@ namespace fork_test
                 d_out_factor = parameters["out_factor"].get<int>();
             if (parameters.contains("with_block"))
                 d_with_block = parameters["with_block"].get<bool>();
+            if (parameters.contains("block_fails"))
+                d_block_fails = parameters["block_fails"].get<bool>();
         }
 
         std::vector<satdump::pipeline::ModuleDataType> getInputTypes() override { return {satdump::pipeline::DATA_FILE, satdump::pipeline::DATA_STREAM, satdump::pipeline::DATA_DSP_STREAM}; }
@@ -114,8 +123,11 @@ namespace fork_test
         {
             if (d_fail_init)
                 throw satdump_exception("init failure on purpose");
-            if (d_with_block)
+            if (d_with_block || d_block_fails)
+            {
                 d_block = std::make_shared<FaultBlock>();
+                d_block->fail = d_block_fails;
+            }
         }
 
         // Stops the block, as a demodulator's stop() does

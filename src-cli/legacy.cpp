@@ -22,8 +22,17 @@ namespace satdump
         for (auto &a : args)
             vec.push_back((char *)a.c_str());
 
-        // exit() skips main()'s cleanup, so shut SatDump down first
         const int code = main_old(vec.size(), vec.data());
+
+        // Fork: a legacy command that finished (code 0) returns, like every other command, so
+        // CommandHandler::run() reports a DSP block that failed during it and the program ends
+        // with exit code 2: the output is incomplete. It always called exit() here, so such a run
+        // ended with 0. Its own codes (1 usage or settings error, 3 radio problem) still end the
+        // program at once, as before
+        if (code == 0)
+            return;
+
+        // exit() skips main()'s cleanup, so shut SatDump down first
         satdump::exitSatDump();
         exit(code);
     }

@@ -1,7 +1,8 @@
 #!/bin/bash
 # A module that fails in its own thread must not end the program or hang it: the command
-# reports the error and ends with exit code 2. Uses the test plugin built from
-# tests/unit/fault_plugin.cpp (its modules fail on purpose), given as $2.
+# reports the error and ends with exit code 2. So does a legacy command during which a DSP block
+# failed. Uses the test plugin built from tests/unit/fault_plugin.cpp (its modules fail on
+# purpose), given as $2.
 # Usage: thread_faults.sh <install prefix> <fault test plugin>
 . "$(dirname "$0")/common.sh"
 PLUGIN=${2:?usage: $0 <install prefix> <fault test plugin>}
@@ -36,6 +37,14 @@ cat > pipelines.json <<'JSON'
             "frames": { "module": "fork_fault_b", "parameters": {} }
         }
     },
+    "fork_fault_blockfail": {
+        "name": "Fork fault test, a DSP block of the first module fails",
+        "work": {
+            "baseband": {},
+            "soft": { "module": "fork_fault_a", "parameters": { "block_fails": true } },
+            "frames": { "module": "fork_fault_b", "parameters": {} }
+        }
+    },
     "fork_fault_m2": {
         "name": "Fork fault test, second module fails",
         "work": {
@@ -51,6 +60,15 @@ cat > pipelines.json <<'JSON'
             "baseband": {},
             "soft": { "module": "fork_fault_a", "parameters": {} },
             "frames": { "module": "fork_fault_b", "parameters": { "fail_after": 3 } }
+        }
+    },
+    "fork_fault_live_blockfail": {
+        "name": "Fork fault test, live, a DSP block of the first module fails",
+        "live": [1, 2],
+        "work": {
+            "baseband": {},
+            "soft": { "module": "fork_fault_a", "parameters": { "block_fails": true } },
+            "frames": { "module": "fork_fault_b", "parameters": {} }
         }
     },
     "fork_fault_live_good": {
@@ -134,6 +152,12 @@ run 2 live-module-fails legacy live fork_fault_live out_live "${LIVE[@]}"
 check live-module-error-logged logged live-module-fails "Live module fork_fault_b failed"
 run 0 live-good legacy live fork_fault_live_good out_live_good "${LIVE[@]}"
 check live-good-output [ -s out_live_good/fork_fault_live_good.out ]
+# A DSP block that failed during a legacy run makes it a failed command (exit 2), live or not:
+# the module carried on, but its output is incomplete. The legacy commands ended with 0
+run 2 live-block-fails legacy live fork_fault_live_blockfail out_live_blockfail "${LIVE[@]}"
+check live-block-fails-logged logged live-block-fails "Error running command : a DSP block failed.*block failure on purpose"
+run 2 legacy-block-fails legacy fork_fault_blockfail baseband in.bin out_legacy_blockfail
+check legacy-block-fails-logged logged legacy-block-fails "Error running command : a DSP block failed.*block failure on purpose"
 # An error once everything runs (here --http_server given as a number, which is not an address)
 # stops it all and is reported; it used to hang for ever, past --timeout. No server is started
 run 2 live-error-after-start legacy live fork_fault_live_good out_live_http "${LIVE[@]}" --http_server 8080
