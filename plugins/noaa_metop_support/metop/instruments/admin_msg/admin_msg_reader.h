@@ -14,6 +14,8 @@ namespace metop
         class AdminMsgReader
         {
         private:
+            static constexpr size_t HEADER_SIZE = 41; // bytes before the bzip2 stream
+
             uint8_t *message_out;
 
             // XML Parser

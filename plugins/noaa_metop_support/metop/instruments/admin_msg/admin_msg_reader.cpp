@@ -17,9 +17,16 @@ namespace metop
 
         void AdminMsgReader::work(ccsds::CCSDSPacket &packet)
         {
+            // Fork: the bzip2 stream starts after 41 bytes; a shorter packet made the length wrap around
+            if (packet.payload.size() <= HEADER_SIZE)
+            {
+                logger->warn("Admin message packet too short (%d bytes), skipping", (int)packet.payload.size());
+                return;
+            }
+
             unsigned int outsize = MAX_MSG_SIZE;
 
-            int ret = BZ2_bzBuffToBuffDecompress((char *)message_out, &outsize, (char *)&packet.payload[41], packet.payload.size() - 41, 1, 1);
+            int ret = BZ2_bzBuffToBuffDecompress((char *)message_out, &outsize, (char *)&packet.payload[HEADER_SIZE], packet.payload.size() - HEADER_SIZE, 1, 1);
             if (ret != BZ_OK && ret != BZ_STREAM_END)
             {
                 logger->error("Failed decomressing Bzip2 data! Error : " + std::to_string(ret));
@@ -40,13 +47,36 @@ namespace metop
                 // Parse
                 doc.parse<0>((char *)xml_str.c_str()); // const char * to char * is needed...
                 root_node = doc.first_node("multi-mission-administrative-message");
+                if (root_node == nullptr)
+                {
+                    logger->warn("Admin message has no multi-mission-administrative-message element");
+                    count++;
+                    return;
+                }
 
                 // Convert to our usual TLE Registry stuff
-                for (rapidxml::xml_node<> *sat_node = root_node->first_node("message"); sat_node; sat_node = sat_node->next_sibling())
+                // Fork: only <message> elements, each needing both attributes and both TLE lines
+                for (rapidxml::xml_node<> *sat_node = root_node->first_node("message"); sat_node; sat_node = sat_node->next_sibling("message"))
                 {
+                    rapidxml::xml_attribute<> *number = sat_node->first_attribute("satellite-number");
+                    rapidxml::xml_attribute<> *name = sat_node->first_attribute("satellite");
+                    if (number == nullptr || name == nullptr)
+                    {
+                        logger->warn("Admin message entry without satellite name or number, skipping");
+                        continue;
+                    }
+
                     satdump::TLE tle;
-                    tle.norad = std::stoi(sat_node->first_attribute("satellite-number")->value());
-                    tle.name = sat_node->first_attribute("satellite")->value();
+                    try
+                    {
+                        tle.norad = std::stoi(number->value());
+                    }
+                    catch (std::exception &)
+                    {
+                        logger->warn("Admin message entry with an invalid satellite number, skipping");
+                        continue;
+                    }
+                    tle.name = name->value();
 
                     int linecnt = 0;
                     for (rapidxml::xml_node<> *sat_tle_node = sat_node->first_node("navigation"); sat_tle_node; sat_tle_node = sat_tle_node->next_sibling())
@@ -64,6 +94,11 @@ namespace metop
                     }
 
                     // Done, save it
+                    if (tle.line1.empty() || tle.line2.empty())
+                    {
+                        logger->warn("Admin message entry for %s without both TLE lines, skipping", tle.name.c_str());
+                        continue;
+                    }
                     tles.push_back(tle);
                 }
             }
