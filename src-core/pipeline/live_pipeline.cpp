@@ -7,6 +7,26 @@ namespace satdump
 {
     namespace pipeline
     {
+        namespace
+        {
+            // Fork: a module's stop() that throws is logged, so the modules after it are still stopped
+            void stop_module(ProcessingModule &mod)
+            {
+                try
+                {
+                    mod.stop();
+                }
+                catch (const std::exception &e)
+                {
+                    logger->error("Live module %s failed to stop: %s", mod.getIDM().c_str(), e.what());
+                }
+                catch (...)
+                {
+                    logger->error("Live module %s failed to stop with an unknown error", mod.getIDM().c_str());
+                }
+            }
+        } // namespace
+
         LivePipeline::LivePipeline(Pipeline pipeline, nlohmann::json parameters, std::string output_dir)
             : d_pipeline(pipeline), d_parameters(parameters), d_output_dir(output_dir), failures(std::make_shared<Failures>())
         {
@@ -217,18 +237,7 @@ namespace satdump
                 if (i >= module_futs.size()) // Never started
                     continue;
 
-                try
-                {
-                    mod->stop();
-                }
-                catch (const std::exception &e)
-                {
-                    logger->error("Live module %s failed to stop: %s", mod->getIDM().c_str(), e.what());
-                }
-                catch (...)
-                {
-                    logger->error("Live module %s failed to stop with an unknown error", mod->getIDM().c_str());
-                }
+                stop_module(*mod);
 
                 try
                 {
@@ -243,6 +252,13 @@ namespace satdump
                 {
                     logger->error("Live module %s task failed with an unknown error", mod->getIDM().c_str());
                 }
+
+                // Fork: stopped once more now that its task has ended. A module stopped right after it
+                // was started (a SIGTERM while the live run was starting) could start its DSP blocks in
+                // its task after the stop above; they were then destroyed while still running, and
+                // SatDump crashed (exit code 134). A second stop() does nothing to blocks that are not
+                // running
+                stop_module(*mod);
             }
             module_futs.clear();
         }

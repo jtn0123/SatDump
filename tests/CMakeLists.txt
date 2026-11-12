@@ -118,6 +118,22 @@ add_test(NAME cli_thread_faults
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/thread_faults.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_fault_test_plugin>)
 set_tests_properties(cli_thread_faults PROPERTIES LABELS cli)
 
+# Fork: orbit elements and Earth orientation data read from local files (file://) and pass
+# prediction with the station height in metres (unit); SatDump run the way the Controller runs
+# it, with no network (in a network namespace where the system allows one), and the live
+# command watched through --http_server (cli). cli_offline ends with 77 (skipped) when the
+# system allows no network namespace; its checks have still run. The probe radio driver
+# (tests/unit/probe_source_plugin.cpp) is for cli_supervision only, never installed
+target_sources(satdump-unit-tests PRIVATE unit/test_passes.cpp unit/test_offline_data.cpp)
+add_test(NAME cli_offline COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/offline.sh ${SATDUMP_CHECK_PREFIX})
+set_tests_properties(cli_offline PROPERTIES LABELS cli SKIP_RETURN_CODE 77)
+add_library(fork_probe_source_test_plugin SHARED unit/probe_source_plugin.cpp)
+target_include_directories(fork_probe_source_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(fork_probe_source_test_plugin PRIVATE satdump_core)
+add_test(NAME cli_supervision
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/supervision.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
+set_tests_properties(cli_supervision PROPERTIES LABELS cli)
+
 if(Python3_FOUND)
     add_test(NAME thread_catches_lint COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lint/thread_catches.py ${PROJECT_SOURCE_DIR})
     set_tests_properties(thread_catches_lint PROPERTIES LABELS lint)

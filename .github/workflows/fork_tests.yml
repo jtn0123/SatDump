@@ -22,7 +22,11 @@ jobs:
   gate:
     name: ${{ matrix.name }}
     runs-on: ubuntu-24.04-arm
-    container: debian:trixie
+    # privileged so that cli_offline can run SatDump in a network namespace with no network
+    # (unshare -rmn); SATDUMP_REQUIRE_NETNS=1 below makes a missing namespace a failure, not a skip
+    container:
+      image: debian:trixie
+      options: --privileged
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -34,6 +38,7 @@ jobs:
             flags: -DSATDUMP_SANITIZERS=address,undefined -DSATDUMP_CPU_FLAGS= -DBUILD_GUI=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSATDUMP_WITH_RUST=ON
     env:
       SATDUMP_GUARD: "off"  # the pass and disk checks are for receiving stations
+      SATDUMP_REQUIRE_NETNS: "1"
       CCACHE_MAXSIZE: 1500M
       CCACHE_COMPRESS: "true"
     steps:

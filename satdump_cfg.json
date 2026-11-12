@@ -232,9 +232,12 @@
             "name": "Default QTH Label",
             "description": "Default map label for QTH marker"
         },
+        // Fork: "Never" by default (was "1 day"), so nothing is downloaded on its own. A station
+        // program that supplies the elements itself sets, say, "4 hours" with a local element
+        // file (kepler_settings below), which is then read at every launch
         "kepler_update_interval": {
             "type": "options",
-            "value": "1 day",
+            "value": "Never",
             "name": "TLE Auto Update Interval",
             "options": [
                 "4 hours",
@@ -244,13 +247,31 @@
                 "14 days",
                 "Never"
             ],
-            "description": "Frequency to update TLEs. Auto update happens at launch only\n\nWarning: The older your TLEs, the more inaccurate projections\nmay be."
+            "description": "Frequency to update TLEs from the sources in the Kepler settings\n(addresses, or local files as file:///folder/file).\nNever (the default): nothing is fetched or read.\nAny other value: an update runs at launch when the last one is\nolder than that, then again at that interval while running.\nWhen every source is a local file they are read at each launch,\nbefore anything is processed.\n\nWarning: The older your TLEs, the more inaccurate projections\nmay be."
         },
+        // Fork: off by default (was on), so nothing is downloaded on its own. The two addresses
+        // below are where the data comes from when it is on; each can be a local file
+        // (file:///folder/file). When neither is a web address (a local file, or not set) they
+        // are read when SatDump starts, before anything is processed; otherwise in the
+        // background, as upstream. Their values are the addresses SatDump has always used; a
+        // setting that is missing or cannot be read is not replaced by them (nothing is fetched).
         "iers_auto_update": {
             "type": "bool",
-            "value": true,
+            "value": false,
             "name": "IERS Auto Update",
-            "description": "Download Earth orientation data (IERS bulletins and leap seconds)\nat launch and every few days while running."
+            "description": "Update Earth orientation data (IERS bulletins and leap seconds)\nat launch and every few days while running, from the two addresses below.\nOff (the default): nothing is fetched or read.\nWhen both addresses are local files (file:///folder/file) they are read\nat each launch, before anything is processed."
+        },
+        "iers_bulletin_url": {
+            "type": "string",
+            "value": "https://datacenter.iers.org/products/eop/rapid/standard/json/finals2000A.all.json",
+            "name": "IERS Bulletin Address",
+            "description": "Where the IERS Bulletin A (finals2000A, JSON) comes from.\nA web address, or a local file as file:///folder/file"
+        },
+        "leap_seconds_url": {
+            "type": "string",
+            "value": "https://hpiers.obspm.fr/iers/bul/bulc/ntp/leap-seconds.list",
+            "name": "Leap Seconds Address",
+            "description": "Where the leap second list (leap-seconds.list) comes from.\nA web address, or a local file as file:///folder/file"
         },
         "tle_space_track_login": {
             "type": "string",
@@ -347,15 +368,23 @@
         }
     },
     // Kepler (used to be TLE) settings
+    // Fork: no sources by default, so SatDump downloads no orbit elements on its own (see also
+    // kepler_update_interval). Each entry of urls_to_fetch is a web address or a local file
+    // (file:///folder/file), sending CCSDS OMM CSV or TLE text (a name line, then lines 1 and 2).
+    // When kepler_update_interval is not "Never", every entry is a local file and
+    // norads_to_fetch is empty, the files are read when SatDump starts, before anything is
+    // processed; otherwise the update runs in the background, as upstream. The upstream
+    // defaults were the orbicentral address below and, in norads_to_fetch, 63251, 6235, 29499,
+    // 35865 and 65159; all are commented out now.
     "kepler_settings": {
         "urls_to_fetch": [
-            "http://orbicentral.net/gp.php?GROUP=active&FORMAT=omm" // Most sats
+            // "http://orbicentral.net/gp.php?GROUP=active&FORMAT=omm" // Most sats
         ],
         "url_template": "http://orbicentral.net/gp.php?CATNR=%NORAD%&FORMAT=omm",
         "norads_to_fetch": [
-            63251, // UVSQSat-NG
-            6235, // NOAA-2
-            29499, // MetOp-A
+            // 63251, // UVSQSat-NG
+            // 6235, // NOAA-2
+            // 29499, // MetOp-A
             // 38771, // MetOp-B
             // 43689, // MetOp-C
             // 28054, // DMSP-F16
@@ -371,7 +400,7 @@
             // 49008, // FengYun-3E
             // 57490, // FengYun-3F
             // 56232, // FengYun-3G
-            35865, // METEOR-M1
+            // 35865, // METEOR-M1
             // 40069, // METEOR-M2
             // 44387, // METEOR-M2-2
             // 57166, // METEOR-M2-3
@@ -445,7 +474,7 @@
             // 44547, // Yunhai 1-02
             // 53877 // Yunhai 1-03
             // 59051 // M2-4
-            65159 // MetOp-SG A1
+            // 65159 // MetOp-SG A1
         ]
     },
     // Advanced user settings

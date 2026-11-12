@@ -30,8 +30,23 @@ namespace satdump
 
         // Stores the Bulletin A entries of the IERS JSON (finals2000A) in the iers table and
         // logs a summary of the entries that could not be read. False when the text is not
-        // IERS JSON at all.
+        // IERS JSON at all. Fork: each entry stands alone (stored by its date, replacing the
+        // one stored for that date): those that can be read are stored, those that cannot are
+        // skipped with one warning. False, with nothing stored, also when the JSON has no
+        // EOP.data.timeSeries list or no entry in it can be used.
         bool storeBulletinA(const std::string &res);
+
+        // Fork: stores the leap second list (leap-seconds.list: NTP time, TAI-UTC and a comment
+        // on each line). False, with one warning and nothing stored, when any line cannot be
+        // read or there are no entries.
+        bool storeLeapSeconds(const std::string &text);
+
+        // Fork: where the IERS bulletin and the leap second list come from: the settings
+        // "iers_bulletin_url" and "leap_seconds_url" of satdump_general. Either can be a local
+        // file (file://). "" when the setting is missing, empty or not {"value": "<address>"}:
+        // that file is then not updated (there is no built-in address to fall back on).
+        static std::string bulletinUrl();
+        static std::string leapSecondsUrl();
 
         IERSInfo getBestIERSInfo(double time);
     };

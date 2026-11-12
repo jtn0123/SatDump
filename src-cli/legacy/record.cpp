@@ -68,9 +68,10 @@ int main_record(int argc, char *argv[])
         if (!std::filesystem::exists(std::filesystem::path(output_file).parent_path().string()))
             std::filesystem::create_directories(std::filesystem::path(output_file).parent_path().string());
 
-    // Get all sources
+    // Get the sources of the type asked for. Fork: only that driver is asked for its radios (it
+    // was every driver, and some search the network for radios: UHD, PlutoSDR, SoapySDR)
     dsp::registerAllSources();
-    std::vector<dsp::SourceDescriptor> source_tr = dsp::getAllAvailableSources();
+    std::vector<dsp::SourceDescriptor> source_tr = dsp::getAvailableSourcesOfType(handler_id);
     dsp::SourceDescriptor selected_src;
 
     // Try to find it and check it's usable
@@ -201,6 +202,7 @@ int main_record(int argc, char *argv[])
     file_sink->start_recording(output_file, samplerate / decimation);
 
     // If requested, boot up webserver
+    bool webserver_failed = false; // Fork: see below
     if (parameters.contains("http_server"))
     {
         std::string http_addr = parameters["http_server"].get<std::string>();
@@ -213,7 +215,9 @@ int main_record(int argc, char *argv[])
                 return stats.dump(4);
             };
         logger->info("Start webserver on %s", http_addr.c_str());
-        webserver::start(http_addr);
+        // Fork: a server that cannot start (the reason is logged) stops the recording at once,
+        // with exit code 1, as for live. The recording used to go on with no server
+        webserver_failed = !webserver::start(http_addr);
     }
 
     // Attach signal
@@ -222,7 +226,7 @@ int main_record(int argc, char *argv[])
 
     // Now, we wait
     uint64_t start_time = time(0);
-    while (1)
+    while (!webserver_failed)
     {
         uint64_t elapsed_time = time(0) - start_time;
 
@@ -265,8 +269,8 @@ int main_record(int argc, char *argv[])
     }
     file_sink->stop();
 
-    if (parameters.contains("http_server"))
+    if (parameters.contains("http_server") && !webserver_failed)
         webserver::stop();
 
-    return 0;
+    return webserver_failed ? 1 : 0;
 }

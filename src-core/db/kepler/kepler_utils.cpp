@@ -2,10 +2,13 @@
 #include "kepler_handler.h"
 #include "libs/predict/predict.h"
 #include "logger.h"
+#include "utils/file_url.h"
 #include "utils/format.h"
 #include "utils/http.h"
 #include "utils/string.h"
+#include <cctype>
 #include <exception>
+#include <sstream>
 #include <thread>
 #include "common/utils.h"
 
@@ -105,7 +108,8 @@ namespace satdump
             des[5] = ori[8];
         }
         else
-            des.resize(8);
+            des.resize(8, ' '); // Fork: padded with spaces, as in a TLE; resize(8) padded the shorter
+                                // designators TLE text gives ("12049A") with NUL characters
 
         tle.line1 = "1 " +                                              // Line Number
                     strL(tle_id, 5) +                                   // Satellite Number
@@ -152,6 +156,8 @@ namespace satdump
                 timeS.tm_mon -= 1;
                 kep.epoch = timegm(&timeS) + seconds;
             }
+            else // Fork: a line whose epoch cannot be read is not used (its epoch was left unset)
+                return false;
 
             kep.name = elems[0];
             kep.designator = elems[1];
@@ -229,8 +235,152 @@ namespace satdump
         return keps;
     }
 
+    // Fork: whether a TLE line (1 or 2, as `number` says) has the right length and checksum
+    static bool tleLineValid(const std::string &l, char number)
+    {
+        if (l.size() != 69 || l[0] != number || l[1] != ' ' || !isdigit((unsigned char)l[68]))
+            return false;
+        int sum = 0;
+        for (size_t i = 0; i < 68; i++)
+        {
+            if (l[i] == '-')
+                sum++;
+            else if (isdigit((unsigned char)l[i]))
+                sum += l[i] - '0';
+        }
+        return l[68] - '0' == sum % 10;
+    }
+
+    // Fork: the lines of a text, without blank lines or the spaces (and \r) around each
+    static std::vector<std::string> trimmedLines(const std::string &text)
+    {
+        std::vector<std::string> lines;
+        std::istringstream stream(text);
+        std::string line;
+        while (std::getline(stream, line))
+        {
+            size_t first = line.find_first_not_of(" \t\r");
+            if (first == std::string::npos)
+                continue;
+            lines.push_back(line.substr(first, line.find_last_not_of(" \t\r") - first + 1));
+        }
+        return lines;
+    }
+
+    // Fork: whether a line that stands where a satellite's name goes cannot be a name: a TLE line 2
+    // (its name and line 1 lost) or the header line of OMM CSV
+    static bool notASatelliteName(const std::string &l)
+    {
+        bool line2 = l.size() > 2 && l[0] == '2' && l[1] == ' ' && (isdigit((unsigned char)l[2]) || l[2] == ' ');
+        return line2 || l.rfind("OBJECT_NAME,", 0) == 0;
+    }
+
+    // Fork: TLE text, a name line (optional, "0 " in front is dropped) then lines 1 and 2 for
+    // each satellite. Each set must have valid checksums and the same number on both lines. A line
+    // where a name goes that cannot be one (a stray line 2) counts as an entry that cannot be read,
+    // rather than being taken as the next satellite's name.
+    static std::vector<KeplerData> parseTleText(const std::vector<std::string> &lines, int &bad_entries)
+    {
+        std::vector<KeplerData> keps;
+        size_t i = 0;
+        while (i < lines.size())
+        {
+            std::string name;
+            if (lines[i].rfind("1 ", 0) != 0)
+            {
+                if (notASatelliteName(lines[i]))
+                {
+                    bad_entries++;
+                    i++;
+                    continue;
+                }
+                name = lines[i].rfind("0 ", 0) == 0 ? lines[i].substr(2) : lines[i];
+                i++;
+            }
+
+            if (i + 1 < lines.size() && lines[i].rfind("1 ", 0) == 0 && lines[i + 1].rfind("2 ", 0) == 0)
+            {
+                TLE tle;
+                tle.name = name;
+                tle.line1 = lines[i];
+                tle.line2 = lines[i + 1];
+                KeplerData kep;
+                if (tleLineValid(tle.line1, '1') && tleLineValid(tle.line2, '2') && tle.line1.compare(2, 5, tle.line2, 2, 5) == 0 && tleToKepler(tle, kep))
+                {
+                    if (kep.name.empty())
+                        kep.name = std::to_string(kep.satellite_number);
+                    keps.push_back(kep);
+                }
+                else
+                    bad_entries++;
+                i += 2;
+            }
+            else
+            {
+                bad_entries++; // a name with no lines after it, or a line 1 with no line 2
+                if (name.empty())
+                    i++;
+            }
+        }
+        return keps;
+    }
+
+    std::vector<KeplerData> parseKeplerText(const std::string &text, int &bad_entries)
+    {
+        bad_entries = 0;
+        std::vector<std::string> lines = trimmedLines(text);
+
+        // TLE text when a line 1 is followed by a line 2 anywhere; OMM CSV otherwise
+        for (size_t i = 0; i + 1 < lines.size(); i++)
+            if (lines[i].rfind("1 ", 0) == 0 && lines[i + 1].rfind("2 ", 0) == 0)
+                return parseTleText(lines, bad_entries);
+
+        std::vector<KeplerData> keps;
+        for (auto &line : lines)
+        {
+            if (line.rfind("OBJECT_NAME", 0) == 0) // the header line, naming the columns
+                continue;
+            KeplerData kep;
+            if (ccsdsOmmToKepler(line, kep))
+                keps.push_back(kep);
+            else
+                bad_entries++;
+        }
+        return keps;
+    }
+
+    std::vector<KeplerData> readKeplerFile(const std::string &url_str)
+    {
+        std::string content, error;
+        if (!readFileUrl(url_str, content, error))
+        {
+            logger->warn("Cannot read the orbit element file %s (%s); the elements already loaded are kept", url_str.c_str(), error.c_str());
+            return {};
+        }
+
+        int bad_entries = 0;
+        std::vector<KeplerData> keps = parseKeplerText(content, bad_entries);
+        if (bad_entries > 0)
+        {
+            logger->warn("The orbit element file %s has %d entries that cannot be read, so none of it is used; the elements already loaded are kept", url_str.c_str(), bad_entries);
+            return {};
+        }
+        if (keps.empty())
+        {
+            logger->warn("The orbit element file %s holds no elements; the elements already loaded are kept", url_str.c_str());
+            return {};
+        }
+
+        logger->info("Read %zu orbit elements from %s", keps.size(), url_str.c_str());
+        return keps;
+    }
+
     std::vector<KeplerData> tryFetchOMMFileFromURL(std::string url_str)
     {
+        // Fork: a local file is read once; a missing one is not tried again ten times
+        if (isFileUrl(url_str))
+            return readKeplerFile(url_str);
+
         bool success = true;
         std::vector<KeplerData> new_registry;
 
@@ -241,7 +391,8 @@ namespace satdump
         {
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
-                new_registry = parseCcsdsOmmFile(result);
+                int bad_entries = 0; // Fork: TLE text is read too, not only OMM CSV
+                new_registry = parseKeplerText(result, bad_entries);
                 success = new_registry.size() > 0;
             }
             else

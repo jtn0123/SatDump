@@ -33,7 +33,18 @@ namespace satdump
 
     std::vector<KeplerData> parseCcsdsOmmFile(std::string fileCont);
 
+    // Fork: reads orbit elements in either text format: CCSDS OMM CSV (one satellite per line,
+    // as the default sources send) or TLE text (a name line, then lines 1 and 2, per satellite).
+    // bad_entries is set to the number of entries that could not be read.
+    std::vector<KeplerData> parseKeplerText(const std::string &text, int &bad_entries);
+
+    // Fork: a file:// URL is read from disk once (see readKeplerFile); other URLs are downloaded
     std::vector<KeplerData> tryFetchOMMFileFromURL(std::string url_str);
+
+    // Fork: reads the element file a file:// URL names. A file that is missing or cannot be read,
+    // holds no elements, or has any entry that cannot be read, gives one warning and no elements,
+    // so the elements already in the database are kept as they are.
+    std::vector<KeplerData> readKeplerFile(const std::string &url_str);
     std::vector<KeplerData> tryFetchSingleOMMwithNorad(int norad);
 
     class KeplerDBHandler : public DBHandlerBase
@@ -54,6 +65,10 @@ namespace satdump
 
         void autoUpdateKeplers();
         void updateKeplerDatabase();
+
+        // Fork: whether the settings name at least one element source and every one is a local
+        // file (file:// URLs, no single satellites to download), as the Controller sets them
+        static bool allSourcesAreLocal();
 
     public: // Legacy
         std::optional<TLE> get_from_norad(int norad)

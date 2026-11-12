@@ -145,6 +145,18 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | Differential twins `lrpt_segment` and `lrpt_qtable`: header fields, flags, time stamp and all 896 pixels, on edge lengths, empty and header-only payloads, every quality factor and MCU number, encoded packets, every truncation and bit flip of good packets, seeded cases and the golden Meteor packets; small oracles committed. A twin can read corpus files itself (`corpus_reader`), so a fuzz crash file can be replayed with `satdump-diff` | 2026-11-12 |
 | Tests | `diff_lrpt_fallback` (a Rust panic part-way through a packet gives the C++ segment, one log line, and Rust off); `cli_rust` checks that the installed Meteor plugin calls the Rust decoder; in a fuzz build with Rust, `fuzz_msumr_lrpt` stops on any C++/Rust difference | 2026-11-12 |
 | Tests | Float rule corrected: a ported C++ file that needs `-ffp-contract=off` to match Rust gets it in Rust-on builds only, so Rust-off builds such as the Pi's keep their flags | 2026-11-12 |
+| Settings | SatDump downloads nothing by default: no element sources or satellite numbers to fetch, element updates "Never", IERS updates off. The IERS addresses are settings (`iers_bulletin_url`, `leap_seconds_url`) with no built-in fallback | 2026-11-12 |
+| Settings | Offline data: `file://` addresses for the orbit elements (TLE text or OMM CSV) and the two IERS files are read once at each start, before anything is processed. A missing or damaged file keeps the data already in the database, with one warning | 2026-11-12 |
+| Bug fix | Pass prediction takes the station height in metres; it was converted as if it were an angle, so a station at 2000 m was computed at 35 m | 2026-11-12 |
+| Bug fix | A TLE built from OMM data pads a short international designator with spaces, as TLE text does, not with NUL characters | 2026-11-12 |
+| Bug fix | Element files: a stray line 2, or an OMM header where a name goes, makes that entry unreadable instead of being taken as a satellite name | 2026-11-12 |
+| Bug fix | IERS: JSON that is not a bulletin is refused before the database transaction starts, so none is left open; the IERS tab-separated leap-second list is read as well as the space-separated one | 2026-11-12 |
+| CLI | `legacy live`, `record` and `autotrack` ask only the `--source` driver for radios; before, every driver was asked, including those that search the network | 2026-11-12 |
+| CLI | An `--http_server` that cannot start (port taken, or not `host:port`) ends the run at once with exit 1 | 2026-11-12 |
+| CLI | `legacy live` catches SIGINT and SIGTERM from its start, including while the radio opens, and then stops with exit 0 | 2026-11-12 |
+| Crash fix | A live module is stopped once more after its task ends: a stop right after start-up could leave DSP blocks it started late running while they were destroyed (exit 134) | 2026-11-12 |
+| Tests | `cli_offline`: a whole station run (settings, element and IERS files, a live run, products) inside a network namespace with no network, so any connection attempt fails the test; skipped (77) where namespaces are not allowed, a failure instead with `SATDUMP_REQUIRE_NETNS=1` | 2026-11-12 |
+| Tests | `cli_supervision` (start, watch through `/api`, stop with SIGTERM, exit codes), and unit tests for pass heights, the offline data files and the single-driver radio probe | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -204,6 +216,111 @@ Every fix in this fork follows these rules, and new code should too:
 9. Log calls: a message given alone is written as it is, `%` included. Text read at run time is
    passed as a `%s` argument, never used as the format; the compiler checks the formats
    (`tests/compile/logger_format.sh`).
+
+## Offline and downloads
+
+SatDump downloads nothing by default: `kepler_update_interval` is "Never", `iers_auto_update`
+is off, and `kepler_settings.urls_to_fetch` and `norads_to_fetch` are empty. The IERS
+addresses are settings (`iers_bulletin_url`, `leap_seconds_url`) with no built-in fallback: a
+missing, empty or malformed address (anything but `{"value": "<address>"}`) gives one warning,
+and nothing is fetched.
+
+A station program that fetches the data itself gives SatDump `file://` addresses:
+
+```json
+{
+  "satdump_general": {
+    "kepler_update_interval": { "value": "4 hours" },
+    "iers_auto_update": { "value": true },
+    "iers_bulletin_url": { "value": "file://<station dir>/data/finals2000A.daily.json" },
+    "leap_seconds_url": { "value": "file://<station dir>/data/leap-seconds.list" }
+  },
+  "kepler_settings": {
+    "urls_to_fetch": ["file://<station dir>/data/elements.tle"],
+    "norads_to_fetch": []
+  }
+}
+```
+
+The files are then read once at each start, before anything is processed, but only when:
+
+- for elements: the interval is not "Never", every source is `file://` and there are no
+  satellite numbers to fetch;
+- for IERS: the update is on and both addresses are `file://`.
+
+With any `http` source, upstream's scheduled update on a background task applies, which can
+come late or overlap with processing.
+
+What each file changes:
+
+| File | Rule |
+|---|---|
+| Orbit elements (TLE text, with or without name lines, or OMM CSV) | All or nothing. A missing, empty or damaged file (a bad checksum, line numbers that differ, a stray line 2, a header where a name goes) changes nothing, with one warning. A good file updates each satellite it lists |
+| Leap-second list (IERS tab or space layout) | All or nothing, in the same way |
+| IERS bulletin (`finals2000A.daily.json`) | JSON that is not a bulletin changes nothing. Otherwise each readable entry is stored by date, and unreadable entries are skipped with one warning that counts them |
+
+The database (`main.db`) keeps the last good data, so a station with no new files keeps working.
+Write each file atomically (a temporary file, then a rename) before starting SatDump.
+
+Radio discovery can use the network too (UHD broadcasts, PlutoSDR scans `usb:` and `ip:`,
+SoapySDR lists remote devices). `legacy live`, `record` and `autotrack` ask only the driver
+of their `--source`; `sdr_probe` and the GUI still ask every driver.
+
+## Running under a station program
+
+A program that starts, watches and stops SatDump for each pass can rely on the following.
+
+Folder and settings: give every run `HOME=<station dir>/home` and
+`XDG_CONFIG_HOME=<station dir>/home/.config`. SatDump then keeps `settings.json` and `main.db`
+in `<station dir>/home/.config/satdump`. The settings file is merged over the installed
+defaults, and arrays replace the defaults rather than add to them. Run SatDump with the pass
+folder as its working directory: a crash writes `satdump_crash_<time>.txt` there.
+
+Live run:
+
+```
+satdump legacy live metop_ahrpt <pass>/live-N --source airspy [--source_id <decimal serial>] \
+  --samplerate 6000000 --frequency 1701300000 --gain_type 0 --general_gain <0-21> --bias true \
+  --http_server 127.0.0.1:<port> [--timeout <s>]
+```
+
+- Airspy reads only `gain_type` (0 sensitive, 1 linear, 2 manual), `general_gain`,
+  `lna_gain`, `mixer_gain`, `vga_gain`, `bias`, `lna_agc` and `mixer_agc`. Its defaults are
+  gain 0 with the bias tee off. `--source_id` is the decimal serial (`sdr_probe` shows it in
+  hex).
+- RTL-SDR (`--source rtlsdr`) reads `gain`, `agc`, `lna_agc`, `tuner_agc`, `bias` and
+  `ppm_correction`.
+- A value follows its flag after a space. `true` and `false` become booleans and numbers are
+  parsed; `source_id` stays text. A bare flag is true only as the last argument or before
+  another `--flag`. Unknown or misspelt flags are ignored silently.
+- Live writes only `live-N/<pipeline>.cadu` (whole 1024-byte frames). `dataset.json` appears
+  only with `--finish_processing`, which a station program should not use.
+
+Watching: `GET http://127.0.0.1:<port>/api` returns each module's state as JSON (for example
+`deframer_state` is `SYNCED` when the decoder is locked). It does not answer during start-up
+(from about 0.1 s to a few seconds, longer while a real radio opens), so poll with retries. If
+the port is taken or the address is not `host:port`, the run exits 1 at once and logs
+"Cannot start the web server on ...".
+
+Stopping: SIGTERM or SIGINT is caught from the start of `legacy live`, including while the
+radio opens; the run then exits 0 once start-up has finished, and the `.cadu` keeps its whole
+frames. Measured stops take 0.04 to 0.1 s. The first moments after the program starts (about
+0.05 s, before `legacy live` begins) are not covered, and a signal there ends the program by
+the signal (status 143). Treat exit 0 or the signal after your own SIGTERM as a normal stop,
+and send SIGKILL after a grace period (10 s is ample).
+
+Products: an ordinary run on each `.cadu`, not `--finish_processing`:
+
+```
+satdump pipeline metop_ahrpt cadu <pass>/live-N/metop_ahrpt.cadu <pass>/products/live-N
+```
+
+It exits 0 with `dataset.json`; an empty `.cadu` exits 0 with no usable data, and a missing
+one exits 1. Exit codes are those in the table above.
+
+Under these settings SatDump makes no network connection (`cli_offline` proves it in a
+network namespace). Avoid running `sdr_probe` on a schedule: it asks every driver, and some
+of them search the network.
 
 ## Building and testing
 
@@ -380,6 +497,13 @@ apply them the same way.
 - The Meteor LRPT decoder does not yet use the frame counter to notice lost frames (the
   MetOp decoder does): a packet that spans a lost frame can still be finished with bytes from
   a later one. It stays off until it has been checked on a real Meteor recording.
+- A SIGTERM in the first moments after `satdump` starts (about 0.05 s, before `legacy live`
+  begins) ends the program by the signal (status 143), not with exit 0.
+- `sdr_probe` and the GUI ask every radio driver, including those that search the network.
+- A partly damaged IERS bulletin stores its readable entries (each date is stored on its own,
+  as upstream does and an existing test pins).
+- Airspy GUI: the "Manual" gain button checks `gain_type == 22`, so it never shows as selected
+  (the GUI only; the command line is not affected).
 
 ## Staying current
 

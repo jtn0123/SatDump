@@ -173,6 +173,8 @@ void AutoTrackApp::setup_webserver()
             }
         };
         logger->info("Start webserver on %s", http_addr.c_str());
+        // Fork: a server that cannot start is now reported as an error (it was silent); autotrack
+        // keeps running without it, as before
         webserver::start(http_addr);
     }
 }

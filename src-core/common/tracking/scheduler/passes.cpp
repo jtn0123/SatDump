@@ -11,9 +11,11 @@ namespace satdump
     {
         std::vector<SatellitePass> passes;
         // Fork: the observer and the orbit were not freed when the satellite had no orbit data or was
-        // geostationary (a leak per satellite on every schedule update); now they are freed on every return
+        // geostationary (a leak per satellite on every schedule update); now they are freed on every return.
+        // Fork: the station height is given in metres, as predict expects; it was multiplied by
+        // DEG_TO_RAD, so a station at 2000 m was computed at 35 m (pass times and elevations a little off)
         std::unique_ptr<predict_observer_t, decltype(&predict_destroy_observer)> observer_owner(
-            predict_create_observer("Main", qth_lat * DEG_TO_RAD, qth_lon * DEG_TO_RAD, qth_alt * DEG_TO_RAD), &predict_destroy_observer);
+            predict_create_observer("Main", qth_lat * DEG_TO_RAD, qth_lon * DEG_TO_RAD, qth_alt), &predict_destroy_observer);
         predict_observer_t *observer_station = observer_owner.get();
         auto tle = db_keplers->get_from_norad(norad);
         if (!tle.has_value())

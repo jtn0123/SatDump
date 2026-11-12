@@ -11,15 +11,28 @@
 #include "pipeline/live_pipeline.h"
 #include "webserver.h"
 #include <cinttypes>
+#include <csignal>
 #include <filesystem>
-#include <signal.h>
 
 // Catch CTRL+C to exit live properly!
-bool live_should_exit = false;
-void sig_handler_live(int signo)
+// Fork: a volatile sig_atomic_t, the only type a signal handler may safely set (was a plain bool)
+static volatile std::sig_atomic_t live_should_exit = 0;
+static void sig_handler_live(int signo)
 {
     if (signo == SIGINT || signo == SIGTERM)
-        live_should_exit = true;
+        live_should_exit = 1;
+}
+
+// Fork: starts the web server asked for with --http_server. False when it cannot start, most
+// often because another program uses the port (the reason is logged); the live run then stops
+// with exit code 1, so whatever watches it through /api learns at once that it cannot. The run
+// used to go on with nothing answering there. A value that is not text (--http_server 8080)
+// still throws, as before, and ends the run with exit code 2.
+static bool start_webserver(const nlohmann::json &parameters)
+{
+    std::string http_addr = parameters.at("http_server").get<std::string>();
+    logger->info("Start webserver on %s", http_addr.c_str());
+    return webserver::start(http_addr);
 }
 
 // TODOREWORK the timeout and stats are partially broken here now!
@@ -54,6 +67,13 @@ int main_live(int argc, char *argv[])
         logger->error("./satdump live metop_ahrpt metop_output_directory --source airspy --samplerate 6e6 --frequency 1701.3e6 --general_gain 18 --bias --timeout 780");
         return 1;
     }
+
+    // Fork: SIGINT and SIGTERM are caught from here on, so one that comes while the run is still
+    // starting (opening the radio, starting the pipeline) also ends it cleanly with exit code 0,
+    // once it has started. Until now they were caught only once everything ran, and one that
+    // came earlier ended the program at once, by the signal
+    signal(SIGINT, sig_handler_live);
+    signal(SIGTERM, sig_handler_live);
 
     std::string downlink_pipeline = argv[2];
     std::string output_file = argv[3];
@@ -106,16 +126,14 @@ int main_live(int argc, char *argv[])
             // If requested, boot up webserver
             if (parameters.contains("http_server"))
             {
-                std::string http_addr = parameters["http_server"].get<std::string>();
                 webserver::handle_callback = [&live_pipeline]() { return live_pipeline->getModulesStats().dump(4); };
-                logger->info("Start webserver on %s", http_addr.c_str());
-                webserver::start(http_addr);
+                if (!start_webserver(parameters))
+                {
+                    live_pipeline->stop();
+                    return 1;
+                }
                 webserver_started = true;
             }
-
-            // Attach signal
-            signal(SIGINT, sig_handler_live);
-            signal(SIGTERM, sig_handler_live);
 
             // Now, we wait
             while (1)
@@ -172,9 +190,10 @@ int main_live(int argc, char *argv[])
         if (!std::filesystem::exists(output_file))
             std::filesystem::create_directories(output_file);
 
-        // Get all sources
+        // Get the sources of the type asked for. Fork: only that driver is asked for its radios
+        // (it was every driver, and some search the network for radios: UHD, PlutoSDR, SoapySDR)
         dsp::registerAllSources();
-        std::vector<dsp::SourceDescriptor> source_tr = dsp::getAllAvailableSources();
+        std::vector<dsp::SourceDescriptor> source_tr = dsp::getAvailableSourcesOfType(handler_id);
         dsp::SourceDescriptor selected_src;
 
         for (dsp::SourceDescriptor src : source_tr)
@@ -316,7 +335,6 @@ int main_live(int argc, char *argv[])
                 // If requested, boot up webserver
                 if (parameters.contains("http_server"))
                 {
-                    std::string http_addr = parameters["http_server"].get<std::string>();
                     // if (!webserver_already_set)
                     webserver::handle_callback = [&all_pipelines]()
                     {
@@ -327,14 +345,13 @@ int main_live(int argc, char *argv[])
                         }
                         return stats.dump(4);
                     };
-                    logger->info("Start webserver on %s", http_addr.c_str());
-                    webserver::start(http_addr);
+                    if (!start_webserver(parameters))
+                    {
+                        stop_running();
+                        return 1;
+                    }
                     webserver_started = true;
                 }
-
-                // Attach signal
-                signal(SIGINT, sig_handler_live);
-                signal(SIGTERM, sig_handler_live);
 
                 // Now, we wait
                 uint64_t start_time = time(0);
@@ -488,17 +505,15 @@ int main_live(int argc, char *argv[])
                 // If requested, boot up webserver
                 if (parameters.contains("http_server"))
                 {
-                    std::string http_addr = parameters["http_server"].get<std::string>();
                     if (!webserver_already_set)
                         webserver::handle_callback = [&live_pipeline]() { return live_pipeline->getModulesStats().dump(4); };
-                    logger->info("Start webserver on %s", http_addr.c_str());
-                    webserver::start(http_addr);
+                    if (!start_webserver(parameters))
+                    {
+                        stop_running();
+                        return 1;
+                    }
                     webserver_started = true;
                 }
-
-                // Attach signal
-                signal(SIGINT, sig_handler_live);
-                signal(SIGTERM, sig_handler_live);
 
                 // Now, we wait
                 uint64_t start_time = time(0);

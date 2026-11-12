@@ -16,7 +16,10 @@ namespace webserver
     extern std::function<std::vector<uint8_t>()> handle_callback_schedule;
 
     extern bool add_polarplot_handler;
-    void start(std::string http_server_url);
+
+    // Fork: false when the server could not start, with the reason logged as an error (most
+    // often another program already uses the port). It used to carry on with no server
+    bool start(std::string http_server_url);
 
     void stop();
 };

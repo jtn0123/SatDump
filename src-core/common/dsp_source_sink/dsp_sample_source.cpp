@@ -33,6 +33,22 @@ namespace dsp
         return all_sources;
     }
 
+    std::vector<SourceDescriptor> getAvailableSourcesOfType(const std::string &type)
+    {
+        auto it = dsp_sources_registry.find(type);
+        if (it == dsp_sources_registry.end())
+            return {};
+        try
+        {
+            return it->second.getSources();
+        }
+        catch (std::exception &e)
+        {
+            logger->error("Error trying to list %s sources! %s", type.c_str(), e.what());
+            return {};
+        }
+    }
+
     std::shared_ptr<DSPSampleSource> getSourceFromDescriptor(SourceDescriptor descriptor)
     {
         for (std::pair<std::string, RegisteredSource> source : dsp_sources_registry)

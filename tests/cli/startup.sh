@@ -11,9 +11,10 @@ DECODE=(pipeline metop_ahrpt cadu "$WORK/in.cadu" "$WORK/out")
 # A short input that decodes to nothing; the run still has to start and finish normally
 head -c 102400 /dev/zero > "$WORK/in.cadu"
 
-# The default settings download orbit and Earth-rotation data. When the user's settings file
-# cannot be read those defaults apply, so this test supplies its own defaults with downloads
-# off (a satdump_cfg.json in the working folder is used instead of the installed one).
+# When the user's settings file cannot be read the defaults apply. The fork's defaults no
+# longer download orbit or Earth-rotation data (cli/offline.sh checks that); this test still
+# supplies its own defaults with both updates off, so it never depends on them (a
+# satdump_cfg.json in the working folder is used instead of the installed one).
 DEFAULTS=$(find "$PREFIX" -name satdump_cfg.json -print -quit)
 [ -n "$DEFAULTS" ] || { echo "FAIL no satdump_cfg.json under $PREFIX"; exit 1; }
 awk '/"kepler_update_interval"/ { k = 1 } /"iers_auto_update"/ { i = 1 }

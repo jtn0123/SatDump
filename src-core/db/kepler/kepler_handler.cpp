@@ -3,6 +3,7 @@
 #include "db/db_handler.h"
 #include "logger.h"
 #include "nlohmann/json_utils.h"
+#include "utils/file_url.h"
 #include "utils/format.h"
 #include "utils/string.h"
 #include "utils/time.h"
@@ -80,16 +81,68 @@ namespace satdump
         if (honor_setting)
         {
             eventBus->register_handler<AutoUpdateKeplersEvent>([this](AutoUpdateKeplersEvent evt) { updateKeplerDatabase(); });
+
+            // Fork: when every source is a local file, they are read now, before start-up goes on,
+            // so processing uses the files as they are when SatDump starts. The update used to run
+            // on the task thread once start-up was over: processing could begin before the
+            // elements were read, and a file newer than the last update was not read at all until
+            // the interval had passed. Downloads still run on the task thread, as before.
+            if (allSourcesAreLocal())
+            {
+                updateKeplerDatabase();
+                last_update = time(0);
+            }
+
             std::shared_ptr<AutoUpdateKeplersEvent> evt = std::make_shared<AutoUpdateKeplersEvent>();
             taskScheduler->add_task<AutoUpdateKeplersEvent>("auto_kepler_update_todorework", evt, last_update, update_interval);
         }
     }
 
+    // Fork: the element sources from the settings. A setting that is missing or is not a list
+    // counts as empty, with a warning (it threw, which stopped start-up once updates run there)
+    static void getKeplerSources(std::vector<std::string> &urls, std::vector<int> &norads)
+    {
+        urls.clear();
+        norads.clear();
+        try
+        {
+            const nlohmann::ordered_json &cfg = satdump_cfg.main_cfg;
+            if (cfg.contains("kepler_settings"))
+            {
+                const nlohmann::ordered_json &ks = cfg.at("kepler_settings");
+                if (ks.contains("urls_to_fetch"))
+                    urls = ks.at("urls_to_fetch").get<std::vector<std::string>>();
+                if (ks.contains("norads_to_fetch"))
+                    norads = ks.at("norads_to_fetch").get<std::vector<int>>();
+            }
+        }
+        catch (std::exception &e)
+        {
+            logger->warn("Cannot read the orbit element sources in the settings (%s); none are used", e.what());
+            urls.clear();
+            norads.clear();
+        }
+    }
+
+    bool KeplerDBHandler::allSourcesAreLocal()
+    {
+        std::vector<std::string> urls;
+        std::vector<int> norads;
+        getKeplerSources(urls, norads);
+        if (urls.empty() || !norads.empty())
+            return false;
+        for (auto &url : urls)
+            if (!isFileUrl(url))
+                return false;
+        return true;
+    }
+
     void KeplerDBHandler::updateKeplerDatabase()
     {
         logger->info("Updating Keplers...");
-        std::vector<int> norads_to_fetch = satdump_cfg.main_cfg["kepler_settings"]["norads_to_fetch"].get<std::vector<int>>();
-        std::vector<std::string> urls_to_fetch = satdump_cfg.main_cfg["kepler_settings"]["urls_to_fetch"].get<std::vector<std::string>>();
+        std::vector<int> norads_to_fetch;
+        std::vector<std::string> urls_to_fetch;
+        getKeplerSources(urls_to_fetch, norads_to_fetch);
 
         for (auto &url_str : urls_to_fetch)
         {

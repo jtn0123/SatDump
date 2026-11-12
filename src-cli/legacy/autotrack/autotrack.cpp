@@ -34,8 +34,10 @@ AutoTrackApp::AutoTrackApp(nlohmann::json settings, nlohmann::json parameters, s
     ///////////////// SDR Search
     ///////////////////////////////////////////////////////////////////////////////////
 
+    // Fork: only the driver of the type asked for is asked for its radios (it was every driver,
+    // and some search the network for radios: UHD, PlutoSDR, SoapySDR)
     dsp::registerAllSources();
-    std::vector<dsp::SourceDescriptor> source_tr = dsp::getAllAvailableSources();
+    std::vector<dsp::SourceDescriptor> source_tr = dsp::getAvailableSourcesOfType(handler_id);
 
     for (dsp::SourceDescriptor src : source_tr)
         logger->debug("Device " + src.name);

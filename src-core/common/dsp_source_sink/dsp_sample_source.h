@@ -79,5 +79,12 @@ namespace dsp
     SATDUMP_DLL extern std::map<std::string, RegisteredSource> dsp_sources_registry;
     void registerAllSources();
     std::vector<SourceDescriptor> getAllAvailableSources(bool remote = false);
+
+    // Fork: the radios of one type only, the type --source names (an empty list when no driver
+    // has that type). getAllAvailableSources() asks every driver, and some of them search the
+    // network for radios when asked (UHD broadcasts on every interface, PlutoSDR scans for IIO
+    // devices on the network, SoapySDR's remote module looks for servers), so a run for one
+    // radio type no longer makes every other driver search
+    std::vector<SourceDescriptor> getAvailableSourcesOfType(const std::string &type);
     std::shared_ptr<DSPSampleSource> getSourceFromDescriptor(SourceDescriptor descriptor);
 }

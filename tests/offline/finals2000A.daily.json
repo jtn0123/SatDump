@@ -1,0 +1,309 @@
+{
+ "EOP": {
+  "type": "IAU2000A",
+  "version": {
+   "product": "finals.daily (IAU2000A)",
+   "date": "2026-11-11",
+   "volume": "IAU2000A",
+   "number": "---"
+  },
+  "metaFileName": "",
+  "headerLine": {
+   "headerLineDate": {
+    "sYear": "Year",
+    "sMonth": "Month",
+    "sDay": "Day",
+    "sTime": "Time",
+    "sMJD": "MJD"
+   },
+   "headerLineEOP": {
+    "product": [
+     {
+      "source": "BulletinA",
+      "sX": "X",
+      "ssigma_X": "sigma_X",
+      "sY": "Y",
+      "ssigma_Y": "sigma_Y",
+      "sUT1-UTC": "UT1-UTC",
+      "ssigma_UT1-UTC": "sigma_UT1-UTC",
+      "sLOD": "LOD",
+      "ssigma_LOD": "sigma_LOD",
+      "sdX": "dX",
+      "ssigma_dX": "sigma_dX",
+      "sdY": "dY",
+      "ssigma_dY": "sigma_dY"
+     },
+     {
+      "source": "BulletinB",
+      "sX": "X",
+      "sY": "Y",
+      "sUT1-UTC": "UT1-UTC",
+      "sdX": "dX",
+      "sdY": "dY"
+     }
+    ]
+   },
+   "headerLineUnits": {
+    "product": [
+     {
+      "source": "BulletinA",
+      "X": "arcsec",
+      "sigma_X": "arcsec",
+      "Y": "arcsec",
+      "sigma_Y": "arcsec",
+      "UT1-UTC": "sec",
+      "sigma_UT1-UTC": "sec",
+      "LOD": "msec",
+      "sigma_LOD": "msec",
+      "dX": "marcsec",
+      "sigma_dX": "marcsec",
+      "dY": "marcsec",
+      "sigma_dY": "marcsec"
+     },
+     {
+      "source": "BulletinB",
+      "X": "arcsec",
+      "Y": "arcsec",
+      "UT1-UTC": "sec",
+      "dX": "marcsec",
+      "dY": "marcsec"
+     }
+    ]
+   }
+  },
+  "data": {
+   "product": "finals.daily (IAU2000A)",
+   "source": "BulletinA BulletinB",
+   "timeSeries": [
+    {
+     "time": {
+      "dateYear": "2026",
+      "dateMonth": "08",
+      "dateDay": "14",
+      "MJD": "61266"
+     },
+     "dataEOP": {
+      "pole": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "X": "0.223104",
+        "sigma_X": "0.000028",
+        "Y": "0.355155",
+        "sigma_Y": "0.000029"
+       },
+       {
+        "source": "BulletinB",
+        "type": "final",
+        "X": "0.223120",
+        "Y": "0.355074"
+       }
+      ],
+      "UT": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "UT1-UTC": "0.0103885",
+        "sigma_UT1-UTC": "0.0000055",
+        "LOD": "0.8734",
+        "sigma_LOD": "0.0058"
+       },
+       {
+        "source": "BulletinB",
+        "type": "final",
+        "UT1-UTC": "0.0103850"
+       }
+      ],
+      "nutation": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "dX": "0.399",
+        "sigma_dX": "0.038",
+        "dY": "-0.239",
+        "sigma_dY": "0.033"
+       },
+       {
+        "source": "BulletinB",
+        "type": "final",
+        "dX": "0.333",
+        "dY": "-0.265"
+       }
+      ]
+     }
+    },
+    {
+     "time": {
+      "dateYear": "2026",
+      "dateMonth": "11",
+      "dateDay": "10",
+      "MJD": "61354"
+     },
+     "dataEOP": {
+      "pole": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "X": "0.126001",
+        "sigma_X": "0.000026",
+        "Y": "0.321621",
+        "sigma_Y": "0.000027"
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "X": "",
+        "Y": ""
+       }
+      ],
+      "UT": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "UT1-UTC": "-0.0652361",
+        "sigma_UT1-UTC": "0.0000091",
+        "LOD": "0.8370",
+        "sigma_LOD": "0.0079"
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "UT1-UTC": ""
+       }
+      ],
+      "nutation": [
+       {
+        "source": "BulletinA",
+        "type": "prediction",
+        "dX": "0.312",
+        "sigma_dX": "0.128",
+        "dY": "0.253",
+        "sigma_dY": "0.160"
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "dX": "",
+        "dY": ""
+       }
+      ]
+     }
+    },
+    {
+     "time": {
+      "dateYear": "2026",
+      "dateMonth": "11",
+      "dateDay": "11",
+      "MJD": "61355"
+     },
+     "dataEOP": {
+      "pole": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "X": "0.125081",
+        "sigma_X": "0.000041",
+        "Y": "0.322408",
+        "sigma_Y": "0.000041"
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "X": "",
+        "Y": ""
+       }
+      ],
+      "UT": [
+       {
+        "source": "BulletinA",
+        "type": "final",
+        "UT1-UTC": "-0.0660730",
+        "sigma_UT1-UTC": "0.0000130",
+        "LOD": "",
+        "sigma_LOD": ""
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "UT1-UTC": ""
+       }
+      ],
+      "nutation": [
+       {
+        "source": "BulletinA",
+        "type": "prediction",
+        "dX": "0.322",
+        "sigma_dX": "0.128",
+        "dY": "0.256",
+        "sigma_dY": "0.160"
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "dX": "",
+        "dY": ""
+       }
+      ]
+     }
+    },
+    {
+     "time": {
+      "dateYear": "2027",
+      "dateMonth": "02",
+      "dateDay": "10",
+      "MJD": "61446"
+     },
+     "dataEOP": {
+      "pole": [
+       {
+        "source": "BulletinA",
+        "type": "prediction",
+        "X": "0.078222",
+        "sigma_X": "0.007849",
+        "Y": "0.408416",
+        "sigma_Y": "0.010560"
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "X": "",
+        "Y": ""
+       }
+      ],
+      "UT": [
+       {
+        "source": "BulletinA",
+        "type": "prediction",
+        "UT1-UTC": "-0.1533475",
+        "sigma_UT1-UTC": "0.0086008",
+        "LOD": "",
+        "sigma_LOD": ""
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "UT1-UTC": ""
+       }
+      ],
+      "nutation": [
+       {
+        "source": "BulletinA",
+        "type": "",
+        "dX": "",
+        "sigma_dX": "",
+        "dY": "",
+        "sigma_dY": ""
+       },
+       {
+        "source": "BulletinB",
+        "type": "",
+        "dX": "",
+        "dY": ""
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}
