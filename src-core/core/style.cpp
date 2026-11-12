@@ -11,7 +11,12 @@
 #include "logger.h"
 #include "nlohmann/json_utils.h"
 #include "style.h"
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #ifdef __APPLE__
 #include <CoreGraphics/CGDirectDisplay.h>
@@ -54,30 +59,63 @@ namespace style
         ImGuiStyle &style = ImGui::GetStyle();
         style = ImGuiStyle();
         theme = Theme();
+        GImSoft = ImSoftSkin();
 
-        // Load Theme File
+        // Load Theme File. Try the user's theme, then the shipped default, then Dark.
+        // A fallback is never written back to the settings, so the user's choice
+        // comes back as soon as its file is available again.
         nlohmann::json data;
-        try
         {
-            std::string selected_theme = satdump::satdump_cfg.main_cfg["user_interface"]["theme"]["value"];
-            std::string theme_path;
-            if (resources::resourceExists("themes/" + selected_theme + ".json"))
-                theme_path = "themes/" + selected_theme + ".json";
-            else
+            std::vector<std::string> candidates;
+            auto add_candidate = [&candidates](const nlohmann::ordered_json &cfg)
             {
-                logger->warn("Failed to load theme \"%s\". Will fall back to Dark", selected_theme.c_str());
-                satdump::satdump_cfg.main_cfg["user_interface"]["theme"]["value"] = selected_theme = "Dark";
-                satdump::satdump_cfg.saveUser();
+                try
+                {
+                    std::string name = cfg["user_interface"]["theme"]["value"].get<std::string>();
+                    if (!name.empty() && std::find(candidates.begin(), candidates.end(), name) == candidates.end())
+                        candidates.push_back(name);
+                }
+                catch (std::exception &)
+                {
+                }
+            };
+            add_candidate(satdump::satdump_cfg.main_cfg);
+            add_candidate(satdump::satdump_cfg.default_cfg);
+            if (std::find(candidates.begin(), candidates.end(), "Dark") == candidates.end())
+                candidates.push_back("Dark");
+
+            bool loaded = false;
+            for (size_t i = 0; i < candidates.size() && !loaded; i++)
+            {
+                const std::string path = "themes/" + candidates[i] + ".json";
+                if (!resources::resourceExists(path))
+                {
+                    logger->warn("Theme \"%s\" not found", candidates[i].c_str());
+                    continue;
+                }
+                try
+                {
+                    std::ifstream file(resources::getResourcePath(path));
+                    nlohmann::json parsed;
+                    file >> parsed;
+                    if (!parsed.is_object())
+                        throw std::runtime_error("top level is not a JSON object");
+                    data = parsed;
+                    loaded = true;
+                    if (i > 0)
+                        logger->warn("Using theme \"%s\" instead of \"%s\" for this session", candidates[i].c_str(), candidates[0].c_str());
+                }
+                catch (std::exception &e)
+                {
+                    logger->warn("Theme \"%s\" could not be read: %s", candidates[i].c_str(), e.what());
+                }
             }
 
-            std::ifstream file(resources::getResourcePath("themes/" + selected_theme + ".json"));
-            file >> data;
-            file.close();
-        }
-        catch (std::exception &)
-        {
-            logger->error("Failed to load any theme! Your SatDump installation may be missing critical files.");
-            return;
+            if (!loaded)
+            {
+                logger->error("Failed to load any theme! Your SatDump installation may be missing critical files.");
+                return;
+            }
         }
 
         // Set base theme
@@ -94,7 +132,7 @@ namespace style
             if (resources::resourceExists("fonts/" + font + ".ttf"))
                 theme.font = font;
             else
-                logger->debug("Specified font \"%s\" not found. Falling back to default", font.c_str());
+                logger->warn("Specified font \"%s\" not found. Falling back to default", font.c_str());
         }
 
         // Set font size
@@ -164,7 +202,6 @@ namespace style
         style.ScaleAllSizes(ui_scale);
 
         // Optional soft look for the built-in widgets (off unless the theme asks for it)
-        GImSoft = ImSoftSkin();
         if (data.contains("Soft") && data["Soft"].is_object())
         {
             auto &c = data["Soft"];
