@@ -165,12 +165,19 @@ if(MSVC)
     link_directories(windows/deps/output/bin)
 endif()
 
-if((NOT DEFINED ENV{CI}) AND NOT DEFINED ANDROID)
-    if(APPLE OR UNIX)
-        message("-- Not running on CI. Building for native architecture! Will likely not be portable to other systems.")
-        set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -march=native")    
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
-    endif()
+# Fork: CPU tuning for both C and C++. Outside CI the default tunes for the build machine.
+# To build on one machine for another, set it, e.g. -DSATDUMP_CPU_FLAGS=-mcpu=cortex-a76 (Pi 5).
+# An empty value gives a portable build.
+if((NOT DEFINED ENV{CI}) AND NOT DEFINED ANDROID AND (APPLE OR UNIX))
+    set(SATDUMP_CPU_FLAGS_DEFAULT "-march=native")
+else()
+    set(SATDUMP_CPU_FLAGS_DEFAULT "")
+endif()
+set(SATDUMP_CPU_FLAGS "${SATDUMP_CPU_FLAGS_DEFAULT}" CACHE STRING "CPU flags added to C and C++ (empty for a portable build)")
+if(SATDUMP_CPU_FLAGS)
+    message("-- CPU flags: ${SATDUMP_CPU_FLAGS} (binaries may not run on other CPUs)")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SATDUMP_CPU_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SATDUMP_CPU_FLAGS}")
 endif()
 
 project(SatDump VERSION "2.0.0")
