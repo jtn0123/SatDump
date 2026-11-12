@@ -11,7 +11,8 @@
 #   - an element file with a value a TLE cannot be made from is refused with one warning, and
 #     elements of that kind already in the database are skipped with a warning (both stopped
 #     SatDump at start-up, or made it drop the database for the run)
-#   - the installed defaults download nothing
+#   - the installed defaults download nothing, with a new database, where any update they
+#     scheduled would be due at once
 # Where the system allows it (unshare), every run is in a network namespace with no network
 # at all, where host names cannot be looked up either. Every run also has its web proxy set to
 # a closed port on this machine, so a download that came back by mistake never leaves it (curl
@@ -209,12 +210,16 @@ check stored-bad-elements-read-file logged stored-bad-elements "Read 3 orbit ele
 check stored-bad-elements-keep-elements logged stored-bad-elements "4 Keplers in database"
 
 # The installed defaults (no settings file): nothing is fetched, nothing is read. Only with no
-# network, so that defaults that went wrong could never reach a real server from a test
+# network, so that defaults that went wrong could never reach a real server from a test. The
+# database goes too: an update is scheduled from the time of the last one stored there, which
+# the runs above made a few seconds ago, so one the defaults scheduled by mistake would not be
+# due for hours and would never show. With a new database it is due at once
 if [ ${#NONET[@]} -gt 0 ]; then
-    rm -f "$D/home/.config/satdump/settings.json"
+    rm -f "$D/home/.config/satdump/settings.json" "$D/home/.config/satdump/main.db"
     run_off 0 defaults pipeline metop_ahrpt cadu "$WORK/in/metop.cadu" "$WORK/out-defaults"
     check defaults-no-kepler-update not_logged defaults "Updating Keplers"
     check defaults-no-iers-update not_logged defaults "IERS bulletin"
+    check defaults-no-update-ran not_logged defaults "in database!"
     check defaults-no-download no_download defaults
 fi
 
