@@ -69,7 +69,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Build | RTL-SDR device list: two lines built a second string after a comma and threw it away; removed so clang builds with the new error flags (device names unchanged) | 2026-11-11 |
 | Crash fix | `satdump pipeline`: when a module fails, SatDump no longer aborts. The failed module is stopped first, so a demodulator's running DSP blocks are not destroyed while still running (that ended in "pure virtual method called"). When two modules run at the same time, the other one is stopped too, including one waiting on a full buffer. The error is logged as "Error running command" and the command exits with code 2. The module list shown in the GUI is cleared on failure too | 2026-11-11 |
 | Crash fix | Live decoding: a module that fails is logged and stopped, and the data feeding it is let through, so the recording and the other modules keep going. Stopping never throws and never waits for ever. A pipeline whose modules cannot all be set up starts none of them, and one without live modules is refused | 2026-11-11 |
-| CLI | `satdump legacy live`: a module that failed during the run is reported once everything has stopped, and the command exits with code 2 (it used to exit 0, or hang). An error once the radio runs, such as --http_server given as a number, now stops the radio, the FFT and the pipelines and is reported with exit code 2. It used to hang for ever, past --timeout. A pipeline that cannot start now stops the FFT blocks it started. In multi-VFO mode, a VFO that cannot start stops the VFOs and radio already started before the error is reported (SatDump used to crash or hang) | 2026-11-11 |
+| CLI | `satdump legacy live`: a module that failed during the run is reported once everything has stopped, and the command exits with code 2 (it used to exit 0, or hang). An error once the radio and the pipelines run now stops the radio, the FFT and the pipelines before it is reported with exit code 2. Upstream, such an error left them running and hung for ever, past --timeout (`--http_server 8080` was one; it now ends the run at once with exit 1, see the `--http_server` rows). A pipeline that cannot start now stops the FFT blocks it started. In multi-VFO mode, a VFO that cannot start stops the VFOs and radio already started before the error is reported (SatDump used to crash or hang) | 2026-11-11 |
 | Bug fix | Buffers between modules: stopping a reader or writer that is just about to wait now always wakes it. The wake-up could be lost, and stopping then hung | 2026-11-11 |
 | Crash fix | GUI processing: a run that fails in the background is logged instead of closing SatDump. The busy flag is cleared so the controls come back. The offline processing window always reports that processing ended, also when the output folder cannot be made. Waiting for a previous run that never started is no longer a silently ignored error | 2026-11-11 |
 | Crash fix | Recorder: errors from opening or starting a radio, or from starting processing, are caught whatever their type (only runtime_error was caught, and anything else closed SatDump). The error text is logged as text, so a '%' in it no longer breaks the log line. A samplerate that cannot be restored is now logged instead of ignored. An error while stopping is logged instead of lost, and the live pipeline is always released. The VFO list lock is let go on every way out | 2026-11-11 |
@@ -145,19 +145,33 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | Differential twins `lrpt_segment` and `lrpt_qtable`: header fields, flags, time stamp and all 896 pixels, on edge lengths, empty and header-only payloads, every quality factor and MCU number, encoded packets, every truncation and bit flip of good packets, seeded cases and the golden Meteor packets; small oracles committed. A twin can read corpus files itself (`corpus_reader`), so a fuzz crash file can be replayed with `satdump-diff` | 2026-11-12 |
 | Tests | `diff_lrpt_fallback` (a Rust panic part-way through a packet gives the C++ segment, one log line, and Rust off); `cli_rust` checks that the installed Meteor plugin calls the Rust decoder; in a fuzz build with Rust, `fuzz_msumr_lrpt` stops on any C++/Rust difference | 2026-11-12 |
 | Tests | Float rule corrected: a ported C++ file that needs `-ffp-contract=off` to match Rust gets it in Rust-on builds only, so Rust-off builds such as the Pi's keep their flags | 2026-11-12 |
-| Settings | SatDump downloads nothing by default: no element sources or satellite numbers to fetch, element updates "Never", IERS updates off. The IERS addresses are settings (`iers_bulletin_url`, `leap_seconds_url`) with no built-in fallback | 2026-11-12 |
+| Settings | SatDump downloads nothing by default: no element sources or satellite numbers to fetch, element updates "Never", IERS updates off. The IERS addresses are settings (`iers_bulletin_url`, `leap_seconds_url`); the installed defaults are the https addresses SatDump always used, fetched only when the IERS update is switched on | 2026-11-12 |
 | Settings | Offline data: `file://` addresses for the orbit elements (TLE text or OMM CSV) and the two IERS files are read once at each start, before anything is processed. A missing or damaged file keeps the data already in the database, with one warning | 2026-11-12 |
 | Bug fix | Pass prediction takes the station height in metres; it was converted as if it were an angle, so a station at 2000 m was computed at 35 m | 2026-11-12 |
-| Bug fix | A TLE built from OMM data pads a short international designator with spaces, as TLE text does, not with NUL characters | 2026-11-12 |
+| Bug fix | A TLE built from OMM data writes the international designator in TLE form for pieces of one to three letters ("2019-074AB" as "19074AB"; only one-letter pieces were converted, and longer ones were cut to "2019-074"), padded with spaces as TLE text is, not with NUL characters | 2026-11-12 |
 | Bug fix | Element files: a stray line 2, or an OMM header where a name goes, makes that entry unreadable instead of being taken as a satellite name | 2026-11-12 |
 | Bug fix | IERS: JSON that is not a bulletin is refused before the database transaction starts, so none is left open; the IERS tab-separated leap-second list is read as well as the space-separated one | 2026-11-12 |
 | CLI | `legacy live`, `record` and `autotrack` ask only the `--source` driver for radios; before, every driver was asked, including those that search the network | 2026-11-12 |
-| CLI | An `--http_server` that cannot start (port taken, or not `host:port`) ends the run at once with exit 1 | 2026-11-12 |
+| CLI | An `--http_server` that cannot start (port taken, not `host:port`, a number, or no value) ends `legacy live` or `record` at once with exit 1 | 2026-11-12 |
 | CLI | `legacy live` catches SIGINT and SIGTERM from its start, including while the radio opens, and then stops with exit 0 | 2026-11-12 |
 | Crash fix | A live module is stopped once more after its task ends: a stop right after start-up could leave DSP blocks it started late running while they were destroyed (exit 134) | 2026-11-12 |
 | Tests | `cli_offline`: a whole station run (settings, element and IERS files, a live run, products) inside a network namespace with no network, so any connection attempt fails the test; skipped (77) where namespaces are not allowed, a failure instead with `SATDUMP_REQUIRE_NETNS=1` | 2026-11-12 |
 | Tests | `cli_supervision` (start, watch through `/api`, stop with SIGTERM, exit codes), and unit tests for pass heights, the offline data files and the single-driver radio probe | 2026-11-12 |
 | Crash fix | `-v` / `--verbose`: the flag's value was a local of the command handler's constructor, so reading the options wrote into a stack frame that had already returned (found by the sanitizer build); it now lives in the handler | 2026-11-12 |
+| Bug fix | DSP blocks, legacy and new: start() and stop() of one block now run one at a time. A SIGTERM while a live run was starting could hang SatDump for ever (a legacy block's thread was started again and then waited for), or leave a new-DSP block running after its stop() returned | 2026-11-12 |
+| CLI | A legacy command (`live`, `record`, or a pipeline run through `legacy`) during which a DSP block failed now ends with exit 2, as the exit-code table says (it ended with 0) | 2026-11-12 |
+| CLI | `--http_server` given as a number (`8080`) or with no value now ends `legacy live` and `record` at once with exit 1 and "Cannot start the web server on <value>: ..." (it threw and ended with exit 2). Every web-server error line now begins "Cannot start the web server on <value>:" | 2026-11-12 |
+| Bug fix | Multi-VFO `legacy live`: every way out of the run (a VFO or the web server that cannot start, any error) now stops each VFO's frequency shifter. Only the normal end did; on the other ways out they were destroyed while running | 2026-11-12 |
+| Tests | `cli_supervision`: a stop must end within 10 s of the SIGTERM, and `/api` must stop answering while the program is still seen running (the old check could pass when the port closed only at exit). `legacy record` is now checked for the single-driver probe and for a web server that cannot start | 2026-11-12 |
+| Tests | `cli_thread_faults`: the fault test module waits until its failing DSP block has failed, so `legacy-block-fails` can no longer end with exit 0 because the block's thread started late. Three more runs of it on one CPU with SCHED_BATCH (`taskset`, `chrt`; Linux) check this; without the wait, 19 of 20 such runs ended with 0 | 2026-11-12 |
+| Crash fix | An orbit element file with a value a TLE cannot hold is refused with one warning and changes nothing. Such values are a drag term (BSTAR) or second derivative of 1 or more, a value that is not a number, a date outside 2000-2099, or a catalogue number too big. Such a file used to be stored, and every command then stopped at start-up (exit 134). A tiny drag term no longer makes SatDump hang | 2026-11-12 |
+| Crash fix | Orbit elements already in the database that cannot be written as a TLE are skipped with a warning; before, start-up dropped the whole database for the run, or stopped. An error while reading the element or IERS files at start-up is logged and never stops SatDump | 2026-11-12 |
+| Bug fix | A TLE international designator that fills all 8 columns ("99025BGQ") is read as it is; the copy used to read past its end (the fix is partly in libpredict's `orbit.c`) | 2026-11-12 |
+| Bug fix | An international designator with a quote in it is stored; it used to break the database insert for that satellite | 2026-11-12 |
+| Bug fix | Leap-second list: refused with one warning, keeping the leap seconds already loaded, unless its times and TAI-UTC values both go up from line to line, it has its expiry line (`#@` and a time), and it matches its hash line (`#h`, the SHA-1 of its data that both published layouts end with). A list cut short inside its last line was stored as 3 s from 2017 on, and one cut short between two lines gave 36 s, not 37 | 2026-11-12 |
+| Bug fix | Orbit element downloads (`http`) skip the entries they cannot read, values a TLE cannot hold among them, with one warning naming the address and the count; the other entries are used. Before, such entries were dropped without a word, and those satellites kept their old elements. A download tried again after failing part way no longer has the failed try's text in front of it | 2026-11-12 |
+| Tests | `cli_offline` runs the installed defaults with a new database, so an update they scheduled by mistake would be due at once and show; new runs with an element file and a stored row that cannot be written as a TLE. It also fails when the shipped leap-second list is refused. Some unit tests download from a small HTTP server they run on 127.0.0.1 | 2026-11-12 |
+| Tests | `tests/gate.sh` empties the check install folder before installing when it is inside the build folder (the default `<build>/check-prefix`). Installing over earlier runs had kept a core library from an install with another libdir in `<prefix>/lib`, which the cli tests load first, so they ran old code and passed. The new `cli_install_fresh` fails when the folder holds a file the last install did not write | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -211,7 +225,9 @@ Every fix in this fork follows these rules, and new code should too:
    pass ends at its normal stop or timeout, and the command then exits with code 2.
 6. Exit codes are the ones in the table above; a crash ends by its signal.
 7. A damaged settings file or database never stops SatDump: it logs a warning and uses
-   the defaults (or an in-memory database), leaving the file as it is.
+   the defaults (or an in-memory database), leaving the file as it is. Stored rows that cannot
+   be used are skipped with a warning, and an error while reading the element or IERS files at
+   start-up is logged; neither stops SatDump.
 8. A lifetime bug, such as a DSP block destroyed while it still runs, stops SatDump at once
    with a log line naming it, rather than crashing later somewhere unrelated.
 9. Log calls: a message given alone is written as it is, `%` included. Text read at run time is
@@ -221,10 +237,17 @@ Every fix in this fork follows these rules, and new code should too:
 ## Offline and downloads
 
 SatDump downloads nothing by default: `kepler_update_interval` is "Never", `iers_auto_update`
-is off, and `kepler_settings.urls_to_fetch` and `norads_to_fetch` are empty. The IERS
-addresses are settings (`iers_bulletin_url`, `leap_seconds_url`) with no built-in fallback: a
-missing, empty or malformed address (anything but `{"value": "<address>"}`) gives one warning,
-and nothing is fetched.
+is off, and `kepler_settings.urls_to_fetch` and `norads_to_fetch` are empty.
+
+The IERS addresses are settings (`iers_bulletin_url`, `leap_seconds_url`). The installed
+`satdump_cfg.json` holds the https addresses SatDump always used, and `settings.json` is merged
+over it. An address is used when `settings.json` gives it as `{"value": "<text>"}`, or leaves the
+setting out (or gives an object without `"value"`), which means the installed https address;
+either is fetched only when `iers_auto_update` is on. Anything else is no address, gives one
+warning, and nothing is fetched for it: `{"value": ""}`, `{"value": null}`, a value that is not
+text, `null`, or a setting that is not an object. An object in place of the text, as in
+`{"value": {...}}`, makes the whole `settings.json` unreadable, so the installed defaults are
+used (rule 7). A station program should therefore always set both addresses itself.
 
 A station program that fetches the data itself gives SatDump `file://` addresses:
 
@@ -250,14 +273,16 @@ The files are then read once at each start, before anything is processed, but on
 - for IERS: the update is on and both addresses are `file://`.
 
 With any `http` source, upstream's scheduled update on a background task applies, which can
-come late or overlap with processing.
+come late or overlap with processing. A download is not all or nothing: entries it cannot read,
+values a TLE cannot hold among them, are skipped with one warning naming the address and the
+count, and the others are stored.
 
 What each file changes:
 
 | File | Rule |
 |---|---|
-| Orbit elements (TLE text, with or without name lines, or OMM CSV) | All or nothing. A missing, empty or damaged file (a bad checksum, line numbers that differ, a stray line 2, a header where a name goes) changes nothing, with one warning. A good file updates each satellite it lists |
-| Leap-second list (IERS tab or space layout) | All or nothing, in the same way |
+| Orbit elements (TLE text, with or without name lines, or OMM CSV) | All or nothing. A missing, empty or damaged file changes nothing, with one warning. Damaged means a bad checksum, line numbers that differ, a stray line 2, a header where a name goes, or a value a TLE cannot hold (see the changes table). A good file updates each satellite it lists. Elements already stored that cannot be written as a TLE are skipped, with a warning |
+| Leap-second list (IERS tab or space layout) | All or nothing, in the same way. The list is also refused unless its times and its TAI-UTC values both go up from each entry to the next, it has its expiry line (`#@` and a time), and it matches its hash line (`#h`, the SHA-1 of the digits of the `#$` and `#@` times and of the entries). Both published layouts have these lines; comments, spaces and line ends may differ, but a list cut short or with a value changed is refused. Give SatDump the published file as it is (from IERS, or a copy such as the one in tzdata) |
 | IERS bulletin (`finals2000A.daily.json`) | JSON that is not a bulletin changes nothing. Otherwise each readable entry is stored by date, and unreadable entries are skipped with one warning that counts them |
 
 The database (`main.db`) keeps the last good data, so a station with no new files keeps working.
@@ -300,15 +325,18 @@ satdump legacy live metop_ahrpt <pass>/live-N --source airspy [--source_id <deci
 Watching: `GET http://127.0.0.1:<port>/api` returns each module's state as JSON (for example
 `deframer_state` is `SYNCED` when the decoder is locked). It does not answer during start-up
 (from about 0.1 s to a few seconds, longer while a real radio opens), so poll with retries. If
-the port is taken or the address is not `host:port`, the run exits 1 at once and logs
-"Cannot start the web server on ...".
+the port is taken, or the value is not `host:port` (including a number such as `8080`, or the
+flag given no value), the run exits 1 at once and logs a line that begins
+"Cannot start the web server on <value>:" and gives the reason.
 
 Stopping: SIGTERM or SIGINT is caught from the start of `legacy live`, including while the
 radio opens; the run then exits 0 once start-up has finished, and the `.cadu` keeps its whole
 frames. Measured stops take 0.04 to 0.1 s. The first moments after the program starts (about
 0.05 s, before `legacy live` begins) are not covered, and a signal there ends the program by
 the signal (status 143). Treat exit 0 or the signal after your own SIGTERM as a normal stop,
-and send SIGKILL after a grace period (10 s is ample).
+and send SIGKILL after a grace period (10 s is ample). `cli_supervision` fails a stop that
+takes more than 10 s after SIGTERM, and checks that `/api` stops answering while the program is
+still running.
 
 Products: an ordinary run on each `.cadu`, not `--finish_processing`:
 
@@ -329,14 +357,15 @@ On the Pi, or on any arm64 Debian 13 machine (a VM is much faster than the Pi):
 
 ```bash
 cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -S . -B build -G Ninja
-tests/gate.sh build            # build, warning check, install into build/check-prefix, all tests
+tests/gate.sh build            # build, warning check, install into an emptied build/check-prefix, all tests
 cmake --install build --prefix ~/satdump    # a relocatable install
 ```
 
 `tests/gate.sh` fails on any test failure and on any **new** compiler warning. When
 warnings are fixed, `tests/gate.sh build --update` lowers the baseline in
 `tests/warnings/<arch>.txt`; the baseline should only ever go down. The tests never
-contact the network.
+contact the network; a few unit tests download from a small server they run on 127.0.0.1.
+`cli_thread_faults` uses `taskset` and `chrt` (util-linux) for its one-CPU runs.
 
 The golden test decodes three small synthetic recordings (a MetOp-B, a NOAA-19 and a
 Meteor-M N2-3 pass, generated on the fly from fixed seeds; nothing in them is received data)
@@ -505,6 +534,17 @@ apply them the same way.
   as upstream does and an existing test pins).
 - Airspy GUI: the "Manual" gain button checks `gain_type == 22`, so it never shows as selected
   (the GUI only; the command line is not affected).
+- `legacy live --client` whose server does not answer cannot be stopped: the network client
+  module waits in `nng_recv`, so the pipeline's stop never returns, after a SIGTERM or after a
+  web server that cannot start. For the same reason client mode has no command-line test; it
+  shares the `--http_server` check with the tested modes.
+- Multi-VFO: a VFO whose frequency shift is outside the sample rate ends the program with
+  `exit(1)` while the radio, the splitter and the VFOs already started are still running.
+- `legacy record` with `--decimation` above 1 never stops its resampler block.
+- DVB-S2 `S2PLSyncBlock` starts and joins its second thread outside the block's start/stop
+  lock, so a start() and a stop() on two threads can still race on that thread.
+- Single (not multi-VFO) `legacy live`: the stop on an error while the radio and the pipeline
+  run has no test; nothing known throws there now (multi-VFO's is tested).
 
 ## Staying current
 
