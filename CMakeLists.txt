@@ -27,6 +27,7 @@ project(SatDump)
 option(BUILD_GUI "Build the GUI" ON)
 option(BUILD_TESTING "Build the testing program" OFF)
 option(BUILD_TOOLS "Build the tools programs" OFF)
+option(SATDUMP_TESTS "Fork: build the tests in tests/ (run them with tests/gate.sh)" OFF)
 option(BUILD_ZIQ "Build support for the custom ZIQ format" ON)
 option(BUILD_ZIQ2 "Build support for the custom ZIQ2 format (Very WIP)" OFF)
 option(BUILD_OPENCL "Build with OpenCL GPU Accelerations" ON)
@@ -302,6 +303,11 @@ if(BUILD_TOOLS)
 endif()
 
 add_subdirectory(plugins)
+
+if(SATDUMP_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # Install configuration
 if((NOT ANDROID) AND ENABLE_INSTALL)
