@@ -19,9 +19,13 @@ namespace satdump
 
         Image::Image(const Image &img)
         {
-            // Copy contents of the image over
-            init(img.d_depth, img.d_width, img.d_height, img.d_channels);
-            memcpy(d_data, img.d_data, img.data_size * img.type_size);
+            // Copy contents of the image over. Fork: like operator=, an image with no buffer
+            // copies as an empty image (memcpy from a null pointer is undefined)
+            if (img.d_data != nullptr)
+            {
+                init(img.d_depth, img.d_width, img.d_height, img.d_channels);
+                memcpy(d_data, img.d_data, img.data_size * img.type_size);
+            }
             copy_meta(img);
         }
 
@@ -81,7 +85,7 @@ namespace satdump
 
             // Init local variables
             d_depth = bit_depth;
-            d_maxv = (2 << (d_depth - 1)) - 1;
+            d_maxv = d_depth > 0 ? (1 << d_depth) - 1 : 0; // Fork: depth 0 shifted by -1
             d_width = width;
             d_height = height;
             d_channels = channels;

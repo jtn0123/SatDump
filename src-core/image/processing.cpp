@@ -12,6 +12,8 @@ namespace satdump
     {
         int percentile(int *array, int size, float percentile)
         {
+            if (size <= 0) // Fork: an empty image has no percentiles
+                return 0;
             float number_percent = (size + 1) * percentile / 100.0f;
             if (number_percent <= 1) // ==
                 return array[0];
@@ -36,6 +38,8 @@ namespace satdump
             const float maxVal = img.maxval();
             const size_t d_height = img.height();
             const size_t d_width = img.width();
+            if (d_height * d_width == 0) // Fork: nothing to balance
+                return;
 
             int *sorted_array = new int[d_height * d_width];
 
@@ -51,6 +55,8 @@ namespace satdump
                 // Get percentiles
                 int percentile1 = percentile(sorted_array, d_width * d_height, percentileValue);
                 int percentile2 = percentile(sorted_array, d_width * d_height, 100.0f - percentileValue);
+                if (percentile2 <= percentile1) // Fork: a flat channel has no range to stretch (was a division by 0)
+                    continue;
 
                 for (size_t i = 0; i < d_width * d_height; i++)
                 {
@@ -185,6 +191,8 @@ namespace satdump
 
                 const int nlevels = img.maxval() + 1;
                 size_t size = img.width() * img.height() * (per_channel ? 1 : img.channels());
+                if (size == 0 || nlevels < 2) // Fork: an empty image has nothing to equalize
+                    return;
 
                 // Init histogram buffer
                 int *histogram = new int[nlevels];
