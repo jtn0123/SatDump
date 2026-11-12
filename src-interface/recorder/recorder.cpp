@@ -1,3 +1,4 @@
+#include "imgui/imgui_soft.h"
 #include "recorder.h"
 #include "common/utils.h"
 #include "common/widgets/frequency_input.h"
@@ -22,6 +23,7 @@ namespace satdump
 {
     RecorderApplication::RecorderApplication(nlohmann::json cli_set) : handlers::Handler(), pipeline_selector(true)
     {
+        handler_tree_icon = u8"\uf93a"; // radio tower (was the default "N")
         automated_live_output_dir = satdump_cfg.main_cfg["satdump_directories"]["live_processing_autogen"]["value"].get<bool>();
         processing_modules_floating_windows = satdump_cfg.main_cfg["user_interface"]["recorder_floating_windows"]["value"].get<bool>();
         remaining_disk_space_time = satdump_cfg.main_cfg["user_interface"]["remaining_disk_space_time"]["value"].get<int>();
@@ -703,6 +705,10 @@ namespace satdump
         float wf_size = win_size.y;
         float left_width = ImGui::GetCursorPosX();
 
+        // Soft look: the plots fill the area they are given exactly, with no fixed offsets
+        const bool soft = GImSoft.Enabled;
+        const ImVec2 view_origin = ImGui::GetCursorScreenPos();
+
         float recorder_size_x = right_width;
 
         float _live_height = 250;
@@ -741,7 +747,8 @@ namespace satdump
 
                 float fft_height = wf_size * (show_waterfall ? waterfall_ratio : 1.0);
                 float wf_height = wf_size * (1 - waterfall_ratio) + 15 * ui_scale;
-                float wfft_widht = right_width - 9 * ui_scale;
+                float wfft_widht = soft ? right_width : right_width - 9 * ui_scale;
+                float plot_x0 = left_width + 16 * ui_scale;
 #ifdef __ANDROID__
                 int offset = 8;
 #else
@@ -749,18 +756,34 @@ namespace satdump
 #endif
                 // ImGui::SetNextWindowSizeConstraints(ImVec2((right_width + offset * ui_scale), 50), ImVec2((right_width + offset * ui_scale), wf_size));
                 //                   ImGui::SetNextWindowSize(ImVec2((right_width + offset * ui_scale), show_waterfall ? waterfall_ratio * wf_size : wf_size));
-                ImGui::SetCursorScreenPos(ImVec2(left_width + 8, 25 * ui_scale));
-                if (ImGui::BeginChild("#fft", ImVec2((right_width + offset * ui_scale), (show_waterfall ? waterfall_ratio * wf_size : wf_size)), ImGuiChildFlags_ResizeY, //
-                                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_ChildWindow | ImGuiWindowFlags_NoScrollbar |
-                                          ImGuiWindowFlags_NoScrollWithMouse))
+                if (soft)
                 {
+                    ImGui::SetCursorScreenPos(view_origin);
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
+                }
+                else
+                    ImGui::SetCursorScreenPos(ImVec2(left_width + 8, 25 * ui_scale));
+                bool fft_child_open = ImGui::BeginChild("#fft", ImVec2(soft ? right_width : (right_width + offset * ui_scale), (show_waterfall ? waterfall_ratio * wf_size : wf_size)),
+                                                        ImGuiChildFlags_ResizeY, //
+                                                        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_ChildWindow |
+                                                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                if (soft)
+                    ImGui::PopStyleVar(2);
+                if (fft_child_open)
+                {
+                    if (soft)
+                    {
+                        plot_x0 = ImGui::GetCursorScreenPos().x;
+                        fft_height = ImGui::GetContentRegionAvail().y - 6 * ui_scale; // leave room for the drag edge
+                    }
                     fft_plot->draw({float(wfft_widht), fft_height});
                     if (show_waterfall) // && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
                         waterfall_ratio = ImGui::GetWindowHeight() / wf_size;
                     if (ImGui::IsWindowHovered())
                     {
                         ImVec2 mouse_pos = ImGui::GetMousePos();
-                        float ratio = (mouse_pos.x - left_width - 16 * ui_scale) / (right_width - 9 * ui_scale) - 0.5;
+                        float ratio = (mouse_pos.x - plot_x0) / wfft_widht - 0.5;
                         ImGui::SetTooltip(
                             "%s",
                             ((ratio >= 0 ? "" : "- ") + format_notated(abs(ratio) * get_samplerate(), "Hz\n") + format_notated(source_ptr->get_frequency() + ratio * get_samplerate(), "Hz")).c_str());
@@ -769,7 +792,13 @@ namespace satdump
                     ImGui::EndChild();
                 }
 
-                if (show_waterfall)
+                if (show_waterfall && soft)
+                {
+                    wf_height = ImGui::GetContentRegionAvail().y;
+                    if (wf_height > 8 * ui_scale)
+                        waterfall_plot->draw({wfft_widht, wf_height}, is_started);
+                }
+                else if (show_waterfall)
                 {
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8 * ui_scale);
                     ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 4 * ui_scale);

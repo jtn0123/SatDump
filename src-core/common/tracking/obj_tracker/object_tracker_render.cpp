@@ -3,6 +3,7 @@
 #include "core/style.h"
 #include "i18n.h"
 #include "imgui/imgui.h"
+#include "imgui/imgui_soft.h"
 #include "imgui/imgui_stdlib.h"
 #include "init.h"
 #include "object_tracker.h"
@@ -15,7 +16,16 @@ namespace satdump
     {
         int d_pplot_size = ImGui::GetWindowContentRegionMax().x;
         ImDrawList *draw_list = ImGui::GetWindowDrawList();
-        draw_list->AddRectFilled(ImGui::GetCursorScreenPos(), ImVec2(ImGui::GetCursorScreenPos().x + d_pplot_size, ImGui::GetCursorScreenPos().y + d_pplot_size), style::theme.widget_bg);
+
+        // Soft look: quiet thin rings on a rounded panel, the pass drawn in the accent colour
+        const bool soft = GImSoft.Enabled;
+        const ImU32 grid_col = soft ? ((GImSoft.Muted & ~IM_COL32_A_MASK) | ((ImU32)0x48 << IM_COL32_A_SHIFT)) : (ImU32)style::theme.green;
+        const float grid_w = soft ? 1.0f : 2.0f;
+        const ImU32 track_col = soft ? ImGui::GetColorU32(ImGuiCol_PlotLines) : (ImU32)style::theme.orange;
+        const ImVec4 label_col = soft ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : (ImVec4)style::theme.green;
+
+        draw_list->AddRectFilled(ImGui::GetCursorScreenPos(), ImVec2(ImGui::GetCursorScreenPos().x + d_pplot_size, ImGui::GetCursorScreenPos().y + d_pplot_size), style::theme.widget_bg,
+                                 soft ? GImSoft.CardRounding * 0.8f : 0.0f);
 
         // Draw the "target-like" plot with elevation rings
         float radius = 0.45;
@@ -23,14 +33,14 @@ namespace satdump
         float radius2 = d_pplot_size * radius * (6.0 / 9.0);
         float radius3 = d_pplot_size * radius * (9.0 / 9.0);
 
-        draw_list->AddCircle({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, radius1, style::theme.green, 0, 2);
-        draw_list->AddCircle({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, radius2, style::theme.green, 0, 2);
-        draw_list->AddCircle({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, radius3, style::theme.green, 0, 2);
+        draw_list->AddCircle({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, radius1, grid_col, 0, grid_w);
+        draw_list->AddCircle({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, radius2, grid_col, 0, grid_w);
+        draw_list->AddCircle({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, radius3, grid_col, 0, grid_w);
 
         draw_list->AddLine({ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y},
-                           {ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + d_pplot_size}, style::theme.green, 2);
+                           {ImGui::GetCursorScreenPos().x + (d_pplot_size / 2), ImGui::GetCursorScreenPos().y + d_pplot_size}, grid_col, grid_w);
         draw_list->AddLine({ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)},
-                           {ImGui::GetCursorScreenPos().x + d_pplot_size, ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, style::theme.green, 2);
+                           {ImGui::GetCursorScreenPos().x + d_pplot_size, ImGui::GetCursorScreenPos().y + (d_pplot_size / 2)}, grid_col, grid_w);
 
         // Draw the satellite's trace
         if (upcoming_pass_points.size() > 1)
@@ -51,7 +61,7 @@ namespace satdump
                 point_x2 += az_el_to_plot_x(d_pplot_size, radius, p2.az, p2.el);
                 point_y2 -= az_el_to_plot_y(d_pplot_size, radius, p2.az, p2.el);
 
-                draw_list->AddLine({point_x1, point_y1}, {point_x2, point_y2}, style::theme.orange, 2.0);
+                draw_list->AddLine({point_x1, point_y1}, {point_x2, point_y2}, track_col, 2.0);
             }
             upcoming_passes_mtx.unlock();
         }
@@ -150,18 +160,18 @@ namespace satdump
                 obj_name = satoptions[current_satellite_id];
             ImVec2 size = ImGui::CalcTextSize(obj_name.c_str());
             draw_list->AddRectFilled(curs, ImVec2(curs.x + size.x + 2 * style.FramePadding.x, curs.y + size.y), style::theme.overlay_bg);
-            ImGui::TextColored(style::theme.green, "%s", obj_name.c_str());
+            ImGui::TextColored(label_col, "%s", obj_name.c_str());
             curs = ImGui::GetCursorScreenPos();
             char buff[9];
             snprintf(buff, sizeof(buff), "Az: %.1f", sat_current_pos.az);
             size = ImGui::CalcTextSize(buff);
             draw_list->AddRectFilled(curs, ImVec2(curs.x + size.x + 2 * style.FramePadding.x, curs.y + size.y), style::theme.overlay_bg);
-            ImGui::TextColored(style::theme.green, "Az: %.1f", sat_current_pos.az);
+            ImGui::TextColored(label_col, "Az: %.1f", sat_current_pos.az);
             curs = ImGui::GetCursorScreenPos();
             snprintf(buff, sizeof(buff), "El: %.1f", sat_current_pos.el);
             size = ImGui::CalcTextSize(buff);
             draw_list->AddRectFilled(curs, ImVec2(curs.x + size.x + 2 * style.FramePadding.x, curs.y + size.y), style::theme.overlay_bg);
-            ImGui::TextColored(style::theme.green, "El: %.1f", sat_current_pos.el);
+            ImGui::TextColored(label_col, "El: %.1f", sat_current_pos.el);
 
             if (next_aos_time != -1 && next_los_time != -1)
             {
@@ -174,7 +184,7 @@ namespace satdump
             ImGui::SetCursorPosY(cur.y + d_pplot_size - 20 * ui_scale);
             curs = ImGui::GetCursorScreenPos();
             draw_list->AddRectFilled(curs, ImVec2(curs.x + size.x + 2 * style.FramePadding.x, curs.y + size.y), style::theme.overlay_bg);
-            ImGui::TextColored(style::theme.green, "%s in %s", next_aos_time > ctime ? "AOS" : "LOS", time_dis.c_str());
+            ImGui::TextColored(label_col, "%s in %s", next_aos_time > ctime ? "AOS" : "LOS", time_dis.c_str());
 
             ImGui::SetCursorPos(cur);
         }

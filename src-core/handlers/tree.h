@@ -5,6 +5,7 @@
  */
 
 #include "core/style.h"
+#include "imgui/imgui_soft.h"
 
 namespace satdump
 {
@@ -25,6 +26,16 @@ namespace satdump
 
             ImVec2 verticalLineEnd = {0, 0};
 
+            // Soft look: the connecting lines recede, the icons keep their colour
+            static ImU32 lineColor()
+            {
+                ImU32 c = style::theme.treeview_icon;
+                if (!GImSoft.Enabled)
+                    return c;
+                const ImU32 a = ((c >> IM_COL32_A_SHIFT) & 0xFF) * 35 / 100;
+                return (c & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
+            }
+
             void start()
             {
                 drawList = ImGui::GetWindowDrawList();
@@ -37,9 +48,11 @@ namespace satdump
             bool node(std::string icon)
             {
                 const float HorizontalTreeLineSize = 8.0f * ui_scale; // chosen arbitrarily
-                const float minY = ImGui::GetCursorScreenPos().y - 20 * ui_scale;
-                const float midpoint = minY + HorizontalTreeLineSize;
-                drawList->AddLine(ImVec2(verticalLineStart.x, midpoint), ImVec2(verticalLineStart.x + HorizontalTreeLineSize, midpoint), style::theme.treeview_icon);
+                // Line up with the row just drawn, whatever the theme's row height is
+                const float row_min = ImGui::GetItemRectMin().y, row_max = ImGui::GetItemRectMax().y;
+                const float minY = row_min + (row_max - row_min - ImGui::GetFontSize()) * 0.5f;
+                const float midpoint = (row_min + row_max) * 0.5f;
+                drawList->AddLine(ImVec2(verticalLineStart.x, midpoint), ImVec2(verticalLineStart.x + HorizontalTreeLineSize, midpoint), lineColor());
                 drawList->AddText(ImVec2(verticalLineStart.x + HorizontalTreeLineSize * 2.0f, minY), style::theme.treeview_icon, icon.c_str());
                 verticalLineEnd.y = midpoint;
                 return false;
@@ -47,7 +60,7 @@ namespace satdump
 
             float end()
             {
-                drawList->AddLine(verticalLineStart, verticalLineEnd, style::theme.treeview_icon);
+                drawList->AddLine(verticalLineStart, verticalLineEnd, lineColor());
 
                 return verticalLineEnd.y - verticalLineStart.y;
             }

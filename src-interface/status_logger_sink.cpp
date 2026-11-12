@@ -3,7 +3,9 @@
 #include "core/config.h"
 #include "core/plugin.h"
 #include "imgui/imgui.h"
+#include "core/style.h"
 #include "imgui/imgui_internal.h"
+#include "imgui/imgui_soft.h"
 #include "main_ui.h"
 #include "utils/time.h"
 
@@ -70,17 +72,41 @@ namespace satdump
         {
             if (ImGui::BeginMenuBar())
             {
-                ImGui::TextUnformatted(lvl.c_str());
-                ImGui::SameLine(75 * ui_scale);
-                ImGui::Separator();
+                if (GImSoft.Enabled)
+                {
+                    // Soft look: a coloured dot for the level, then the message, no dividers
+                    ImU32 dot_col = GImSoft.Muted;
+                    if (lvl == "Error" || lvl == "Critical")
+                        dot_col = style::theme.red;
+                    else if (lvl == "Warning")
+                        dot_col = style::theme.orange;
+                    else if (lvl == "Notice")
+                        dot_col = style::theme.green;
+                    const ImVec2 dot_pos = ImGui::GetCursorScreenPos();
+                    const float line_h = ImGui::GetFontSize();
+                    const float text_y = ImGui::GetStyle().FramePadding.y; // text in a menu bar sits this far below the cursor
+                    ImGui::GetWindowDrawList()->AddCircleFilled({dot_pos.x + 8 * ui_scale, dot_pos.y + text_y + line_h * 0.5f}, 3.5f * ui_scale, dot_col);
+                    ImGui::Dummy({16 * ui_scale, line_h});
+                    if (ImGui::IsItemHovered() && lvl.size())
+                        ImGui::SetTooltip("%s", lvl.c_str());
+                }
+                else
+                {
+                    ImGui::TextUnformatted(lvl.c_str());
+                    ImGui::SameLine(75 * ui_scale);
+                    ImGui::Separator();
+                }
                 ImGui::TextDisabled("%s", str.c_str());
                 if (ImGui::IsItemClicked())
                     show_log = true;
 
                 height = ImGui::GetWindowHeight();
 
-                ImGui::SetCursorPosX(ImGui::GetWindowSize().x * 0.75);
-                ImGui::Separator();
+                if (!GImSoft.Enabled)
+                {
+                    ImGui::SetCursorPosX(ImGui::GetWindowSize().x * 0.75);
+                    ImGui::Separator();
+                }
 
                 ImGui::EndMenuBar();
             }

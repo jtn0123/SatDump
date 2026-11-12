@@ -4,6 +4,7 @@
 #include "core/style.h"
 #include "image/text.h"
 #include "imgui/imgui_internal.h"
+#include "imgui/imgui_soft.h"
 #include <string>
 
 namespace satdump
@@ -50,24 +51,30 @@ namespace satdump
                 ImVec2 pos1 = {frame_bb.Max.x, i};
                 window->DrawList->AddLine(pos0, pos1, style::theme.fft_graduations);
                 value += vscale;
-                window->DrawList->AddText({pos0.x, pos0.y + 2}, style::theme.fft_graduations, std::string(std::to_string(int(value)) + " dB").c_str());
+                // Soft look: grid lines stay faint, but their dB labels must stay readable
+                const ImU32 label_col = GImSoft.Enabled ? GImSoft.Muted : (ImU32)style::theme.fft_graduations;
+                window->DrawList->AddText({pos0.x + (GImSoft.Enabled ? 4.0f * ui_scale : 0.0f), pos0.y + 2}, label_col, std::string(std::to_string(int(value)) + " dB").c_str());
             }
 
             // Draw Freq Scale
             // const ImU32 fcolor_scale = ImGui::GetColorU32(ImGuiCol_Text, 1.0);
             if (enable_freq_scale && bandwidth != 0 && frequency != 0)
             {
+                // Soft look: a thin quiet scale, so it does not compete with the trace
+                const bool soft = GImSoft.Enabled;
+                const ImU32 col_scale = soft ? GImSoft.Muted : col_base;
+                const ImU32 col_center = soft ? ImGui::GetColorU32(ImGuiCol_Text) : (ImU32)style::theme.green;
                 float y_level = inner_bb.Max.y - 8 * ui_scale;
-                window->DrawList->AddLine({inner_bb.Min.x, y_level}, {inner_bb.Max.x, y_level}, col_base, 3 * ui_scale);
+                window->DrawList->AddLine({inner_bb.Min.x, y_level}, {inner_bb.Max.x, y_level}, col_scale, soft ? 1.0f : 3 * ui_scale);
                 for (int i = 1; i < 10; i++)
                 {
                     float x_line = inner_bb.Min.x + (i / 10.0) * res_w;
                     double freq_here = frequency + ((i / 10.0) * bandwidth) - (bandwidth / 2);
 
-                    window->DrawList->AddLine({x_line, y_level}, {x_line, y_level - 10 * ui_scale}, col_base, 3);
+                    window->DrawList->AddLine({x_line, y_level}, {x_line, y_level - (soft ? 6 : 10) * ui_scale}, col_scale, soft ? 1.0f : 3);
 
                     auto cstr = format_notated(freq_here);
-                    window->DrawList->AddText({x_line - ImGui::CalcTextSize(cstr.c_str()).x / 2, y_level - 30 * ui_scale}, i == 5 ? (ImU32)style::theme.green : col_base, cstr.c_str());
+                    window->DrawList->AddText({x_line - ImGui::CalcTextSize(cstr.c_str()).x / 2, y_level - 30 * ui_scale}, i == 5 ? col_center : col_scale, cstr.c_str());
                     if (i == 5 && actual_sdr_freq != -1)
                     {
                         auto cstr = "(" + format_notated(actual_sdr_freq) + ")";

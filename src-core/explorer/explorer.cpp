@@ -12,6 +12,8 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_filedrop.h"
 #include "imgui/imgui_image.h"
+#include "imgui/imgui_internal.h"
+#include "imgui/imgui_soft.h"
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -186,9 +188,11 @@ namespace satdump
 
             bool handler_present = false;
 
-            if (ImGui::CollapsingHeader(_("Root"), ImGuiTreeNodeFlags_DefaultOpen))
+            // Soft look: the tree is always shown, without a "Root" header above it
+            if (GImSoft.Enabled || ImGui::CollapsingHeader(_("Root"), ImGuiTreeNodeFlags_DefaultOpen))
             {
-                if (ImGui::BeginTable("##masterhandlertable", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
+                // Soft look: a plain list, without the grid around every row
+                if (ImGui::BeginTable("##masterhandlertable", 1, GImSoft.Enabled ? ImGuiTableFlags_None : (ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders)))
                 {
                     ImGui::TableSetupColumn("##masterhandlertable_col", ImGuiTableColumnFlags_None);
                     ImGui::TableNextColumn();
@@ -355,7 +359,10 @@ namespace satdump
                 // TODOREWORK
                 if (curr_handler)
                 {
-                    ImGui::MenuItem("|", NULL, false, false);
+                    if (GImSoft.Enabled)
+                        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 1.0f); // a hairline instead of a "|" character
+                    else
+                        ImGui::MenuItem("|", NULL, false, false);
                     curr_handler->drawMenuBar();
                 }
 
@@ -445,7 +452,7 @@ namespace satdump
                     if (lego_debug_mode)
                     {
                         ImVec2 line_size = ImGui::CalcTextSize("Add New Recorder");
-                        ImGui::SetCursorPos({((float)dims.first / 2) - (line_size.x / 2), last_pos + (26 * 2) * scale});
+                        ImGui::SetCursorPos({((float)dims.first / 2) - (line_size.x / 2), last_pos + 26 * scale + ImGui::GetFrameHeightWithSpacing()});
                         if (ImGui::Button("Add Buggy Recorder"))
                             addHandler(std::make_shared<handlers::NewRecHandler>());
                         // addHandler(std::make_shared<handlers::RecFrontendHandler>(std::make_shared<handlers::RecBackend>()));
@@ -453,7 +460,8 @@ namespace satdump
                     else
                     {
                         ImVec2 line_size = ImGui::CalcTextSize(_("Add Recorder"));
-                        ImGui::SetCursorPos({((float)dims.first / 2) - (line_size.x / 2), last_pos + (26 * 2) * scale});
+                        // One button height below the first, whatever the theme's button size is
+                        ImGui::SetCursorPos({((float)dims.first / 2) - (line_size.x / 2), last_pos + 26 * scale + ImGui::GetFrameHeightWithSpacing()});
                         if (ImGui::Button(_("Add Recorder")))
                             eventBus->fire_event<AddRecorderEvent>({}); // TODOREWORK do not bind this directly.
                     }
@@ -474,7 +482,9 @@ namespace satdump
 
             if (show_panel)
             {
-                if (ImGui::BeginTable("##explorer_table", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV))
+                // Soft look: no divider line, and the view sits on a rounded card
+                const bool soft = GImSoft.Enabled;
+                if (ImGui::BeginTable("##explorer_table", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp | (soft ? ImGuiTableFlags_None : ImGuiTableFlags_BordersInnerV)))
                 {
                     ImGui::TableSetupColumn("##panel_v", ImGuiTableColumnFlags_None, explorer_size.x * panel_ratio);
                     ImGui::TableSetupColumn("##view", ImGuiTableColumnFlags_None, explorer_size.x * (1.0f - panel_ratio));
@@ -491,10 +501,24 @@ namespace satdump
                     ImGui::EndChild();
 
                     ImGui::TableNextColumn();
+
+                    ImVec2 view_size = {float(right_width - 9 * ui_scale), float(explorer_size.y)};
+                    if (soft)
+                    {
+                        const float pad = 10 * ui_scale;
+                        const ImVec2 card_min = ImGui::GetCursorScreenPos();
+                        const ImVec2 card_max = {card_min.x + ImGui::GetContentRegionAvail().x, card_min.y + explorer_size.y};
+                        ImDrawList *draw_list = ImGui::GetWindowDrawList();
+                        draw_list->AddRectFilled(card_min, card_max, GImSoft.CardBg, GImSoft.CardRounding);
+                        draw_list->AddRect(card_min + ImVec2(0.5f, 0.5f), card_max - ImVec2(0.5f, 0.5f), GImSoft.CardBorder, GImSoft.CardRounding);
+                        ImGui::SetCursorScreenPos(card_min + ImVec2(pad, pad));
+                        view_size = {card_max.x - card_min.x - 2 * pad, card_max.y - card_min.y - 2 * pad};
+                    }
+
                     ImGui::BeginGroup();
 
                     if (curr_handler)
-                        curr_handler->drawContents({float(right_width - 9 * ui_scale), float(explorer_size.y)});
+                        curr_handler->drawContents(view_size);
                     else
                         drawContents();
 

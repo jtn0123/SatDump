@@ -2,6 +2,7 @@
 #include "core/resources.h"
 #include "imgui/imgui_image.h"
 #include "imgui/imgui_internal.h"
+#include "imgui/imgui_soft.h"
 #include "logger.h"
 #include <string>
 
@@ -77,7 +78,15 @@ namespace satdump
             }
             work_mtx.unlock();
 
-            ImGui::Image((void *)(intptr_t)texture_id, size);
+            if (GImSoft.Enabled)
+            {
+                // Soft look: rounded corners, like the panel it sits on
+                const ImVec2 pos = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddImageRounded((void *)(intptr_t)texture_id, pos, {pos.x + size.x, pos.y + size.y}, {0, 0}, {1, 1}, IM_COL32_WHITE, GImSoft.CardRounding * 0.6f);
+                ImGui::Dummy(size);
+            }
+            else
+                ImGui::Image((void *)(intptr_t)texture_id, size);
         }
 
         void WaterfallPlot::push_fft(float *values)
