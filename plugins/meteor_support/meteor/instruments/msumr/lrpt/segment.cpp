@@ -5,6 +5,9 @@
 #include "idct.h"
 #include "common/ccsds/ccsds_time.h"
 #include <iostream>
+#ifdef SATDUMP_WITH_RUST
+#include "rust_lrpt.h"
+#endif
 
 namespace meteor
 {
@@ -22,6 +25,12 @@ namespace meteor
 
             Segment::Segment(uint8_t* data, int length, bool partial, bool meteorm2x_mode) : partial(partial)
             {
+#ifdef SATDUMP_WITH_RUST
+                // Fork (M6.3): the Rust decoder when it is on; otherwise, or when it fails, the
+                // C++ code below decodes the same packet
+                if (decodeRust(data, length, partial, meteorm2x_mode))
+                    return;
+#endif
                 if (length - 14 <= 0)
                 {
                     valid = false;
@@ -50,6 +59,30 @@ namespace meteor
                     decode(&data[14], length - 14);
                 }
             }
+
+#ifdef SATDUMP_WITH_RUST
+            bool Segment::decodeRust(uint8_t *data, int length, bool is_partial, bool meteorm2x_mode)
+            {
+                satdump::rust::LrptSegment s;
+                if (!satdump::rust::lrpt_segment(data, length, is_partial, meteorm2x_mode, &s))
+                    return false;
+                day_time = s.day_time;
+                ms_time = s.ms_time;
+                us_time = s.us_time;
+                timestamp = s.timestamp;
+                MCUN = s.mcun;
+                QT = s.qt;
+                DC = s.dc;
+                AC = s.ac;
+                QFM = s.qfm;
+                QF = s.qf;
+                valid = s.valid != 0;
+                partial = s.partial != 0;
+                static_assert(sizeof(lines) == sizeof(s.lines), "the Rust segment has as many pixels");
+                std::memcpy(lines, s.lines, sizeof(lines));
+                return true;
+            }
+#endif
 
             Segment::Segment() : partial(true),
                                  valid(false)

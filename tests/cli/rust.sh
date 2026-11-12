@@ -20,4 +20,14 @@ run 0 rust-off pipeline metop_ahrpt cadu "$WORK/in.cadu" "$WORK/off"
 unset SATDUMP_NO_RUST
 check rust-off-logged grep -q "Rust parts: off" "$WORK/rust-off.log"
 
+# LRPT (M6.3): the installed Meteor plugin's Segment was built with its Rust path, so it calls
+# the bridge's segment decoder (the golden pictures are the same either way, so they cannot show it)
+METEOR=$(find "$PREFIX" -name 'libmeteor_support.so' -print -quit)
+check meteor-plugin-found test -n "$METEOR"
+if [ -n "$METEOR" ]; then
+    nm -D -C "$METEOR" > "$WORK/meteor-symbols.txt"
+    check meteor-segment-has-rust-path grep -q ' T meteor::msumr::lrpt::Segment::decodeRust(' "$WORK/meteor-symbols.txt"
+    check meteor-segment-calls-rust grep -q ' U satdump::rust::lrpt_segment(' "$WORK/meteor-symbols.txt"
+fi
+
 exit $FAILED

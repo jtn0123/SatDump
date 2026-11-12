@@ -53,6 +53,20 @@ add_test(NAME diff_twins COMMAND satdump-diff run)
 add_test(NAME diff_oracles COMMAND satdump-diff check --min-cases 6 ${_diff}/oracles)
 set_tests_properties(diff_selftest diff_twins diff_oracles PROPERTIES LABELS unit)
 
+# LRPT (M6.3): the Meteor LRPT segment decoder twins (twins_lrpt.cpp), with the plugin's C++
+# decoder compiled in as the unit tests compile it; their tests; and what a Rust failure does,
+# in a program of its own (the failure switches Rust off for the rest of the run)
+set(_lrpt ${PROJECT_SOURCE_DIR}/plugins/meteor_support/meteor/instruments/msumr/lrpt)
+target_sources(satdump_diff PRIVATE ${_diff}/twins_lrpt.cpp ${_lrpt}/segment.cpp ${_lrpt}/huffman.cpp ${_lrpt}/idct.cpp)
+target_include_directories(satdump_diff PUBLIC ${PROJECT_SOURCE_DIR}/plugins/meteor_support)
+target_sources(satdump-diff-tests PRIVATE ${_diff}/test_lrpt.cpp)
+add_executable(satdump-diff-lrpt-fallback ${CMAKE_CURRENT_SOURCE_DIR}/unit/main.cpp ${_diff}/test_lrpt_fallback.cpp)
+target_include_directories(satdump-diff-lrpt-fallback PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest ${CMAKE_CURRENT_SOURCE_DIR}/unit)
+target_link_libraries(satdump-diff-lrpt-fallback PRIVATE satdump_diff)
+add_test(NAME diff_lrpt_fallback COMMAND satdump-diff-lrpt-fallback)
+set_tests_properties(diff_lrpt_fallback PROPERTIES LABELS unit)
+unset(_lrpt)
+
 if(Python3_FOUND)
     # The golden test recordings, one CADU at a time
     add_test(NAME diff_corpus_make

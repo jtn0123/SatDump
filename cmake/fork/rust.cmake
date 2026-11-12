@@ -17,6 +17,9 @@ file(GLOB _satdump_rs_sources CONFIGURE_DEPENDS ${SATDUMP_RUST_DIR}/src/*.rs)
 # Fork part "aos": the CCSDS AOS demuxer's Rust files (rust/src/aos)
 file(GLOB _satdump_rs_aos_sources CONFIGURE_DEPENDS ${SATDUMP_RUST_DIR}/src/aos/*.rs)
 list(APPEND _satdump_rs_sources ${_satdump_rs_aos_sources})
+# LRPT (M6.3): the segment decoder's own folder
+file(GLOB _satdump_rs_lrpt CONFIGURE_DEPENDS ${SATDUMP_RUST_DIR}/src/lrpt/*.rs)
+list(APPEND _satdump_rs_sources ${_satdump_rs_lrpt})
 
 add_custom_command(OUTPUT ${_satdump_rs_lib}
     COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${SATDUMP_RUST_TARGET_DIR}
@@ -34,4 +37,9 @@ target_include_directories(satdump_core PUBLIC ${SATDUMP_RUST_DIR}/bridge)
 target_compile_definitions(satdump_core PRIVATE SATDUMP_WITH_RUST=1)
 target_link_libraries(satdump_core PRIVATE ${_satdump_rs_lib} ${CMAKE_DL_LIBS})
 target_link_options(satdump_core PRIVATE "LINKER:--exclude-libs,libsatdump_rs.a")
+# LRPT (M6.3): its bridge, and SATDUMP_WITH_RUST for the code that links satdump_core too, so
+# the Meteor plugin's Segment (and the tests that compile it) can call it. Rust builds only:
+# Rust-off builds keep the compile flags they had.
+target_sources(satdump_core PRIVATE ${SATDUMP_RUST_DIR}/bridge/rust_lrpt.cpp)
+target_compile_definitions(satdump_core INTERFACE SATDUMP_WITH_RUST=1)
 message("-- Rust parts: on (${SATDUMP_CARGO})")

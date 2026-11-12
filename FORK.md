@@ -140,6 +140,11 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Rust | `ccsds_aos::Demuxer` keeps its state out of its header (movable, not copyable): callers compile unchanged, but the core library and the plugins must be installed together. It also gets a strict mode (last constructor argument, off by default, the same in C++ and Rust; no decoder uses it yet), and drops one member it never used | 2026-11-12 |
 | Tests | Differential twin `aos_demux`: the C++ and Rust splitters compared frame by frame on all 12 layouts SatDump uses and 8 more, strict mode on and off, with tiny, exact-fit, very long and largest packets, headers cut at every place, idle packets, odd first-header pointers, counter gaps, wraps and repeats, dropped, repeated and cut frames, and the golden MetOp and Meteor frames; a 16-case oracle is committed. `satdump-diff run` prints the cases and frames of each group a twin sorts its cases into | 2026-11-12 |
 | Tests | `unit_aos_rust` (Rust against C++ in 6 layouts with damaged streams, a moved splitter, settings Rust does not take, and a Rust failure forced in the middle of a stream), C++ strict-mode unit tests and Rust unit tests; in a fuzz build with Rust, `fuzz_aos_demux` stops on any C++/Rust difference (bit 3 of its first byte turns strict mode on) | 2026-11-12 |
+| Rust | Third Rust part: the Meteor LRPT MSU-MR segment decoder (`rust/src/lrpt`: header and time stamp, Huffman, quantisation, integer IDCT, 8 x 112 pixels), called by the Meteor plugin's `Segment` through `rust/bridge/rust_lrpt.h` when Rust is on; about 2 times faster. A bad argument leaves the packet to the C++; a Rust failure gives the C++ result for that packet, is logged once and switches Rust off for the rest of the run. Assembling the picture is still C++ | 2026-11-12 |
+| Rust | In Rust builds `satdump_core` passes `SATDUMP_WITH_RUST` to the code that links it, so plugins can call a bridge; Rust-off builds keep their compile flags. The LRPT decoder needs no `-ffp-contract` flag: its one float step, the quantisation table, gives the same integers fused or not for all 256 quality factors | 2026-11-12 |
+| Tests | Differential twins `lrpt_segment` and `lrpt_qtable`: header fields, flags, time stamp and all 896 pixels, on edge lengths, empty and header-only payloads, every quality factor and MCU number, encoded packets, every truncation and bit flip of good packets, seeded cases and the golden Meteor packets; small oracles committed. A twin can read corpus files itself (`corpus_reader`), so a fuzz crash file can be replayed with `satdump-diff` | 2026-11-12 |
+| Tests | `diff_lrpt_fallback` (a Rust panic part-way through a packet gives the C++ segment, one log line, and Rust off); `cli_rust` checks that the installed Meteor plugin calls the Rust decoder; in a fuzz build with Rust, `fuzz_msumr_lrpt` stops on any C++/Rust difference | 2026-11-12 |
+| Tests | Float rule corrected: a ported C++ file that needs `-ffp-contract=off` to match Rust gets it in Rust-on builds only, so Rust-off builds such as the Pi's keep their flags | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -252,7 +257,8 @@ tests/fuzz/run.sh build-fuzz/fuzz_msumr_lrpt 600                     # 10 minute
 
 With `-DSATDUMP_WITH_RUST=ON` added to that configuration, `fuzz_aos_demux` also checks that
 the Rust AOS packet splitter gives exactly the C++ one's packets for every frame, and stops at
-the first difference.
+the first difference, and `fuzz_msumr_lrpt` decodes every packet with both the C++ and the
+Rust segment decoder and stops on any difference.
 
 A long run keeps what it learned in `tests/fuzz/corpus/<name>` (not committed) and writes
 any input that fails to `crash-*` in the current folder.
@@ -293,9 +299,17 @@ How it fits together:
   `src-core/common/ccsds/ccsds_aos/demuxer.cpp`) as the reference: the unit tests compare them
   byte for byte, and the golden pictures are checked with Rust on and
   off. Rust files stay at 500 lines or fewer.
+- Ported so far: the CCSDS derandomiser, the CCSDS AOS packet splitter (`rust/src/aos`) and
+  the Meteor LRPT MSU-MR segment decoder (`rust/src/lrpt`, called by the meteor_support
+  plugin's `Segment` through `rust/bridge/rust_lrpt.h`). In Rust builds `SATDUMP_WITH_RUST` is
+  also defined for the plugins and tests that link the core library, so plugin code can call
+  a bridge. A part with its own bridge file (`rust_aos.cpp`, `rust_lrpt.cpp`) handles a Rust
+  failure there the same way: one log line, and a `CppOnly` guard kept for the rest of the
+  run, so every Rust part is off from then on.
 
 Rust tests in the gate: `rust_unit` (cargo test), `rust_clippy` (clippy, warnings are
-errors), `cli_rust` (no Rust symbols exported, no extra libraries needed, the switch works),
+errors), `cli_rust` (no Rust symbols exported, no extra libraries needed, the switch works,
+and the Meteor plugin's `Segment` calls the Rust segment decoder),
 `golden_no_rust`, the C++-against-Rust cases in `unit`, `unit_aos_rust` (the AOS packet
 splitter with Rust against C++, and a Rust failure in the middle of a stream; a program of
 its own, because that test switches Rust off for the rest of the run), and the `diff_*` tests
@@ -307,11 +321,15 @@ Every Rust part has a twin: the C++ code SatDump ships, and the Rust code with t
 buffer contract. Both get the same cases and must give the same outcome (a status, bytes and
 records). The tests are built only with `-DSATDUMP_WITH_RUST=ON` and run in the gate's `unit`
 label: `diff_selftest`, `diff_twins`, `diff_oracles`, `diff_corpus_make`, `diff_corpus`,
-`diff_oracles_make` and `diff_rust_replay`.
+`diff_oracles_make`, `diff_rust_replay` and `diff_lrpt_fallback`.
 
 - Cases come from edge lists, a seeded generator, the golden recordings and fuzz corpora,
   and mutations of these. Stream decoders are fed in chunks, and the chunk boundaries are
   part of each case.
+- A twin can read corpus files itself (`corpus_reader`). `lrpt_segment` takes the MSU-MR
+  packets out of Meteor CADUs as SatDump does, and cuts any other file into packets as
+  `fuzz_msumr_lrpt` does, so a fuzz crash file can be replayed with
+  `satdump-diff run lrpt_segment --corpus <file>`.
 - `SD_DIFF_SEED` sets the seed. `SD_DIFF_CASES` sets the seeded cases per twin: 2000 by
   default (about a second for all twins), 200000 for a deep run (under a minute). The AOS
   packet splitter twin (`aos_demux`) has about 2230 cases by default; its deep run is
@@ -323,10 +341,15 @@ label: `diff_selftest`, `diff_twins`, `diff_oracles`, `diff_corpus_make`, `diff_
   even where SatDump calls Rust. An exception or a Rust panic counts as a difference.
 - The C++ writes JSONL oracles. Small ones are committed in `tests/diff/oracles`, and
   `cargo test` replays them without the C++.
-- Floats: Rust must match the C++ as it ships. The C++ files being ported are built with
-  `-ffp-contract=off` in every build and the goldens are checked; where the C++ calls
-  `std::fma`, the Rust uses `mul_add`. A ULP tolerance is allowed only for float outputs no
-  flag makes exact, never for integers or pixels.
+- Floats: Rust must match the C++ as it ships; a pixel or any other integer never gets a
+  tolerance. If a ported C++ file gives other results when floating-point operations are
+  contracted, it is built with `-ffp-contract=off` in Rust-on builds only
+  (`cmake/fork/rust.cmake`), so Rust-off builds such as the Pi's keep their compile flags,
+  and `golden` and `golden_no_rust` are checked. Where the C++ calls `std::fma`, the Rust uses
+  `mul_add`. A ULP tolerance is allowed only for float outputs no flag makes exact. A port
+  that needs no flag says why in its row (the AOS splitter has no floats; the LRPT decoder's
+  quantisation table gives the same integers either way, its time stamp is exact in a double
+  and its IDCT uses only integers).
 - A difference is saved in `<build>/diff-failures`; one line names the first differing byte
   or record and gives the replay command (`satdump-diff replay <folder>`).
 - Fuzz corpora are not in ctest (none are committed); run a fuzz run's corpus folder by hand

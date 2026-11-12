@@ -39,6 +39,13 @@ namespace meteor
                 ~Segment();
 
                 void decode(uint8_t *data, int length);
+
+#ifdef SATDUMP_WITH_RUST
+                // Fork (M6.3): decodes the packet with the Rust twin of this class (rust/src/lrpt)
+                // and fills in every field. False when Rust did not do it (switched off, or it
+                // failed): the fields are then unchanged and the C++ code decodes the packet.
+                bool decodeRust(uint8_t *data, int length, bool is_partial, bool meteorm2x_mode);
+#endif
             };
         } // namespace lrpt
     }     // namespace msumr

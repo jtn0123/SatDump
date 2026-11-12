@@ -10,3 +10,6 @@ pub mod ffi;
 // Fork part "aos": the CCSDS AOS demuxer and its C functions
 pub mod aos;
 pub mod ffi_aos;
+// LRPT (M6.3): the Meteor LRPT MSU-MR segment decoder and its C functions
+pub mod ffi_lrpt;
+pub mod lrpt;

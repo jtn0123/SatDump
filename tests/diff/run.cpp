@@ -174,6 +174,8 @@ namespace satdump::diff
             add_selftest_twins(t);
             // Fork part "aos"
             add_aos_twins(t);
+            // LRPT (M6.3)
+            add_lrpt_twins(t);
             return t;
         }();
         return twins;
@@ -238,6 +240,13 @@ namespace satdump::diff
                 c.input.assign(data.begin() + at, data.begin() + at + length);
                 return c;
             };
+            // LRPT (M6.3): a twin that reads corpus files itself
+            if (twin.corpus_reader)
+            {
+                const std::vector<Case> own = twin.corpus_reader(file.filename().string(), data);
+                out.insert(out.end(), own.begin(), own.end());
+                continue;
+            }
             if (twin.stream)
             {
                 // The whole file, fed frame by frame as the file readers do

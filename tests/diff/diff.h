@@ -37,11 +37,13 @@
 // compiled another way. Integers, bytes and floats must match bit for bit. When optimising,
 // GCC (gnu++17) fuses a * b + c into one multiply-add with a single rounding on aarch64, and
 // Rust never does, so the port of float code chooses one of these in its FORK.md row:
-//   1. The default: the C++ sources it ports are compiled with -ffp-contract=off in every
-//      build, Rust on and off (set_source_files_properties(<files> PROPERTIES COMPILE_OPTIONS
-//      -ffp-contract=off) in the CMakeLists.txt that builds them), the goldens are checked,
-//      and the Rust uses plain arithmetic. Both then give the same bits on every machine and
-//      build type.
+//   1. The default: the C++ sources it ports are compiled with -ffp-contract=off in Rust-on
+//      builds only (set_source_files_properties(<files> PROPERTIES COMPILE_OPTIONS
+//      -ffp-contract=off) in a block that runs only when SATDUMP_WITH_RUST is ON, such as
+//      cmake/fork/rust.cmake), so Rust-off builds keep their flags; golden and golden_no_rust
+//      are checked, and the Rust uses plain arithmetic. Both then give the same bits on every
+//      machine and build type. Integer-only code (the AOS splitter, the LRPT segment
+//      decoder) needs no flag.
 //   2. Where the C++ itself calls std::fma, the Rust calls mul_add.
 //   3. Only for float outputs no flag makes exact (a libm function, for example): a ULP
 //      tolerance (FloatRule::ulps) with its reason written next to it. A tolerance never
@@ -241,12 +243,17 @@ namespace satdump::diff
         bool stream = false;      // fed in chunks (a corpus file is one case cut into frames)
         size_t corpus_frame = 0;  // corpus files are cut into frames of this size (0: whole)
         size_t corpus_skip = 0;   // buffer twins work on each frame from this byte on
+        // LRPT (M6.3): when set, reads each corpus file (its name, its bytes) into cases itself,
+        // in place of the frames above; lrpt_segment takes the MSU-MR packets out of CADUs
+        std::function<std::vector<Case>(const std::string &, const std::vector<uint8_t> &)> corpus_reader;
     };
 
     void add_derand_twins(std::vector<Twin> &twins);
     void add_selftest_twins(std::vector<Twin> &twins);
     // Fork part "aos": the CCSDS AOS demuxer (twins_aos.cpp)
     void add_aos_twins(std::vector<Twin> &twins);
+    // LRPT (M6.3): the Meteor LRPT segment decoder (twins_lrpt.cpp)
+    void add_lrpt_twins(std::vector<Twin> &twins);
 
     // For the framework's own tests (test_diff*.cpp): twins with a deliberate fault
     Twin derand_with_flipped_bit(size_t length, size_t byte); // the real Rust, one bit flipped for this input length

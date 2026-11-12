@@ -10,6 +10,8 @@
 //! Every twin in `tests/diff` has its Rust runner in [`twin`].
 
 mod json;
+// LRPT (M6.3)
+mod lrpt;
 mod oracle;
 mod outcome;
 mod rng;
@@ -64,6 +66,9 @@ fn twin(name: &str) -> Option<Runner> {
         "selftest_gapfill" => toys::gapfill,
         // Fork part "aos"
         "aos_demux" => aos::demux,
+        // LRPT (M6.3)
+        "lrpt_segment" => lrpt::segment,
+        "lrpt_qtable" => lrpt::qtable,
         _ => return None,
     };
     Some(run)
@@ -74,8 +79,17 @@ fn committed() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/diff/oracles")
 }
 
-const COMMITTED: [&str; 6] =
-    ["derand_ccsds", "derand_ccsds_soft", "derand_ccsds_bits", "selftest_splitter", "selftest_lowpass", "selftest_gapfill"];
+const COMMITTED: [&str; 8] = [
+    "derand_ccsds",
+    "derand_ccsds_soft",
+    "derand_ccsds_bits",
+    "selftest_splitter",
+    "selftest_lowpass",
+    "selftest_gapfill",
+    // LRPT (M6.3)
+    "lrpt_segment",
+    "lrpt_qtable",
+];
 
 /// Every twin with a committed oracle: [`COMMITTED`] and those of the ported parts
 fn committed_twins() -> Vec<&'static str> {
