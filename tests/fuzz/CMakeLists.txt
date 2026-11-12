@@ -25,6 +25,10 @@ function(satdump_fuzz name)
 endfunction()
 
 satdump_fuzz(aos_demux)
+# Fork part "aos": with Rust, the harness also checks the Rust demuxer gives the C++ one's packets
+if(SATDUMP_WITH_RUST)
+    target_compile_definitions(fuzz_aos_demux PRIVATE SATDUMP_FUZZ_AOS_RUST=1)
+endif()
 satdump_fuzz(reedsolomon)
 satdump_fuzz(admin_msg ${_plugins}/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp)
 satdump_fuzz(msumr_lrpt ${_msumr}/lrpt_msumr_reader.cpp ${_msumr}/lrpt/segment.cpp ${_msumr}/lrpt/huffman.cpp ${_msumr}/lrpt/idct.cpp)

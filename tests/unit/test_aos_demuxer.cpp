@@ -123,9 +123,10 @@ namespace
     // Feeds the frames to a MetOp / Meteor layout demuxer, with the frame counter check the
     // MetOp decoder turns on, and returns what comes out (header and payload of each packet),
     // without idle packets. Every packet must be whole: as long as its header says.
-    std::vector<Bytes> run(const std::vector<Frame> &frames)
+    // Fork: strict mode (demuxer.h) and no counter check can be asked for too.
+    std::vector<Bytes> run(const std::vector<Frame> &frames, bool strict = false, bool check_counter = true)
     {
-        ccsds::ccsds_aos::Demuxer demux(882, true, 2, false, true);
+        ccsds::ccsds_aos::Demuxer demux(882, true, 2, false, check_counter, strict);
         std::vector<Bytes> out;
         for (const Frame &f : frames)
         {
@@ -361,5 +362,78 @@ TEST_CASE("AOS demuxer: a damaged first header pointer gives no cut-off packets 
         SpliceLayout s;
         s.frames[1].fhp = 1000;
         check_same(run(s.frames), s.ch.sent({s.p, s.q}));
+    }
+}
+
+// Fork: strict mode (rules 1 and 2 in demuxer.h). It changes nothing on intact frames and
+// drops a packet that runs on from an earlier frame when the frame it ends in disagrees.
+TEST_CASE("AOS demuxer: strict mode gives the same packets on intact frames, with and without the counter check")
+{
+    Channel ch;
+    ch.add(100);
+    ch.add(1);
+    for (size_t k = 1; k <= 6; k++)
+    {
+        ch.add_until(ch.next_frame_end() - k);
+        ch.add(40 + 50 * k);
+    }
+    ch.add(3000);                            // over several frames
+    ch.add_until(ch.next_frame_end() + 300); // the first packet to start in a frame...
+    ch.add(ZONE - 300 - 6);                  // ...ends exactly at its end
+    ch.add_until(ch.next_frame_end() - 2);   // a cut header, whose packet ends exactly
+    ch.add(ZONE - 4);                        // at the end of the next frame
+    ch.add_until(ch.next_frame_end());       // ends exactly at the end of a frame where no
+                                             // packet starts (strict rule 2's edge)
+    ch.add(65536);                           // the longest packet a header can describe
+    const std::vector<Frame> frames = ch.frames(0xFFFFFE); // the counter wraps too
+    for (bool strict : {false, true})
+        for (bool counter : {false, true})
+        {
+            CAPTURE(strict);
+            CAPTURE(counter);
+            check_same(run(frames, strict, counter), ch.sent());
+        }
+}
+
+TEST_CASE("AOS demuxer: strict mode drops a packet that ends before the first header of the frame it ends in")
+{
+    // P's header (at byte 300 of frame 0) says 10 bytes fewer than it has, so it ends 10 bytes
+    // before frame 1's first header pointer. Normal mode pushes P with its first 984 bytes.
+    SpliceLayout s;
+    const uint16_t length = uint16_t((s.frames[0].zone[304] << 8 | s.frames[0].zone[305]) - 10);
+    s.frames[0].zone[304] = uint8_t(length >> 8);
+    s.frames[0].zone[305] = uint8_t(length & 0xFF);
+    const std::vector<Bytes> normal = run(s.frames);
+    REQUIRE(normal.size() == s.ch.packets.size());
+    CHECK(normal[1].size() == 6 + 984u);
+    CHECK(normal[2] == s.ch.packets[s.q]);
+    check_same(run(s.frames, true), s.ch.sent({s.p}));
+}
+
+TEST_CASE("AOS demuxer: strict mode drops a packet that ends inside a frame where no packet starts")
+{
+    SUBCASE("a first header pointer damaged into 2047")
+    {
+        // P ends at byte 418 of frame 1, where Q starts, but frame 1 says no packet starts in
+        // it. Normal mode pushes P (it is whole) and misses Q's header.
+        SpliceLayout s;
+        s.frames[1].fhp = NO_HEADER;
+        check_same(run(s.frames), s.ch.sent({s.q}));
+        check_same(run(s.frames, true), s.ch.sent({s.p, s.q}));
+    }
+    SUBCASE("a frame received twice, without the counter check")
+    {
+        // Frame 2 (the middle of Q, no packet starts in it) comes twice. Without the counter
+        // check, normal mode finishes Q with the copy and pushes it wrong; strict mode drops
+        // it, as Q then ends inside the copy. With the check, both drop it at the copy.
+        SpliceLayout s;
+        const Frame again = s.frames[2];
+        s.frames.insert(s.frames.begin() + 3, again);
+        const std::vector<Bytes> normal = run(s.frames, false, false);
+        REQUIRE(normal.size() == s.ch.packets.size());
+        CHECK(normal[2] != s.ch.packets[s.q]);
+        check_same(run(s.frames, true, false), s.ch.sent({s.q}));
+        check_same(run(s.frames, false, true), s.ch.sent({s.q}));
+        check_same(run(s.frames, true, true), s.ch.sent({s.q}));
     }
 }

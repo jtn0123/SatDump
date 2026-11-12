@@ -180,6 +180,13 @@ if(SATDUMP_WITH_RUST)
     endif()
     # Fork: differential tests, C++ against Rust (tests/diff/diff.h)
     include(${CMAKE_CURRENT_SOURCE_DIR}/diff/diff.cmake)
+    # Fork part "aos": the AOS Demuxer with its Rust demuxer, and a Rust failure handed over to
+    # the C++ code. A program of its own, as its last test switches Rust off for the rest of the run.
+    add_executable(satdump-aos-rust-tests unit/main.cpp unit/test_aos_demuxer_rust.cpp)
+    target_include_directories(satdump-aos-rust-tests PRIVATE third_party/doctest unit ${PROJECT_SOURCE_DIR}/src-core)
+    target_link_libraries(satdump-aos-rust-tests PRIVATE satdump_core)
+    add_test(NAME unit_aos_rust COMMAND satdump-aos-rust-tests)
+    set_tests_properties(unit_aos_rust PROPERTIES LABELS unit)
 endif()
 
 if(SATDUMP_FUZZ)

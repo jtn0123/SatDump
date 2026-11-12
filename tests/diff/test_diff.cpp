@@ -304,3 +304,43 @@ TEST_CASE("diff: corpus files become one case per CADU, or one chunked case for 
     CHECK(fuzz[0].id == "b@4");
     CHECK(fuzz[0].input == std::vector<uint8_t>(6, 0x01));
 }
+
+// Fork part "aos": Twin::group, which satdump-diff run prints (the aos_demux twin's layouts)
+TEST_CASE("diff: a twin's groups count its cases and the chunks it was fed")
+{
+    TempOptions t;
+    Twin grouped = *find_twin("selftest_splitter");
+    grouped.group = [](const Case &c) { return std::string(c.chunks.size() > 1 ? "several chunks" : "one chunk"); };
+    Plan plan;
+    plan.cases = 30;
+    uint64_t several = 0, chunks = 0;
+    for (uint64_t i = 0; i < grouped.count(plan); i++)
+    {
+        const Case c = grouped.make(plan, i);
+        if (c.chunks.size() > 1)
+        {
+            several++;
+            for (size_t n : c.chunks)
+                chunks += n > 0 ? 1 : 0; // empty chunks are not counted
+        }
+    }
+    REQUIRE(several > 0);
+    const Result r = run(grouped, plan, t.opt);
+    CHECK(r.differences == 0);
+    REQUIRE(r.groups.count("several chunks") == 1);
+    CHECK(r.groups.at("several chunks").cases == several);
+    CHECK(r.groups.at("several chunks").chunks == chunks);
+    uint64_t cases = 0;
+    for (const auto &[name, g] : r.groups)
+        cases += g.cases;
+    CHECK(cases == r.cases);
+    // A twin without groups has none
+    CHECK(run(*find_twin("selftest_splitter"), plan, t.opt).groups.empty());
+
+    // The AOS demuxer twin's cases count under their layouts; its edge cases have every one
+    const Result a = run(*find_twin("aos_demux"), plan, t.opt);
+    CHECK(a.differences == 0);
+    for (const char *layout : {"call site lrpt/metop", "call site default", "other layout tiny", "refused layout refused_70000"})
+        CHECK_MESSAGE(a.groups.count(layout) == 1, layout);
+    CHECK(a.groups.size() == 23); // 24 layouts, lrpt and metop being one
+}

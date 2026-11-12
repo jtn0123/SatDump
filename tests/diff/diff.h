@@ -235,6 +235,9 @@ namespace satdump::diff
         FloatRule floats;
         std::function<uint64_t(const Plan &)> count;          // how many cases a plan has
         std::function<Case(const Plan &, uint64_t)> make;     // case i of a plan
+        // Fork part "aos": the group a case counts under (a layout, say), or none; `satdump-diff
+        // run` then prints each group's cases and chunks, so a deep run shows where they went
+        std::function<std::string(const Case &)> group;
         bool stream = false;      // fed in chunks (a corpus file is one case cut into frames)
         size_t corpus_frame = 0;  // corpus files are cut into frames of this size (0: whole)
         size_t corpus_skip = 0;   // buffer twins work on each frame from this byte on
@@ -242,6 +245,8 @@ namespace satdump::diff
 
     void add_derand_twins(std::vector<Twin> &twins);
     void add_selftest_twins(std::vector<Twin> &twins);
+    // Fork part "aos": the CCSDS AOS demuxer (twins_aos.cpp)
+    void add_aos_twins(std::vector<Twin> &twins);
 
     // For the framework's own tests (test_diff*.cpp): twins with a deliberate fault
     Twin derand_with_flipped_bit(size_t length, size_t byte); // the real Rust, one bit flipped for this input length
@@ -276,6 +281,12 @@ namespace satdump::diff
         uint64_t cases = 0, differences = 0;
         std::vector<std::string> saved; // reproducer folders
         std::string first;              // the first difference
+        // Fork part "aos": the cases and chunks fed (empty ones not counted) of each Twin::group
+        struct Group
+        {
+            uint64_t cases = 0, chunks = 0;
+        };
+        std::map<std::string, Group> groups;
     };
 
     // What the C++ side gives, run with Rust paused (for oracles); throws, naming the case, if it throws

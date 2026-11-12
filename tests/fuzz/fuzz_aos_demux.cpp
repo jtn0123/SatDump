@@ -4,6 +4,9 @@
 // bytes, no insert zone).
 // Every packet must be whole (as long as its header says); each is then run through the
 // CRC and time readers that the instrument decoders call on it.
+// Fork: bit 3 of the first byte turns on strict mode (demuxer.h). In a Rust build
+// (-DSATDUMP_WITH_RUST=ON) the Demuxer here is the C++ one (made with Rust paused), and the
+// Rust demuxer must give exactly the same packets for every frame, or the harness aborts.
 #include "common/ccsds/ccsds.h"
 #include "common/ccsds/ccsds_aos/demuxer.h"
 #include "common/ccsds/ccsds_aos/vcdu.h"
@@ -13,6 +16,30 @@
 #include <cstring>
 #include <vector>
 #include "fuzz_common.h"
+#ifdef SATDUMP_FUZZ_AOS_RUST
+#include "rust_aos.h"
+#include "rust_bridge.h"
+#include <memory>
+
+namespace
+{
+    // Fork part "aos": the same packets, field by field and byte by byte
+    bool same(const std::vector<ccsds::CCSDSPacket> &a, const std::vector<ccsds::CCSDSPacket> &b)
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); i++)
+        {
+            const ccsds::CCSDSHeader &x = a[i].header, &y = b[i].header;
+            if (std::memcmp(x.raw, y.raw, 6) != 0 || x.version != y.version || x.type != y.type ||
+                x.secondary_header_flag != y.secondary_header_flag || x.apid != y.apid || x.sequence_flag != y.sequence_flag ||
+                x.packet_sequence_count != y.packet_sequence_count || x.packet_length != y.packet_length || a[i].payload != b[i].payload)
+                return false;
+        }
+        return true;
+    }
+} // namespace
+#endif
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
@@ -24,7 +51,22 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     const bool own_counters = data[0] & 2;
     // Bit 2 picks the 882-byte layout without the frame counter check (the Meteor decoder)
     const bool check_counter = !(data[0] & 4);
-    ccsds::ccsds_aos::Demuxer demux = metop_layout ? ccsds::ccsds_aos::Demuxer(882, true, 2, false, check_counter) : ccsds::ccsds_aos::Demuxer(884, false);
+    const bool strict = data[0] & 8; // Fork: strict mode
+    auto make = [&]
+    { return metop_layout ? ccsds::ccsds_aos::Demuxer(882, true, 2, false, check_counter, strict) : ccsds::ccsds_aos::Demuxer(884, false, 2, false, false, strict); };
+#ifdef SATDUMP_FUZZ_AOS_RUST
+    ccsds::ccsds_aos::Demuxer demux = [&]
+    {
+        const satdump::rust::CppOnly paused;
+        return make();
+    }();
+    const std::unique_ptr<satdump::rust::AosDemuxer> rs = metop_layout ? satdump::rust::AosDemuxer::create(882, true, 2, false, check_counter, strict)
+                                                                        : satdump::rust::AosDemuxer::create(884, false, 2, false, false, strict);
+    if (!rs)
+        std::abort(); // Rust is off or failed
+#else
+    ccsds::ccsds_aos::Demuxer demux = make();
+#endif
     data++, size--;
 
     uint8_t cadu[1024];
@@ -40,7 +82,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             cadu[6] = uint8_t(count >> 16), cadu[7] = uint8_t(count >> 8), cadu[8] = uint8_t(count);
         }
         ccsds::ccsds_aos::parseVCDU(cadu);
-        for (ccsds::CCSDSPacket &pkt : demux.work(cadu))
+        std::vector<ccsds::CCSDSPacket> packets = demux.work(cadu);
+#ifdef SATDUMP_FUZZ_AOS_RUST
+        std::vector<ccsds::CCSDSPacket> from_rust;
+        if (!rs->work(cadu, from_rust) || !same(packets, from_rust))
+            std::abort(); // the Rust demuxer failed, or gave other packets than the C++ one
+#endif
+        for (ccsds::CCSDSPacket &pkt : packets)
         {
             if (pkt.payload.size() != size_t(pkt.header.packet_length) + 1)
                 std::abort(); // a cut-off or overlong packet: the demuxer must drop it

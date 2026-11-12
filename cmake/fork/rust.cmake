@@ -14,6 +14,9 @@ set(SATDUMP_RUST_DIR ${PROJECT_SOURCE_DIR}/rust)
 set(SATDUMP_RUST_TARGET_DIR ${PROJECT_BINARY_DIR}/rust-target CACHE INTERNAL "cargo build folder (tests use it too)")
 set(_satdump_rs_lib ${SATDUMP_RUST_TARGET_DIR}/release/libsatdump_rs.a)
 file(GLOB _satdump_rs_sources CONFIGURE_DEPENDS ${SATDUMP_RUST_DIR}/src/*.rs)
+# Fork part "aos": the CCSDS AOS demuxer's Rust files (rust/src/aos)
+file(GLOB _satdump_rs_aos_sources CONFIGURE_DEPENDS ${SATDUMP_RUST_DIR}/src/aos/*.rs)
+list(APPEND _satdump_rs_sources ${_satdump_rs_aos_sources})
 
 add_custom_command(OUTPUT ${_satdump_rs_lib}
     COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${SATDUMP_RUST_TARGET_DIR}
@@ -25,6 +28,8 @@ add_custom_target(satdump_rs_build DEPENDS ${_satdump_rs_lib})
 add_dependencies(satdump_core satdump_rs_build)
 
 target_sources(satdump_core PRIVATE ${SATDUMP_RUST_DIR}/bridge/rust_bridge.cpp)
+# Fork part "aos": the C++ side of the Rust AOS demuxer (used by ccsds_aos/demuxer.cpp)
+target_sources(satdump_core PRIVATE ${SATDUMP_RUST_DIR}/bridge/rust_aos.cpp)
 target_include_directories(satdump_core PUBLIC ${SATDUMP_RUST_DIR}/bridge)
 target_compile_definitions(satdump_core PRIVATE SATDUMP_WITH_RUST=1)
 target_link_libraries(satdump_core PRIVATE ${_satdump_rs_lib} ${CMAKE_DL_LIBS})

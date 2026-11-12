@@ -6,3 +6,7 @@
 
 pub mod derand;
 pub mod ffi;
+
+// Fork part "aos": the CCSDS AOS demuxer and its C functions
+pub mod aos;
+pub mod ffi_aos;

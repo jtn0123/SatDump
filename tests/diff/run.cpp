@@ -103,6 +103,13 @@ namespace satdump::diff
         void check(Result &r, const Twin &twin, const Case &c, const Options &opt)
         {
             r.cases++;
+            // Fork part "aos": where the cases went (Twin::group)
+            if (twin.group)
+            {
+                Result::Group &g = r.groups[twin.group(c)];
+                g.cases++;
+                g.chunks += uint64_t(std::count_if(c.chunks.begin(), c.chunks.end(), [](size_t n) { return n > 0; }));
+            }
             const Outcome cpp = run_side(twin.cpp, c, true);
             const Outcome rs = run_side(twin.rust, c, false);
             const std::string d = differ(cpp, rs, twin.floats, "C++", twin.rust_name);
@@ -165,6 +172,8 @@ namespace satdump::diff
             std::vector<Twin> t;
             add_derand_twins(t);
             add_selftest_twins(t);
+            // Fork part "aos"
+            add_aos_twins(t);
             return t;
         }();
         return twins;

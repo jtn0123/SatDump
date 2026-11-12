@@ -104,9 +104,15 @@ Exit code: 0 all agree, 1 a difference, 2 a usage or set-up error.
                     const Result one = run_cases(*t, corpus_cases(*t, p), o);
                     r.cases += one.cases, r.differences += one.differences;
                     r.saved.insert(r.saved.end(), one.saved.begin(), one.saved.end());
+                    // Fork part "aos"
+                    for (const auto &[name, g] : one.groups)
+                        r.groups[name].cases += g.cases, r.groups[name].chunks += g.chunks;
                 }
             std::cout << "diff: " << t->name << ": " << r.cases << " cases, " << r.differences << " differences (C++ against "
                       << t->rust_name << ") in " << seconds_since(start) << " s" << std::endl;
+            // Fork part "aos": the twin's groups (Twin::group)
+            for (const auto &[name, g] : r.groups)
+                std::cout << "diff: " << t->name << ":   " << name << ": " << g.cases << " cases, " << g.chunks << " chunks" << std::endl;
             all.cases += r.cases, all.differences += r.differences;
             all.saved.insert(all.saved.end(), r.saved.begin(), r.saved.end());
         }

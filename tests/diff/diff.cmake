@@ -26,6 +26,8 @@ add_library(satdump_diff STATIC
     ${_diff}/twins_selftest.cpp
     $<TARGET_OBJECTS:satdump_diff_floats_strict>
     $<TARGET_OBJECTS:satdump_diff_floats_contracted>)
+# Fork part "aos": the CCSDS AOS demuxer twin and its cases
+target_sources(satdump_diff PRIVATE ${_diff}/twins_aos.cpp ${_diff}/twins_aos_cases.cpp)
 target_include_directories(satdump_diff PUBLIC ${_diff} ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(satdump_diff PUBLIC satdump_core)
 # Where reproducers go, and what the replay commands written with them run

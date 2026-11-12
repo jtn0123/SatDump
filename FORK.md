@@ -136,6 +136,10 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | The derandomiser comparison (bytes, soft symbols, bits; every length 0-4096, odd bit values, negative lengths, unaligned buffers, the golden CADUs) now runs on the framework, with permanent self-tests that a planted bug is caught | 2026-11-12 |
 | Rust | Rust soft-symbol and one-bit-per-byte CCSDS derandomisers next to the byte one; only compared with the C++ so far, SatDump does not call them yet | 2026-11-12 |
 | Rust | `satdump::rust::CppOnly`: a test guard that pauses Rust so the C++ code does the work; the differential tests run each comparison's C++ side under it | 2026-11-12 |
+| Rust | Second Rust part: the CCSDS AOS packet splitter (`rust/src/aos`). In a build with Rust on, every AOS decoder gets its packets from it, exactly the C++ splitter's packets. If it fails, a new C++ splitter takes over from that frame (the packet in progress is lost, as after a lost frame), the failure is logged once and Rust is off for the rest of the run. Packet zones under 6 or over 65536 bytes, and insert zones outside 0 to 65536 bytes, stay on the C++ code | 2026-11-12 |
+| Rust | `ccsds_aos::Demuxer` keeps its state out of its header (movable, not copyable): callers compile unchanged, but the core library and the plugins must be installed together. It also gets a strict mode (last constructor argument, off by default, the same in C++ and Rust; no decoder uses it yet), and drops one member it never used | 2026-11-12 |
+| Tests | Differential twin `aos_demux`: the C++ and Rust splitters compared frame by frame on all 12 layouts SatDump uses and 8 more, strict mode on and off, with tiny, exact-fit, very long and largest packets, headers cut at every place, idle packets, odd first-header pointers, counter gaps, wraps and repeats, dropped, repeated and cut frames, and the golden MetOp and Meteor frames; a 16-case oracle is committed. `satdump-diff run` prints the cases and frames of each group a twin sorts its cases into | 2026-11-12 |
+| Tests | `unit_aos_rust` (Rust against C++ in 6 layouts with damaged streams, a moved splitter, settings Rust does not take, and a Rust failure forced in the middle of a stream), C++ strict-mode unit tests and Rust unit tests; in a fuzz build with Rust, `fuzz_aos_demux` stops on any C++/Rust difference (bit 3 of its first byte turns strict mode on) | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -246,6 +250,10 @@ cmake --build build-fuzz && ctest --test-dir build-fuzz -L fuzz      # a short, 
 tests/fuzz/run.sh build-fuzz/fuzz_msumr_lrpt 600                     # 10 minutes of one fuzzer
 ```
 
+With `-DSATDUMP_WITH_RUST=ON` added to that configuration, `fuzz_aos_demux` also checks that
+the Rust AOS packet splitter gives exactly the C++ one's packets for every frame, and stops at
+the first difference.
+
 A long run keeps what it learned in `tests/fuzz/corpus/<name>` (not committed) and writes
 any input that fails to `crash-*` in the current folder.
 
@@ -274,16 +282,24 @@ How it fits together:
 - Rules for every Rust function C++ calls (`rust/src/ffi.rs`): a panic is caught and comes
   back as a status code; arguments are checked before anything is changed, so on any error
   the buffer is untouched and the C++ code does the work instead; a Rust failure is logged
-  once and switches Rust off for the rest of the run.
+  once and switches Rust off for the rest of the run. A Rust part that keeps state from one
+  call to the next (the AOS packet splitter) cannot hand that state to the C++ code: when it
+  fails, a new C++ object takes over from that input on, and what the Rust one held is lost,
+  as after a lost frame. `unit_aos_rust` makes the Rust splitter fail on purpose in the
+  middle of a stream to check this.
 - `SATDUMP_NO_RUST=1` in the environment switches Rust off; the log says
   `Rust parts: on` or `off` at start-up.
-- Each Rust part keeps its C++ twin (for example `derand_ccsds_cpp`) as the reference: the
-  unit tests compare them byte for byte, and the golden pictures are checked with Rust on and
+- Each Rust part keeps its C++ twin (for example `derand_ccsds_cpp`, or the C++ class inside
+  `src-core/common/ccsds/ccsds_aos/demuxer.cpp`) as the reference: the unit tests compare them
+  byte for byte, and the golden pictures are checked with Rust on and
   off. Rust files stay at 500 lines or fewer.
 
 Rust tests in the gate: `rust_unit` (cargo test), `rust_clippy` (clippy, warnings are
 errors), `cli_rust` (no Rust symbols exported, no extra libraries needed, the switch works),
-`golden_no_rust`, the C++-against-Rust cases in `unit`, and the `diff_*` tests below.
+`golden_no_rust`, the C++-against-Rust cases in `unit`, `unit_aos_rust` (the AOS packet
+splitter with Rust against C++, and a Rust failure in the middle of a stream; a program of
+its own, because that test switches Rust off for the rest of the run), and the `diff_*` tests
+below.
 
 ### Differential tests (C++ against Rust)
 
@@ -297,7 +313,12 @@ label: `diff_selftest`, `diff_twins`, `diff_oracles`, `diff_corpus_make`, `diff_
   and mutations of these. Stream decoders are fed in chunks, and the chunk boundaries are
   part of each case.
 - `SD_DIFF_SEED` sets the seed. `SD_DIFF_CASES` sets the seeded cases per twin: 2000 by
-  default (about half a second), 200000 for a deep run (under a minute).
+  default (about a second for all twins), 200000 for a deep run (under a minute). The AOS
+  packet splitter twin (`aos_demux`) has about 2230 cases by default; its deep run is
+  `SD_DIFF_CASES=1000000 <build>/satdump-diff run aos_demux` (about 36 million frames, 11
+  million of them in the 12 layouts SatDump uses; about a minute on the arm64 VM). For a twin
+  that sorts its cases into groups (`aos_demux`: by layout), `satdump-diff run` also prints
+  the cases and frames of each group.
 - The C++ side of a comparison always runs with Rust paused (`CppOnly`), so it stays C++
   even where SatDump calls Rust. An exception or a Rust panic counts as a difference.
 - The C++ writes JSONL oracles. Small ones are committed in `tests/diff/oracles`, and
@@ -310,6 +331,20 @@ label: `diff_selftest`, `diff_twins`, `diff_oracles`, `diff_corpus_make`, `diff_
   or record and gives the replay command (`satdump-diff replay <folder>`).
 - Fuzz corpora are not in ctest (none are committed); run a fuzz run's corpus folder by hand
   with `satdump-diff run --corpus <folder>`.
+
+### CCSDS AOS packet splitter
+
+With Rust on, every AOS decoder's packets come from the Rust splitter (`rust/src/aos`); it is
+3 to 6 times faster than the C++ one on the arm64 VM. A packet zone under 6 or over 65536
+bytes, or an insert zone outside 0 to 65536 bytes, stays on the C++ code. Strict mode (the
+last constructor argument, off by default; no decoder turns it on yet) also drops a packet
+that runs on from an earlier frame when the frame it ends in disagrees with it:
+
+1. if a packet starts in that frame, the old one must end exactly there;
+2. if none starts in it, the old one must fill the frame to its end.
+
+The rules are written in `src-core/common/ccsds/ccsds_aos/demuxer.h`, and the C++ and Rust code
+apply them the same way.
 
 ## Known issues left as they are
 

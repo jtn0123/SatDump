@@ -18,8 +18,8 @@ pub const STATUS_BAD_ARGUMENT: i32 = 1;
 /// The Rust code panicked; nothing was changed
 pub const STATUS_PANIC: i32 = 2;
 
-/// Run `body`, turning a panic into [`STATUS_PANIC`]
-fn guard(body: impl FnOnce() -> i32) -> i32 {
+/// Run `body`, turning a panic into [`STATUS_PANIC`] (the other `ffi_*` files use it too)
+pub(crate) fn guard(body: impl FnOnce() -> i32) -> i32 {
     catch_unwind(AssertUnwindSafe(body)).unwrap_or(STATUS_PANIC)
 }
 

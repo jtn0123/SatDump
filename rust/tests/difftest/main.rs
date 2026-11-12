@@ -14,6 +14,8 @@ mod oracle;
 mod outcome;
 mod rng;
 mod toys;
+// Fork part "aos"
+mod aos;
 
 use oracle::{Case, Options, Report, Runner, replay_oracles, replay_reproducer};
 use outcome::{Outcome, Value};
@@ -60,6 +62,8 @@ fn twin(name: &str) -> Option<Runner> {
         // The contracted twin's oracle is the reference's outcome with a float tolerance
         "selftest_lowpass" | "selftest_lowpass_contracted" => toys::lowpass,
         "selftest_gapfill" => toys::gapfill,
+        // Fork part "aos"
+        "aos_demux" => aos::demux,
         _ => return None,
     };
     Some(run)
@@ -72,6 +76,14 @@ fn committed() -> PathBuf {
 
 const COMMITTED: [&str; 6] =
     ["derand_ccsds", "derand_ccsds_soft", "derand_ccsds_bits", "selftest_splitter", "selftest_lowpass", "selftest_gapfill"];
+
+/// Every twin with a committed oracle: [`COMMITTED`] and those of the ported parts
+fn committed_twins() -> Vec<&'static str> {
+    let mut twins = COMMITTED.to_vec();
+    // Fork part "aos"
+    twins.push("aos_demux");
+    twins
+}
 
 /// The fewest lines each twin's oracle file may have (a small plan has at least 6 per twin), so
 /// an emptied or cut file cannot pass with nothing checked
@@ -107,7 +119,7 @@ fn replay_all(dir: &Path, twins: &[&str]) -> Report {
 
 #[test]
 fn the_committed_oracles_replay_in_rust() {
-    replay_all(&committed(), &COMMITTED);
+    replay_all(&committed(), &committed_twins());
 }
 
 #[test]
@@ -116,7 +128,7 @@ fn a_builds_full_oracles_replay_in_rust() {
         println!("SD_DIFF_ORACLES is not set; ctest diff_rust_replay sets it to the oracles of the build's full plan");
         return;
     };
-    let mut twins = COMMITTED.to_vec();
+    let mut twins = committed_twins();
     twins.push("selftest_lowpass_contracted");
     let r = replay_all(Path::new(&dir), &twins);
     println!("replayed {} oracle lines from {}", r.cases, Path::new(&dir).display());
