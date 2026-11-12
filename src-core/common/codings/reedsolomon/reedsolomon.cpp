@@ -42,7 +42,9 @@ namespace reedsolomon
             d_parity_bits = 16;
         }
 
-        this->fill_bytes = fill_bytes;
+        // Fork: -1 ("no fill", the pipeline default) and 0 mean the same. Storing -1 made the
+        // interleave loops run 256 times, one byte past each codeword.
+        this->fill_bytes = fill_bytes < 0 ? 0 : fill_bytes;
     }
 
     ReedSolomon::~ReedSolomon()
@@ -62,7 +64,7 @@ namespace reedsolomon
 
     int ReedSolomon::decode(uint8_t *data, bool ccsds)
     {
-        if (fill_bytes != -1) // Depuncture
+        if (fill_bytes > 0) // Depuncture
         {
             memmove(&data[fill_bytes], &data[0], 255 - fill_bytes); // Move RS to the end
             memset(&data[0], 0, fill_bytes);                        // Set fill to 0
@@ -84,7 +86,7 @@ namespace reedsolomon
                     data[i] = ToDualBasis[data[i]];
             }
 
-            if (fill_bytes != -1)                                       // Repuncture
+            if (fill_bytes > 0)                                         // Repuncture
                 memmove(&data[0], &data[fill_bytes], 255 - fill_bytes); // Move back parity
 
             return -1;
@@ -101,7 +103,7 @@ namespace reedsolomon
             }
         }
 
-        std::memcpy(data, odata, fill_bytes == -1 ? d_coded_bits : (d_coded_bits - fill_bytes));
+        std::memcpy(data, odata, d_coded_bits - fill_bytes);
 
         if (ccsds)
         {
@@ -109,7 +111,7 @@ namespace reedsolomon
                 data[i] = ToDualBasis[data[i]];
         }
 
-        if (fill_bytes != -1)                                       // Repuncture
+        if (fill_bytes > 0)                                         // Repuncture
             memmove(&data[0], &data[fill_bytes], 255 - fill_bytes); // Move back parity
 
         return err;
