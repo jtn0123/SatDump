@@ -287,6 +287,12 @@ int main_live(int argc, char *argv[])
                 splitter_vfo->stop();
                 for (auto &e : all_pipelines)
                     e.second->stop();
+                // Fork: and the frequency shifter add_vfo() started for each VFO, also one whose
+                // pipeline did not start (del_vfo() does nothing for a VFO never added). Only the
+                // normal end of the run did this; on an error they were destroyed with the
+                // splitter while still running
+                for (auto cfg : multi_cfg.items())
+                    splitter_vfo->del_vfo(cfg.key());
             };
 
             try
@@ -382,10 +388,7 @@ int main_live(int argc, char *argv[])
                 // Stop cleanly
                 stop_running();
                 for (auto &e : all_pipelines)
-                {
-                    splitter_vfo->del_vfo(e.first);
-                    logger->info("Stopped VFO " + e.first);
-                }
+                    logger->info("Stopped VFO %s", e.first.c_str()); // Fork: the name is a %s argument
             }
             catch (...)
             {

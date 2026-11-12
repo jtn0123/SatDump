@@ -174,9 +174,15 @@ run 1 live-cannot-start-fft legacy live fork_fault_live_badinit out_live_fft "${
 check live-cannot-start-fft-blocks-stopped not_logged live-cannot-start-fft "BLOCK SHOULD BE STOPPED"
 
 # Multi VFO: a VFO that cannot start stops the ones already started, then the command ends
+# Each VFO's frequency shifter is stopped too (they were destroyed running, on every way out but
+# the normal end of the run)
 run 2 live-vfo-cannot-start legacy live fork_fault_live_good out_vfo "${LIVE[@]}" --multi_vfo vfo.json
 check live-vfo-error-logged logged live-vfo-cannot-start "init failure on purpose"
+check live-vfo-cannot-start-blocks-stopped not_logged live-vfo-cannot-start "BLOCK SHOULD BE STOPPED"
 run 1 live-vfo-http-number legacy live fork_fault_live_good out_vfo_http "${LIVE[@]}" --multi_vfo vfo_good.json --http_server 8080
 check live-vfo-http-number-logged logged live-vfo-http-number "Cannot start the web server on 8080: "
+check live-vfo-http-number-blocks-stopped not_logged live-vfo-http-number "BLOCK SHOULD BE STOPPED"
+run 0 live-vfo-good legacy live fork_fault_live_good out_vfo_good "${LIVE[@]}" --multi_vfo vfo_good.json
+check live-vfo-good-blocks-stopped not_logged live-vfo-good "BLOCK SHOULD BE STOPPED"
 
 exit $FAILED
