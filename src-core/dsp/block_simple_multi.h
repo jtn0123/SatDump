@@ -7,6 +7,8 @@
 
 #include "dsp/block.h"
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 namespace satdump
 {
@@ -47,10 +49,25 @@ namespace satdump
 
                     if (iblk[i].isTerminator())
                     {
-                        if (iblk[i].terminatorShouldPropagate())
-                            for (int o = 0; o < No; o++)
-                                outputs[o].fifo->wait_enqueue(outputs[o].fifo->newBufferTerminator());
+                        // Fork: this ended on the first input that ended, keeping the buffers
+                        // already taken from the inputs before it and leaving the other inputs
+                        // full, so the blocks writing them waited for room forever (a hang when
+                        // one branch before an Add failed, or never started). Those buffers are
+                        // now handed back, and the other inputs are taken and dropped until they
+                        // end too; nothing changes before the end of a stream.
+                        const bool propagate = iblk[i].terminatorShouldPropagate();
+                        for (int j = 0; j < i; j++)
+                            inputs[j].fifo->free(iblk[j]);
                         inputs[i].fifo->free(iblk[i]);
+
+                        std::vector<std::shared_ptr<DSPStream>> outs, others;
+                        if (propagate)
+                            for (int o = 0; o < No; o++)
+                                outs.push_back(outputs[o].fifo);
+                        for (int j = 0; j < Ni; j++)
+                            if (j != i && inputs[j].fifo != inputs[i].fifo)
+                                others.push_back(inputs[j].fifo);
+                        end_streams(outs, others, false);
                         return true;
                     }
 

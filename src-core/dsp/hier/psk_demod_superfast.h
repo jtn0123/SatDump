@@ -4,6 +4,7 @@
 #include "common/dsp/complex.h"
 #include "dsp/agc/agc_fast.h"
 #include "dsp/block.h"
+#include "dsp/block_start.h"
 #include "dsp/clock_recovery/clock_recovery_mm_fast.h"
 #include "dsp/filter/fft.h"
 #include "dsp/filter/rrc.h"
@@ -69,13 +70,9 @@ namespace satdump
             {
                 init();
 
-                rrc_blk.start();
-                agc_blk.start();
-                rec_blk.start();
-                pll_blk.start();
-                const_split_blk.start();
-
-                snr_est_blk.start();
+                // Fork: started readers first, and a block that fails to start no longer leaves
+                // the ones before it running (destroying those later stopped SatDump)
+                start_blocks_or_undo({&snr_est_blk, &const_split_blk, &pll_blk, &rec_blk, &agc_blk, &rrc_blk});
 
                 running = true;
             }

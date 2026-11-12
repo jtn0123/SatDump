@@ -5,6 +5,7 @@
 #include "common/dsp/complex.h"
 #include "common/dsp/filter/firdes.h"
 #include "dsp/block.h"
+#include <atomic>
 #include <volk/volk.h>
 #include <volk/volk_alloc.hh>
 
@@ -19,7 +20,8 @@ namespace satdump
             int buffer_size = 1024;
             dsp::RingBuffer<T> ring_buf;
 
-            bool work2shouldrun;
+            // Fork: written by stop() and read by the work2 thread, so atomic
+            std::atomic<bool> work2shouldrun{false};
             std::thread work2Thread;
 
             bool work();

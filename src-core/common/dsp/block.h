@@ -1,11 +1,22 @@
 #pragma once
 
+#include "common/dsp/block_failures.h"
 #include "common/dsp/buffer.h"
 #include "complex.h"
 #include "core/exception.h"
 #include "logger.h"
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <exception>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <thread>
+#include <typeinfo>
+#if defined(__GNUG__)
+#include <cxxabi.h>
+#endif
 
 #define BRANCHLESS_CLIP(x, clip) (0.5 * (std::abs(x + clip) - std::abs(x - clip)))
 #ifndef M_PI
@@ -19,13 +30,98 @@ namespace dsp
     {
     protected:
         std::thread d_thread;
-        bool should_run = false;
+        // Fork: written by stop() and read by the block's thread. It was a plain bool (a data
+        // race); it is now atomic.
+        std::atomic<bool> should_run{false};
         virtual void work() = 0;
         bool d_got_input;
         void run()
         {
-            while (should_run)
-                work();
+            // Fork: an exception thrown by work() left this thread and ended SatDump through
+            // std::terminate. It is now caught here and logged, and the block winds down
+            // without leaving the blocks around it waiting (see workFailed()).
+            std::string error;
+            try
+            {
+                while (should_run)
+                {
+                    work();
+
+                    // Fork: the block before this one failed and will send nothing more. Pass
+                    // that on to this block's output and end, so the chain winds down to its
+                    // last reader instead of leaving it waiting for data forever.
+                    if (d_got_input && input_stream && input_stream->writerFailedAndEmpty())
+                    {
+                        logger->debug("DSP block %s ends: the block before it failed", blockName().c_str());
+                        if (output_stream)
+                            output_stream->setWriterFailed();
+                        return;
+                    }
+                }
+                return;
+            }
+            catch (const std::exception &e)
+            {
+                error = e.what();
+            }
+            catch (...)
+            {
+                error = "unknown exception";
+            }
+            workFailed(error);
+        }
+
+    private:
+        std::atomic<bool> d_failed{false};
+        std::mutex d_failure_mtx;
+        std::string d_failure;
+
+        // Fork: called on the block's thread when work() threw. Logs and records the error
+        // (has_failed(), and the process-wide count in block_failures.h that makes a command
+        // fail), tells the reader of the output that no more data will come, and keeps taking
+        // (and dropping) the input until stop(), so the writer before this block is not left
+        // waiting to hand over its next buffer.
+        void workFailed(const std::string &error)
+        {
+            const std::string name = blockName();
+            logger->error("DSP block %s failed: %s", name.c_str(), error.c_str());
+            {
+                std::lock_guard<std::mutex> lck(d_failure_mtx);
+                d_failure = error;
+            }
+            d_failed = true;
+            record_block_failure(name, error);
+
+            if (output_stream)
+                output_stream->setWriterFailed();
+
+            if (d_got_input && input_stream)
+            {
+                while (should_run)
+                {
+                    if (input_stream->read() >= 0)
+                        input_stream->flush();
+                    else if (input_stream->writerFailedAndEmpty())
+                        break; // The block before failed as well, nothing more will come
+                    else
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            }
+        }
+
+        // Fork: the block's class name for log lines (legacy blocks have no ID)
+        std::string blockName()
+        {
+            const char *raw = typeid(*this).name();
+#if defined(__GNUG__)
+            int status = 0;
+            char *demangled = abi::__cxa_demangle(raw, nullptr, nullptr, &status);
+            std::string name = (status == 0 && demangled != nullptr) ? demangled : raw;
+            std::free(demangled);
+            return name;
+#else
+            return raw;
+#endif
         }
 
     public:
@@ -40,7 +136,13 @@ namespace dsp
         }
         ~Block()
         {
-            if (should_run)
+            // Fork: also when the thread ended by itself (should_run already false): a
+            // std::thread destroyed before join() calls std::terminate. Unlike the new DSP
+            // Block this one can be stopped here: stop() wakes its own waits on both streams,
+            // so the join returns, as it has done upstream for years. (The derived block is
+            // already destroyed, so a thread caught between two work() calls can still stop
+            // with "pure virtual method called". Owners must call stop() first.)
+            if (should_run || d_thread.joinable())
             {
                 logger->critical("CRITICAL! BLOCK SHOULD BE STOPPED BEFORE CALLING DESTRUCTOR!");
                 stop();
@@ -48,6 +150,14 @@ namespace dsp
         }
         virtual void start()
         {
+            // Fork: a block started again begins without a failure, with its output open
+            d_failed = false;
+            {
+                std::lock_guard<std::mutex> lck(d_failure_mtx);
+                d_failure.clear();
+            }
+            if (output_stream)
+                output_stream->clearWriterFailed();
             should_run = true;
             d_thread = std::thread(&Block::run, this);
         }
@@ -63,6 +173,16 @@ namespace dsp
 
             if (d_thread.joinable())
                 d_thread.join();
+        }
+
+        // Fork: true if work() failed (threw) since the last start(); the error was logged
+        bool has_failed() { return d_failed; }
+
+        // Fork: what work() threw, empty if it did not fail
+        std::string failure_message()
+        {
+            std::lock_guard<std::mutex> lck(d_failure_mtx);
+            return d_failure;
         }
     };
 

@@ -1,4 +1,6 @@
 #pragma once
+#include <atomic>
+#include <chrono>
 #include <mutex>
 #include <condition_variable>
 #include <volk/volk.h>
@@ -79,14 +81,56 @@ namespace dsp
             return true;
         }
 
+        // Returns the number of samples ready in readBuf, or -1 when there are none: the reader
+        // was stopped (stopReader()) or, since the fork, the writer failed (setWriterFailed()).
+        // A reader must treat any value <= 0 as "no data", then flush().
         int read()
         {
             // Wait for data to be ready or to be stopped
             std::unique_lock<std::mutex> lck(rdyMtx);
             rdyCV.wait(lck, [this]
-                       { return (dataReady || readerStop); });
+                       { return (dataReady || readerStop || writerFailed); });
 
-            return (readerStop ? -1 : dataSize);
+            if (readerStop)
+                return -1;
+            if (dataReady)
+                return dataSize;
+
+            // Fork: the writer failed and will send nothing more (setWriterFailed()). Say so
+            // with -1 like a stopped reader, but only after a short wait: readers call read()
+            // in a loop and would otherwise spin a CPU core until they are stopped.
+            rdyCV.wait_for(lck, std::chrono::milliseconds(10), [this]
+                           { return readerStop; });
+            return -1;
+        }
+
+        /*
+        Fork: called by a writer that failed and will never swap again (a dsp::Block whose
+        work() threw). read() then returns -1 instead of waiting forever for data, and a
+        dsp::Block reading this stream passes the failure on to its own output and ends.
+        */
+        void setWriterFailed()
+        {
+            {
+                std::lock_guard<std::mutex> lck(rdyMtx);
+                writerFailed = true;
+            }
+            rdyCV.notify_all();
+        }
+
+        void clearWriterFailed()
+        {
+            std::lock_guard<std::mutex> lck(rdyMtx);
+            writerFailed = false;
+        }
+
+        // Fork: true once the writer failed and the last data it sent has been read
+        bool writerFailedAndEmpty()
+        {
+            if (!writerFailed)
+                return false;
+            std::lock_guard<std::mutex> lck(rdyMtx);
+            return writerFailed && !dataReady;
         }
 
         void flush()
@@ -147,6 +191,7 @@ namespace dsp
 
         bool readerStop = false;
         bool writerStop = false;
+        std::atomic<bool> writerFailed{false};
 
         int dataSize = 0;
     };

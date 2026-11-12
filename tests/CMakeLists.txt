@@ -18,6 +18,7 @@ add_executable(satdump-unit-tests
     unit/test_metop_instruments.cpp
     unit/test_hirs_iasi.cpp
     unit/test_init_ub.cpp
+    unit/test_block_lifetime.cpp
     # Plugin code under test is compiled in directly
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/metop/instruments/admin_msg/admin_msg_reader.cpp
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support/instruments/amsu/amsu_reader.cpp

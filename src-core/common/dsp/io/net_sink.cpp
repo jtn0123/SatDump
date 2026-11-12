@@ -39,7 +39,9 @@ namespace dsp
     void NetSinkBlock::work()
     {
         int nsamples = input_stream->read();
-        if (nsamples == 0)
+        // Fork: read() gives -1 when the reader is stopped or the writer failed. Only 0 was
+        // checked, and NNG mode then sent -1 samples (a huge size)
+        if (nsamples <= 0)
         {
             input_stream->flush();
             return;

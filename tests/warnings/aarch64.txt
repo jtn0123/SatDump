@@ -152,7 +152,6 @@
 6 src-core/db/kepler/kepler_utils.cpp -Wsign-compare
 1 src-core/dsp/benchmark/helpers.h -Wdelete-non-virtual-dtor
 3 src-core/dsp/benchmark/render/imgui_sw.cpp -Wsign-compare
-1 src-core/dsp/block.h -Wterminate
 1 src-core/dsp/channel_model/channel_model_simple.cpp -Wdeprecated-declarations
 1 src-core/dsp/channel_model/channel_model_simple.cpp -Wsign-compare
 1 src-core/dsp/channel_model/channel_model_simple.cpp -Wunused-but-set-variable

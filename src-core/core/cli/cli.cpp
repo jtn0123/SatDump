@@ -1,6 +1,8 @@
 #include "cli.h"
+#include "common/dsp/block_failures.h"
 #include "core/cli/dsp_bench/dsp_bench.h"
 #include "core/cli/experimental/hserver.h"
+#include "core/exception.h"
 #include "core/plugin.h"
 #include "libs/CLI11.hpp"
 #include "logger.h"
@@ -11,6 +13,7 @@
 #include "run_as.h"
 #include "satdump_vars.h"
 #include "subcommand.h"
+#include <cstdint>
 #include <exception>
 #include <string>
 
@@ -88,9 +91,17 @@ namespace satdump
 
                 try
                 {
+                    // Fork: a DSP block whose work() throws no longer stops SatDump: it logs the
+                    // error and ends its part of the processing, so the command finishes, with an
+                    // incomplete output. That is reported as a failed command (exit 2).
+                    const uint64_t dsp_failures = ::dsp::block_failure_count();
+
                     for (auto &c : cmd_handlers)
                         if (subcom->get_name() == c->cmd)
                             c->run(&app, subcom, is_gui);
+
+                    if (::dsp::block_failure_count() != dsp_failures)
+                        throw satdump_exception("a DSP block failed (" + ::dsp::last_block_failure() + "), so the output is incomplete");
                 }
                 catch (std::exception &e)
                 {

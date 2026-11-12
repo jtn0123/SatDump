@@ -53,6 +53,12 @@ protected:
             while (thread_should_run)
             {
                 int nsamples = input_stream->read();
+                // Fork: -1 (stopped, or the writer failed) was converted as a huge count
+                if (nsamples <= 0)
+                {
+                    input_stream->flush();
+                    continue;
+                }
                 volk_32f_s32f_convert_8i(sample_buffer_8, (float *)input_stream->readBuf, 127.0f, nsamples * 2);
                 if (bladerf_sync_tx(bladerf_dev_obj, sample_buffer_8, nsamples, &meta, 4000) != 0)
                     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -68,6 +74,12 @@ protected:
             while (thread_should_run)
             {
                 int nsamples = input_stream->read();
+                // Fork: -1 (stopped, or the writer failed) was converted as a huge count
+                if (nsamples <= 0)
+                {
+                    input_stream->flush();
+                    continue;
+                }
                 volk_32f_s32f_convert_16i(sample_buffer, (float *)input_stream->readBuf, 4096.0f, nsamples * 2);
                 if (bladerf_sync_tx(bladerf_dev_obj, sample_buffer, nsamples, &meta, 4000) != 0)
                     std::this_thread::sleep_for(std::chrono::seconds(1));

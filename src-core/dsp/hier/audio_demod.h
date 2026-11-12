@@ -4,6 +4,7 @@
 #include "common/dsp/filter/firdes.h"
 #include "dsp/agc/agc.h"
 #include "dsp/block.h"
+#include "dsp/block_start.h"
 #include "dsp/conv/complex_to_imag.h"
 #include "dsp/conv/complex_to_mag.h"
 #include "dsp/conv/complex_to_real.h"
@@ -119,27 +120,14 @@ namespace satdump
             {
                 init();
 
-                main_switch.start();
-
-                nfm_agc.start();
-                nfm_qua.start();
-                nfm_res.start();
-
-                am_agc.start();
-                am_mag.start();
-                am_res.start();
-
-                usb_flt.start();
-                usb_agc.start();
-                usb_mag.start();
-                usb_res.start();
-
-                lsb_flt.start();
-                lsb_agc.start();
-                lsb_mag.start();
-                lsb_res.start();
-
-                main_selector.start();
+                // Fork: started readers first, and a block that fails to start no longer leaves
+                // the ones before it running (destroying those later stopped SatDump)
+                start_blocks_or_undo({&main_selector,                         //
+                                      &nfm_res, &nfm_qua, &nfm_agc,           //
+                                      &am_res, &am_mag, &am_agc,              //
+                                      &usb_res, &usb_mag, &usb_agc, &usb_flt, //
+                                      &lsb_res, &lsb_mag, &lsb_agc, &lsb_flt, //
+                                      &main_switch});
 
                 running = true;
             }

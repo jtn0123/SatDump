@@ -85,6 +85,28 @@ namespace satdump
                 b.max_size = size;
                 return b;
             }
+
+            /**
+             * @brief Queue a terminator, but only if a free buffer is
+             * available right now.
+             * Fork: wait_enqueue(newBufferTerminator()) waits for a free buffer,
+             * forever if the reader has stopped handing buffers back. A failed
+             * block uses this instead so that it never hangs on a dead reader.
+             * @param prop Whether this terminator should be propagating
+             * @return true if the terminator was queued
+             */
+            bool try_send_terminator(bool prop = true)
+            {
+                DSPBuffer b;
+                if (!ufifo.try_dequeue(b))
+                    return false;
+                b.type = prop ? DSP_BUFFER_TYPE_TERMINATOR_PROPAGATING : DSP_BUFFER_TYPE_TERMINATOR_NON_PROPAGATING;
+                b.size = 0;
+                if (fifo.try_enqueue(b))
+                    return true;
+                ufifo.wait_enqueue(b); // Never waits: the buffer was just taken from there
+                return false;
+            }
         };
     } // namespace ndsp
 } // namespace satdump

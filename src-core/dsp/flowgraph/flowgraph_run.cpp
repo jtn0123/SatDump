@@ -1,11 +1,15 @@
 #include "core/exception.h"
 #include "dsp/block.h"
+#include "dsp/block_start.h"
 #include "dsp/path/splitter.h"
 #include "flowgraph.h"
 #include "logger.h"
 #include <chrono>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace satdump
 {
@@ -13,9 +17,56 @@ namespace satdump
     {
         namespace flowgraph
         {
-            void Flowgraph::run()
+            namespace
+            {
+                // Fork: the blocks in start order for start_blocks_or_undo(): each block after
+                // all the blocks that read its outputs, so sources start last. Blocks in a loop
+                // (there should be none) keep their order, at the end.
+                std::vector<Block *> readersFirst(const std::vector<std::shared_ptr<Block>> &blocks)
+                {
+                    const size_t n = blocks.size();
+                    std::vector<std::vector<size_t>> readers(n);
+                    for (size_t w = 0; w < n; w++)
+                        for (auto &o : blocks[w]->get_outputs())
+                            if (o.fifo)
+                                for (size_t r = 0; r < n; r++)
+                                    for (auto &i : blocks[r]->get_inputs())
+                                        if (r != w && i.fifo == o.fifo)
+                                            readers[w].push_back(r);
+
+                    std::vector<Block *> order;
+                    std::vector<bool> placed(n, false);
+                    bool progress = true;
+                    while (order.size() < n && progress)
+                    {
+                        progress = false;
+                        for (size_t b = 0; b < n; b++)
+                        {
+                            if (placed[b])
+                                continue;
+                            bool ready = true;
+                            for (size_t r : readers[b])
+                                if (!placed[r])
+                                    ready = false;
+                            if (ready)
+                            {
+                                placed[b] = true;
+                                order.push_back(blocks[b].get());
+                                progress = true;
+                            }
+                        }
+                    }
+                    for (size_t b = 0; b < n; b++)
+                        if (!placed[b])
+                            order.push_back(blocks[b].get());
+                    return order;
+                }
+            } // namespace
+
+            bool Flowgraph::run()
             {
                 is_running = true;
+                bool ok = true;
 
                 try
                 {
@@ -179,12 +230,17 @@ namespace satdump
                         }
                     }
 
-                    // Start them all
+                    // Start them all.
+                    // Fork: readers first, and when one fails to start, the ones already
+                    // started are stopped again before the error is reported. They were left
+                    // running, and destroying them later stopped SatDump.
+                    std::vector<std::shared_ptr<ndsp::Block>> all_blocks;
                     for (auto &n : nodes)
                         if (!n->disabled)
-                            n->internal->blk->start();
+                            all_blocks.push_back(n->internal->blk);
                     for (auto &b : additional_blocks)
-                        b->start();
+                        all_blocks.push_back(b);
+                    start_blocks_or_undo(readersFirst(all_blocks));
                     for (auto &n : nodes)
                         if (!n->disabled)
                             n->internal->upd_state();
@@ -205,13 +261,33 @@ namespace satdump
                     for (auto &n : nodes)
                         if (!n->disabled)
                             n->internal->upd_state();
+
+                    // Fork: a block whose work() failed has logged why, ended its outputs and
+                    // stopped, so the flowgraph got here the normal way. Say that it failed.
+                    for (auto &b : all_blocks)
+                    {
+                        if (b->has_failed())
+                        {
+                            logger->error("Flowgraph block %s failed: %s", b->d_id.c_str(), b->get_failure().c_str());
+                            ok = false;
+                        }
+                    }
                 }
                 catch (std::exception &e)
                 {
                     logger->error("Error running flowgraph : %s", e.what());
+                    ok = false;
+                }
+                catch (...)
+                {
+                    // Fork: this runs on the UI's flowgraph thread, so anything else thrown
+                    // (a block's start() can throw anything) ended SatDump (std::terminate)
+                    logger->error("Error running flowgraph : unknown exception");
+                    ok = false;
                 }
 
                 is_running = false;
+                return ok;
             }
 
             void Flowgraph::stop()
@@ -231,9 +307,23 @@ namespace satdump
                         {
                             auto v = [&]
                             {
-                                logger->trace("Stopping source " + n->internal->blk->d_id);
-                                n->internal->blk->stop(true);
-                                logger->trace("Stopped source " + n->internal->blk->d_id);
+                                // Fork: an exception from stop() left this thread, which is
+                                // std::terminate. It is now logged and the other sources still stop.
+                                const std::string id = n->internal->blk->d_id;
+                                try
+                                {
+                                    logger->trace("Stopping source " + id);
+                                    n->internal->blk->stop(true);
+                                    logger->trace("Stopped source " + id);
+                                }
+                                catch (const std::exception &e)
+                                {
+                                    logger->error("Error stopping flowgraph block %s : %s", id.c_str(), e.what());
+                                }
+                                catch (...)
+                                {
+                                    logger->error("Error stopping flowgraph block %s : unknown exception", id.c_str());
+                                }
                             };
                             all_th.push_back(std::thread(v));
                         }

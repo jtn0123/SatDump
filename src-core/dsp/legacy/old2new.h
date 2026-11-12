@@ -2,6 +2,7 @@
 
 #include "common/dsp/buffer.h"
 #include "dsp/block.h"
+#include <atomic>
 #include <memory>
 
 namespace satdump
@@ -15,7 +16,8 @@ namespace satdump
             bool work();
 
         public:
-            bool old_stream_exit = false;
+            // Fork: set by the module's thread and read by the block's thread, so atomic
+            std::atomic<bool> old_stream_exit{false};
             std::shared_ptr<dsp::stream<T>> old_stream;
 
         public:

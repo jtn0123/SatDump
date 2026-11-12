@@ -6,11 +6,17 @@
  */
 
 #include "base/dsp_buffer.h"
+#include "common/dsp/block_failures.h"
 #include "core/exception.h"
 #include "dsp/base/stream.h"
+#include "logger.h"
 #include "nlohmann/json.hpp"
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -171,14 +177,78 @@ namespace satdump
             void link(Block *ptr, int output_index, int input_index, int nbuf) { set_input(ptr->get_output(output_index, nbuf), input_index); }
 
         private:
-            bool blk_should_run;
+            // Fork: blk_should_run and work_should_exit are written by stop() and read by the
+            // block's thread. They were plain bools (a data race); they are now atomic.
+            std::atomic<bool> blk_should_run;
             std::mutex blk_th_mtx;
             std::thread blk_th;
+
+            std::atomic<bool> blk_failed;
+            std::mutex blk_failure_mtx;
+            std::string blk_failure;
+
+            // Fork: set by the block's thread as its last step, after which it no longer uses
+            // this object (so ~Block can join it safely)
+            std::atomic<bool> blk_th_done;
+
             void run()
             {
-                while (blk_should_run)
-                    if (work())
-                        break;
+                run_work();
+                blk_th_done = true;
+            }
+
+            void run_work()
+            {
+                // Fork: an exception thrown by work() left this thread and ended SatDump through
+                // std::terminate. It is now caught here, logged with the block ID, and the block
+                // winds down without leaving the blocks around it waiting (see work_failed()).
+                std::string error;
+                try
+                {
+                    while (blk_should_run)
+                        if (work())
+                            break;
+                    return;
+                }
+                catch (const std::exception &e)
+                {
+                    error = e.what();
+                }
+                catch (...)
+                {
+                    error = "unknown exception";
+                }
+                work_failed(error);
+            }
+
+            /**
+             * @brief Called on the block's thread when work() threw. Logs the error and
+             * records it (has_failed(), get_failure(), and the process-wide count in
+             * common/dsp/block_failures.h that makes a command fail), then ends this block's
+             * part of the flowgraph with end_streams(): the blocks after it end the way they do
+             * at the end of a stream, and the blocks before it never wait for room.
+             * The thread then ends. stop() works as usual; stop(..., true) cuts the wait short.
+             * @param error what work() threw
+             */
+            void work_failed(const std::string &error)
+            {
+                logger->error("DSP block %s failed: %s", d_id.c_str(), error.c_str());
+                {
+                    std::lock_guard<std::mutex> lg(blk_failure_mtx);
+                    blk_failure = error;
+                }
+                blk_failed = true;
+                ::dsp::record_block_failure(d_id, error);
+
+                std::vector<std::shared_ptr<DSPStream>> outs, ins;
+                for (auto &o : outputs)
+                    if (o.fifo)
+                        outs.push_back(o.fifo);
+                for (auto &i : inputs)
+                    if (i.fifo)
+                        ins.push_back(i.fifo);
+                // The block after it may have stopped too, so do not wait for it forever
+                end_streams(outs, ins, true);
             }
 
         protected:
@@ -186,7 +256,7 @@ namespace satdump
              * @brief Used to signal to a block it should exit in order
              * to stop(). Usually only needed in sources.
              */
-            bool work_should_exit;
+            std::atomic<bool> work_should_exit;
 
             /**
              * @brief The actual looping work function meant to handle
@@ -203,6 +273,98 @@ namespace satdump
              */
             bool is_work_running() { return blk_should_run; }
 
+            /**
+             * @brief Fork: end this block's part of the flowgraph without waiting on a
+             * neighbour that may never move again. A terminator is sent on each of `outs` as
+             * soon as its reader frees a buffer, and whatever arrives on each of `ins` is taken
+             * and dropped until its terminator arrives, so the writers before this block never
+             * wait for room. Both happen in one loop, as either can be what the other waits for.
+             *
+             * Used by work_failed(), and by blocks with several inputs once one input ended
+             * (see BlockSimpleMulti): before, such a block kept the buffers it had taken and
+             * left its other inputs full, so the blocks writing them waited forever.
+             * Returns early on stop(..., true).
+             * @param outs streams to end
+             * @param ins streams to drain until their terminator
+             * @param may_give_up if true, stop trying to end `outs` 2 s after `ins` ended (the
+             * reader may have stopped: a failed block must not hang stop()); if false, wait as
+             * long as it takes, like wait_enqueue() (normal end of stream)
+             */
+            void end_streams(std::vector<std::shared_ptr<DSPStream>> outs, std::vector<std::shared_ptr<DSPStream>> ins, bool may_give_up)
+            {
+                const auto patience = std::chrono::seconds(2);
+                auto give_up = std::chrono::steady_clock::now() + patience;
+                while (!outs.empty() || !ins.empty())
+                {
+                    bool busy = false;
+                    for (size_t o = 0; o < outs.size();)
+                    {
+                        if (outs[o]->try_send_terminator())
+                        {
+                            outs.erase(outs.begin() + o);
+                            busy = true;
+                        }
+                        else
+                            o++;
+                    }
+                    for (size_t i = 0; i < ins.size();)
+                    {
+                        DSPBuffer b;
+                        bool ended = false;
+                        while (!ended && ins[i]->try_dequeue(b))
+                        {
+                            ended = b.isTerminator();
+                            ins[i]->free(b);
+                            busy = true;
+                        }
+                        if (ended)
+                            ins.erase(ins.begin() + i);
+                        else
+                            i++;
+                    }
+
+                    if (!blk_should_run) // stop(..., true)
+                        break;
+                    auto now = std::chrono::steady_clock::now();
+                    if (!ins.empty())
+                        give_up = now + patience;
+                    else if (may_give_up && !outs.empty() && now > give_up)
+                    {
+                        logger->warn("DSP block %s: the block after it takes no more buffers, its end of stream was not passed on", d_id.c_str());
+                        break;
+                    }
+                    if (!busy)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            }
+
+        public:
+            /**
+             * @brief Check if work() failed (threw) since the last start().
+             * The block has then logged the error and ended its outputs. Its thread
+             * keeps taking and dropping its inputs until their writers end (see
+             * work_failed()), so stop() must still be called.
+             * @return true if work() failed
+             */
+            bool has_failed() { return blk_failed; }
+
+            /**
+             * @brief Check if the block's thread has ended by itself since the last start()
+             * (end of its stream, or work() failed). stop() then returns at once.
+             * @return true if the thread has ended
+             */
+            bool has_ended() { return blk_th_done; }
+
+            /**
+             * @brief Get what work() threw, if it failed (see has_failed())
+             * @return the error message, empty if it did not fail
+             */
+            std::string get_failure()
+            {
+                std::lock_guard<std::mutex> lg(blk_failure_mtx);
+                return blk_failure;
+            }
+
         public:
             /**
              * @brief Generic constructor, to be overloaded.
@@ -214,12 +376,33 @@ namespace satdump
             {
                 blk_should_run = false;
                 work_should_exit = false;
+                blk_failed = false;
+                blk_th_done = false;
             }
 
             virtual ~Block()
             {
+                // Fork: this threw, and a throw from a destructor always ends in std::terminate
+                // (the -Wterminate warning). A block whose thread already ended by itself (end of
+                // its stream, or work() failed) is now joined here, which is safe as that thread
+                // no longer uses the block. Nothing safe can be done with a block that is still
+                // running: the derived block is already destroyed, so its thread may call work()
+                // of a destroyed object (C++ then stops with "pure virtual method called") or wait
+                // forever on a stream (no join), and a std::thread that is destroyed or detached
+                // while running is std::terminate or use after free. So that is still a stop, now
+                // a deliberate one: the log names the block, and the abort gives the crash
+                // handler's backtrace. Owners must call stop() first.
+                if (blk_th.joinable() && blk_th_done)
+                {
+                    blk_th.join(); // Returns at once, the thread has ended
+                    blk_should_run = false;
+                }
                 if (blk_should_run || blk_th.joinable())
-                    throw satdump_exception("Block wasn't properly stopped before destructor was called!");
+                {
+                    if (logger)
+                        logger->critical("DSP block %s was destroyed while running, stop() was not called first. Stopping SatDump.", d_id.c_str());
+                    std::abort();
+                }
             }
 
         public:
@@ -322,8 +505,10 @@ namespace satdump
                         if (r2 > r)
                             r = r2;
                     }
-                    catch (std::exception &e)
+                    catch (const std::exception &e)
                     {
+                        // Fork: the error was dropped without a word; it is now logged
+                        logger->warn("DSP block %s: setting %s was not applied: %s", d_id.c_str(), i.key().c_str(), e.what());
                         r = RES_ERR;
                     }
                 }
@@ -357,6 +542,12 @@ namespace satdump
 
                 init();
                 work_should_exit = false;
+                blk_failed = false;
+                {
+                    std::lock_guard<std::mutex> lg(blk_failure_mtx);
+                    blk_failure.clear();
+                }
+                blk_th_done = false;
                 blk_should_run = true;
                 blk_th = std::thread(&Block::run, this);
 #ifndef _WIN32
@@ -388,10 +579,11 @@ namespace satdump
                 if (force)
                     blk_should_run = false;
 
-                blk_th_mtx.lock();
-                if (blk_th.joinable())
-                    blk_th.join();
-                blk_th_mtx.unlock();
+                {
+                    std::lock_guard<std::mutex> lg(blk_th_mtx);
+                    if (blk_th.joinable())
+                        blk_th.join();
+                }
                 blk_should_run = false;
             }
         };

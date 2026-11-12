@@ -47,6 +47,12 @@ protected:
             if (should_run)
             {
                 int nsamples = input_stream->read();
+                // Fork: -1 (stopped, or the writer failed) was written to the FIFO as -2 bytes
+                if (nsamples <= 0)
+                {
+                    input_stream->flush();
+                    continue;
+                }
                 for (int i = 0; i < nsamples; i++)
                 {
                     float re = input_stream->readBuf[i].real * 127.0f * 0.5;

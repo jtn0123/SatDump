@@ -8,6 +8,7 @@
 #include "dsp/block.h"
 #include "nlohmann/json.hpp"
 #include "node_int.h"
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -329,15 +330,18 @@ namespace satdump
                 void setJSON(nlohmann::json j);
 
             private:
-                bool is_running = false;
+                // Fork: set by the flowgraph's thread and read by the UI thread, so atomic
+                std::atomic<bool> is_running{false};
 
             public:
                 /**
                  * @brief Start the flowgraph (or rather, attempt to).
                  * This function will block until the flowgraph either
                  * ends of is (asynchronously) stopped.
+                 * @return Fork: false if it could not start or a block failed
+                 * while it ran (the log says which and why)
                  */
-                void run();
+                bool run();
 
                 /**
                  * @brief Stops the flowgraph, if started

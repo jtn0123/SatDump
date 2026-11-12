@@ -44,6 +44,18 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Bug fix | MetOp IASI imager: a pixel whose warm and cold calibration views read the same is now 0 (no data) instead of white or an undefined value | 2026-11-11 |
 | Bug fix | MetOp AHRPT, MetOp X-band dump and Meteor LRPT decoders: error counts, lock state, correlation and the plots start at 0, so stats read before the first frame (live mode) are no longer garbage and a Meteor M2-x decoder no longer reports SYNCED before it has any data | 2026-11-11 |
 | Bug fix | Meteor LRPT: picture segments that were never received, or that had no picture data, no longer leave their header values unset (the validity check read them) | 2026-11-11 |
+| Crash fix | A new-DSP block whose work() throws no longer ends SatDump: the error is logged with the block ID, the blocks after it end as at the end of a stream, and the blocks before it are never left waiting for room | 2026-11-11 |
+| Crash fix | Destroying a new-DSP block whose thread already ended (end of stream or failure) no longer stops SatDump; destroying one that is still running names the block in the log before stopping | 2026-11-11 |
+| Crash fix | A legacy DSP block whose work() throws no longer ends SatDump: the error is logged with the block's class name, the blocks after it wind down, and a block that is started again starts clean | 2026-11-11 |
+| Bug fix | When a block of a flowgraph or demodulator fails to start, the blocks already started are stopped again instead of being left running (destroying them later stopped SatDump) | 2026-11-11 |
+| Bug fix | Blocks with several inputs (Add, Multiply, selector and others) keep taking their other inputs after one of them ends, so the blocks feeding those inputs no longer hang (for example when one branch before an Add failed) | 2026-11-11 |
+| CLI | A command during which a DSP block failed now ends with "Error running command" and exit code 2, as its output is incomplete (before the fork it crashed) | 2026-11-11 |
+| Crash fix | A flowgraph block whose start() throws something unusual, or whose stop() throws, is logged instead of ending SatDump | 2026-11-11 |
+| Bug fix | The network, BladeRF and HackRF sinks treat "no data" (-1) from their input as no data instead of a huge sample count | 2026-11-11 |
+| Bug fix | Two stop flags shared between threads (the old-to-new DSP bridge and the reshape buffer) are now atomic, removing a data race | 2026-11-11 |
+| Bug fix | A new-DSP setting that cannot be applied is logged with the block and setting name instead of being dropped silently | 2026-11-11 |
+| Build | On GCC, a throw that can only end in std::terminate (for example in a destructor) is now a build error | 2026-11-11 |
+| Tests | Unit tests for DSP blocks that fail, fail to start, end, or are destroyed, for multi-input blocks whose inputs end at different times, and for the CLI exit code after a block failure | 2026-11-11 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |

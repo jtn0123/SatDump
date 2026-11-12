@@ -2,6 +2,7 @@
 
 #include "common/dsp/filter/firdes.h"
 #include "dsp/block.h"
+#include "dsp/block_start.h"
 #include "dsp/resampling/rational_resampler.h"
 #include "dsp/utils/vco.h"
 #include "nlohmann/json.hpp"
@@ -49,8 +50,9 @@ namespace satdump
 
                 vco_blk.link(&fir_blk, 0, 0, 4);
 
-                fir_blk.start();
-                vco_blk.start();
+                // Fork: started readers first, and a block that fails to start no longer leaves
+                // the ones before it running (destroying those later stopped SatDump)
+                start_blocks_or_undo({&vco_blk, &fir_blk});
             }
 
             void stop(bool stop_snow = false, bool force = false)

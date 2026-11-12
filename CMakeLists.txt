@@ -103,6 +103,14 @@ endif()
 
 if(UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+    # Fork: a throw that can only end in std::terminate (in a destructor or other noexcept code) is an error.
+    # GCC only: clang has no -Wterminate (its -Wexceptions is close but also covers other cases), so the
+    # check below leaves the flag off there.
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-Werror=terminate SATDUMP_HAS_WERROR_TERMINATE)
+    if(SATDUMP_HAS_WERROR_TERMINATE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=terminate")
+    endif()
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 
