@@ -141,7 +141,8 @@ namespace meteor
 
             while (!data_in.eof())
             {
-                data_in.read((char *)&cadu, 1024);
+                if (!data_in.read((char *)&cadu, 1024)) // Fork: stop at a partial frame instead of reusing stale bytes
+                    break;
 
                 ccsds::ccsds_aos::VCDU vcdu = ccsds::ccsds_aos::parseVCDU(cadu);
 

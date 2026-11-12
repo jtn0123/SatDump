@@ -65,7 +65,8 @@ namespace meteor
                 while (!data_in.eof())
                 {
                     // Read buffer
-                    data_in.read((char *)&frame, 380);
+                    if (!data_in.read((char *)&frame, 380)) // Fork: stop at a partial frame instead of reusing stale bytes
+                        break;
 
                     {
                         int counter = frame[4];
@@ -191,7 +192,8 @@ namespace meteor
                 while (!data_in.eof())
                 {
                     // Read buffer
-                    data_in.read((char *)&frame, 15040 * 4);
+                    if (!data_in.read((char *)&frame, 15040 * 4)) // Fork: stop at a partial frame instead of reusing stale bytes
+                        break;
 
                     for (int f = 0; f < 2; f++)
                     {

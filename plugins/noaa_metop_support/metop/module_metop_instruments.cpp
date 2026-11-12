@@ -67,7 +67,8 @@ namespace metop
             while (should_run())
             {
                 // Read buffer
-                read_data(cadu, 1024);
+                if (read_data(cadu, 1024) != 1024) // Fork: stop at a partial frame instead of reusing stale bytes
+                    break;
 
                 // Parse this transport frame
                 ccsds::ccsds_aos::VCDU vcdu = ccsds::ccsds_aos::parseVCDU(cadu);

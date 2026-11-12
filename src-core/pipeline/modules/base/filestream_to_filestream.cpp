@@ -1,6 +1,7 @@
 #include "filestream_to_filestream.h"
 #include "logger.h"
 #include "pipeline/module.h"
+#include <cstring>
 
 namespace satdump
 {
@@ -44,24 +45,33 @@ namespace satdump
                 return v;
             }
 
-            void FileStreamToFileStreamModule::read_data(uint8_t *buffer, size_t size)
+            size_t FileStreamToFileStreamModule::read_data(uint8_t *buffer, size_t size)
             {
                 // Read buffer
+                size_t got = 0;
                 if (input_data_type == DATA_FILE)
                 {
                     data_in.read((char *)buffer, size);
-                    progress = data_in.tellg();
+                    got = data_in.gcount();
+                    if (data_in.good())
+                        progress = data_in.tellg();
+                    else
+                        progress = filesize;
                 }
                 else
                 {
-                    input_fifo->read((uint8_t *)buffer, size);
+                    const int r = input_fifo->read((uint8_t *)buffer, size);
+                    got = r < 0 ? 0 : r;
                 }
+                if (got < size)
+                    memset(buffer + got, 0, size - got);
 
                 if (time(0) - time_)
                 {
                     logger->trace(getModuleStats().dump(4));
                     time_ = time(0);
                 }
+                return got;
             }
 
             void FileStreamToFileStreamModule::write_data(uint8_t *buffer, size_t size)

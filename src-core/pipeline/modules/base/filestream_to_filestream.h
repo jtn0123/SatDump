@@ -53,7 +53,9 @@ namespace satdump
                 nlohmann::json getModuleStats();
 
             protected:
-                void read_data(uint8_t *buffer, size_t size);
+                // Fork: returns the number of bytes read; a short read (end of file, or the input
+                // stopping) zero-fills the rest of the buffer, so stale bytes are never reused
+                size_t read_data(uint8_t *buffer, size_t size);
 
                 void write_data(uint8_t *buffer, size_t size);
 

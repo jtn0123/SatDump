@@ -54,7 +54,8 @@ namespace meteor
             while (!data_in.eof())
             {
                 // Read buffer
-                data_in.read((char *)&cadu, 1024);
+                if (!data_in.read((char *)&cadu, 1024)) // Fork: stop at a partial frame instead of reusing stale bytes
+                    break;
 
                 std::vector<std::vector<uint8_t>> msumr_frames;
                 std::vector<std::vector<uint8_t>> mtvza_frames, mtvza_frames2;

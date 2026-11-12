@@ -44,7 +44,8 @@ namespace noaa
                 {
                     if (!is_gac)
                     {
-                        read_data((uint8_t *)&buffer[0], 11090 * 2);
+                        if (read_data((uint8_t *)&buffer[0], 11090 * 2) != 11090 * 2) // Fork: stop at a partial frame instead of reusing stale bytes
+                            break;
                         avhrr_reader.work_noaa(buffer); // avhrr
 
                         { // getting the TIP/AIP out
@@ -80,7 +81,8 @@ namespace noaa
                     else
                     {
                         uint8_t rawWords[4159];
-                        read_data((uint8_t *)rawWords, 4159);
+                        if (read_data((uint8_t *)rawWords, 4159) != 4159) // Fork: stop at a partial frame instead of reusing stale bytes
+                            break;
                         repackBytesTo10bits(rawWords, 4159, buffer);
 
                         avhrr_reader.work_noaa(buffer); // avhrr
@@ -449,7 +451,8 @@ namespace noaa
                 uint8_t buffer[104];
                 while (should_run())
                 {
-                    read_data((uint8_t *)&buffer[0], 104);
+                    if (read_data((uint8_t *)&buffer[0], 104) != 104) // Fork: stop at a partial frame instead of reusing stale bytes
+                        break;
                     hirs_reader.work(buffer);
                     sem_reader.work(buffer);
                     telemetry_reader.work(buffer);
