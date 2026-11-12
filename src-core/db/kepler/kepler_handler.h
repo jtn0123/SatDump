@@ -37,12 +37,11 @@ namespace satdump
     // lines to find out, so this refuses exactly what cannot be written: a value that is not a
     // number, an epoch outside the years 2000 to 2099 once rounded, a drag term (BSTAR) or second
     // derivative of the mean motion of 0.999995 or more in size (1 or more once rounded to five
-    // digits), and a value too wide for its columns once rounded: a first derivative of
-    // 0.999999995 or more in size, an eccentricity of 0.99999995 or more or -0.00000005 or less,
-    // an angle of 999.99995 or more or -99.99995 or less, a mean motion of 99.999999995 or more
-    // or -9.999999995 or less, a negative catalogue, element set or revolution number too long.
-    // Element files with such an entry are refused when they are read, and keplerToTle throws
-    // for them
+    // digits), a catalogue, element set or revolution number below 0, and a value too wide for
+    // its columns once rounded: a first derivative of 0.999999995 or more in size, an
+    // eccentricity of 0.99999995 or more or -0.00000005 or less, an angle of 999.99995 or more or
+    // -99.99995 or less, a mean motion of 99.999999995 or more or -9.999999995 or less. Element
+    // files with such an entry are refused when they are read, and keplerToTle throws for them
     std::string keplerTleProblem(const KeplerData &kep);
 
     // Fork: the 8 columns a TLE gives the drag term (BSTAR) and the second derivative of the mean
@@ -50,7 +49,7 @@ namespace satdump
     // exponent, '-' and one digit: " 12345-4" is 0.12345e-4. The value is rounded to five
     // significant digits (halves away from zero, as the decimal it was given as) and 0 is
     // " 00000-0". Below 1e-10 the exponent stays at 9 and digits are lost, down to " 00001-9"
-    // (1e-14); smaller values are written as 0. None when the value is not a finite number or
+    // (1e-14); values below 5e-15 round to 0. None when the value is not a finite number or
     // rounds to 1 or more in size (0.999995 or more), which a TLE cannot hold
     std::optional<std::string> strLE(double val);
     bool ccsdsOmmToKepler(std::string omm_line, KeplerData &kep_out);

@@ -235,6 +235,17 @@ namespace satdump
                 if (!std::isfinite(v.second))
                     return std::string("the ") + v.first + " is not a finite number";
 
+            // Fork: the catalogue, element set and revolution numbers count up from 0. TLE text can
+            // still give one below 0 (the orbit library reads "-0005" as -5), and it was written
+            // back as it was ("1 -0005U") or, cut to its last digits, as another number. OMM CSV
+            // never gives one (ommWholeNumber)
+            const std::pair<const char *, long long> counters[] = {{"catalogue number", kep.satellite_number},
+                                                                   {"element set number", kep.element_number},
+                                                                   {"revolution number", kep.revolutions_at_epoch}};
+            for (auto &c : counters)
+                if (c.second < 0)
+                    return std::string("the ") + c.first + " is below 0";
+
             auto columns = [](const char *name, int width) { return std::string("the ") + name + " does not fit the " + std::to_string(width) + " columns a TLE gives it"; };
 
             // Above 99999, the catalogue number is written as 99999, as it always was

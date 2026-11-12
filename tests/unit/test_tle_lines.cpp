@@ -2,10 +2,11 @@
 // it reads (TLE text, OMM CSV, downloads) is given out through them, and pass prediction
 // (predict_parse_tle) and products use them. Covers: TLE text read and written back giving the
 // same lines, checksums included, for the TLEs the other tests use and for realistic lines with
-// every exponent of the drag term (BSTAR) and second derivative, also through the database; the
-// 8 columns of those two values (strLE) on their own: rounding, the carry, the limits and zero;
-// the orbit library reading the lines back to the same values; what a TLE cannot hold being
-// refused, and nothing else.
+// every exponent of the drag term (BSTAR) and second derivative, also through the database; OMM
+// CSV giving the TLE lines of the same elements, also through the database; the 8 columns of
+// those two values (strLE) on their own: rounding, the carry, the limits and zero; the orbit
+// library reading the lines back to the same values; what a TLE cannot hold being refused
+// (counters below 0 among it), and nothing else.
 
 #include "db/kepler/kepler_handler.h"
 #include "doctest.h"
@@ -95,6 +96,23 @@ namespace
                                  "1 40008U 14001H   99365.99999999  .00000100 -12345-0  99999-1 0    31\n"
                                  "2 40008  97.8000 100.0000 0012345  90.0000 270.0000 14.80000000    72\n";
 
+    // OMM CSV, as the default sources (CelesTrak, FORMAT=csv) and local OMM files give elements:
+    // the header line, then satellites of the TLE text above, each value written as such files
+    // write it (".00015", "-.11606E-4", "2.8098e-05", the catalogue number 5 as "5"), the epoch
+    // with microseconds. Each value is read with std::stod, not from the columns of a TLE, so
+    // this is a different way into the lines written. The first entry is test_offline_data.cpp's
+    // OMM_METOP, the first set of TEST_TLES
+    const char *OMM_TEXT = "OBJECT_NAME,OBJECT_ID,EPOCH,MEAN_MOTION,ECCENTRICITY,INCLINATION,RA_OF_ASC_NODE,ARG_OF_PERICENTER,MEAN_ANOMALY,"
+                           "EPHEMERIS_TYPE,CLASSIFICATION_TYPE,NORAD_CAT_ID,ELEMENT_SET_NO,REV_AT_EPOCH,BSTAR,MEAN_MOTION_DOT,MEAN_MOTION_DDOT\n"
+                           "METOP-B,2012-049A,2025-11-10T12:00:00.000000,14.21512345,.00015,98.69,10.1234,90.1,270.05,0,U,38771,999,67890,.00005,.000001,0\n"
+                           "VANGUARD 1,1958-002B,2000-06-27T18:50:19.733568,10.82419157,.1859667,34.2682,348.7242,331.7664,19.3264,0,U,5,475,41366,2.8098e-05,2.3e-07,0\n"
+                           "ISS (ZARYA),1998-067A,2008-09-20T12:25:40.104192,15.72125391,.0006703,51.6416,247.4627,130.536,325.0288,0,U,25544,292,56353,-.11606E-4,-.00002182,0\n"
+                           "DECAYING 29141,1985-108AA,2006-06-19T06:25:41.242080,15.93343074,.0015848,82.4288,273.4882,277.2124,83.9133,0,U,29141,71,682,.13519,.99999999,0\n"
+                           "GTO 23599,1995-029B,2006-06-20T18:22:06.640032,4.47796565,.5782022,6.9327,.2849,274.4436,25.2425,0,U,23599,290,12355,.0012956,.00085586,1.2891e-07\n"
+                           "EXP 2 6,2014-001B,2025-04-10T12:00:00.000000,14.8,.0012345,97.8,100,90,270,0,U,40002,123,12,-1.4142E-07,-.00012345,-.0050505\n"
+                           "EXP 8 3,2014-001F,2025-04-10T12:00:00.000000,14.8,.0012345,97.8,100,90,270,0,U,40006,1000,54321,.0005,-1e-08,6.6666e-09\n"
+                           "EXP 0 1,2014-001H,2099-12-31T23:59:59.999136,14.8,.0012345,97.8,100,90,270,0,U,40008,3,7,.099999,.000001,-.12345\n";
+
     // A folder of the test's own, removed with everything in it at the end
     struct TempDir
     {
@@ -136,6 +154,29 @@ namespace
         while (std::getline(in, set[0]) && std::getline(in, set[1]) && std::getline(in, set[2]))
             sets.push_back(set);
         return sets;
+    }
+
+    // The set with this name in TEST_TLES or REALISTIC_TLES
+    std::array<std::string, 3> tle_set_named(const std::string &name)
+    {
+        for (const char *text : {TEST_TLES, REALISTIC_TLES})
+            for (auto &set : tle_sets(text))
+                if (set[0] == name)
+                    return set;
+        FAIL("no TLE set named " << name);
+        return {};
+    }
+
+    // The entry lines of OMM_TEXT, the header left out
+    std::vector<std::string> omm_entries()
+    {
+        std::vector<std::string> entries;
+        std::istringstream in(OMM_TEXT);
+        std::string line;
+        std::getline(in, line);
+        while (std::getline(in, line))
+            entries.push_back(line);
+        return entries;
     }
 
     // The elements SatDump reads from a set's two lines
@@ -256,6 +297,44 @@ TEST_CASE("TLE lines: the TLE given out from the database is the TLE text that w
     for (auto &set : sets)
     {
         CAPTURE(set[1]);
+        std::optional<satdump::TLE> tle = rig.keplers->get_from_norad(std::atoi(set[1].substr(2, 5).c_str()));
+        REQUIRE(tle.has_value());
+        CHECK(tle->name == set[0]);
+        CHECK(tle->line1 == set[1]);
+        CHECK(tle->line2 == set[2]);
+    }
+}
+
+TEST_CASE("TLE lines: OMM CSV gives the TLE lines of the same elements, also through the database")
+{
+    // The default downloads and local OMM files: each entry gives exactly the lines of the TLE
+    // text for the same satellite, checksums included. METOP-B is
+    // "1 38771U 12049A   25314.50000000  .00000100  00000-0  50000-4 0  9992"
+    // "2 38771  98.6900  10.1234 0001500  90.1000 270.0500 14.21512345678909"
+    const std::string header = std::string(OMM_TEXT).substr(0, std::string(OMM_TEXT).find('\n') + 1);
+    for (const std::string &entry : omm_entries())
+    {
+        CAPTURE(entry);
+        int bad = -1;
+        std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(header + entry + "\n", bad);
+        CHECK(bad == 0);
+        REQUIRE(keps.size() == 1);
+        std::array<std::string, 3> set = tle_set_named(keps[0].name);
+        satdump::TLE tle = satdump::keplerToTle(keps[0]);
+        CHECK(tle.line1 == set[1]);
+        CHECK(tle.line2 == set[2]);
+    }
+
+    // The whole file, as SatDump reads it at start-up and gives it out from its database
+    TempDir dir;
+    std::string url = dir.write("elements.csv", OMM_TEXT);
+    test_rig::OfflineRig rig(test_rig::general("4 hours", false), test_rig::kepler_sources({url}));
+    std::vector<std::string> entries = omm_entries();
+    REQUIRE(rig.keplers->getAllNewestKepler().size() == entries.size());
+    for (const std::string &entry : entries)
+    {
+        CAPTURE(entry);
+        std::array<std::string, 3> set = tle_set_named(entry.substr(0, entry.find(',')));
         std::optional<satdump::TLE> tle = rig.keplers->get_from_norad(std::atoi(set[1].substr(2, 5).c_str()));
         REQUIRE(tle.has_value());
         CHECK(tle->name == set[0]);
@@ -476,4 +555,49 @@ TEST_CASE("TLE lines: what a TLE cannot hold is refused, and nothing else")
     CHECK(tle.line2.substr(0, 7) == "2 99999");
     CHECK(tle.line2.substr(63, 5) == "34567");
     CHECK(tle.norad == 123456);
+
+    // 0 is the smallest of each
+    kep = metop_elements();
+    kep.satellite_number = 0;
+    kep.element_number = 0;
+    kep.revolutions_at_epoch = 0;
+    tle = writable(kep);
+    CHECK(tle.line1.substr(0, 8) == "1 00000U");
+    CHECK(tle.line1.substr(64, 4) == "   0");
+    CHECK(tle.line2.substr(63, 5) == "    0");
+
+    // Below 0 each is refused. Before, a short one was written as it was (the catalogue number -5
+    // as "-0005"), an element set number of -10000 as 0 (its last 4 digits), and only one too
+    // long for its columns was refused
+    for (int n : {-1, -5, -10000, -123456})
+    {
+        CAPTURE(n);
+        kep = metop_elements();
+        kep.satellite_number = n;
+        refused(kep, "catalogue number");
+        kep = metop_elements();
+        kep.element_number = n;
+        refused(kep, "element set number");
+        kep = metop_elements();
+        kep.revolutions_at_epoch = n;
+        refused(kep, "revolution number");
+    }
+
+    // TLE text can give them, as the orbit library reads "-0005" as -5; such a set cannot be read
+    const std::string line1 = "1 38771U 12049A   25314.50000000  .00000100  00000-0  50000-4 0  999";
+    const std::string line2 = "2 38771  98.6900  10.1234 0001500  90.1000 270.0500 14.21512345 6789";
+    auto with = [](std::string line, size_t column, const std::string &text) { return line.replace(column, text.size(), text); };
+    const std::vector<std::array<std::string, 2>> negative = {
+        {with(line1, 2, "-0005"), with(line2, 2, "-0005")}, // catalogue number
+        {with(line1, 64, "-999"), line2},                   // element set number
+        {line1, with(line2, 63, "-6789")},                  // revolution number
+    };
+    for (auto &lines : negative)
+    {
+        std::string text = "METOP-B\n" + tle_line(lines[0]) + "\n" + tle_line(lines[1]) + "\n";
+        CAPTURE(text);
+        int bad = -1;
+        CHECK(satdump::parseKeplerText(text, bad).empty());
+        CHECK(bad == 1);
+    }
 }
