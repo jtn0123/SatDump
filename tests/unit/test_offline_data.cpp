@@ -2,13 +2,14 @@
 // Controller supplies them so SatDump never has to go online. Covers: TLE text and OMM CSV both
 // read; a local file read at start-up, before init() returns; a missing file reported once at
 // once (no ten retries); a damaged or empty file changing nothing, including one with values a
-// TLE cannot be made from, and stored elements of that kind being skipped; international
-// designators (full 8-character ones, the OMM form, a quote); the leap second list in the layouts
-// it is published in, and refused when damaged or when it does not match its hash line (so one
-// cut short between two lines is refused too), with the SHA-1 that checks it; the IERS entry
-// nearest in time being the one used; JSON that is not a bulletin; the IERS addresses as SatDump
-// reads them (settings.json merged over the installed defaults). The IERS data is a short copy of
-// the published files (tests/offline); the orbit elements are made up.
+// TLE cannot be made from, and stored elements of that kind being skipped; downloads (from a
+// local test server) reporting the entries they skip; international designators (full
+// 8-character ones, the OMM form, a quote); the leap second list in the layouts it is published
+// in, and refused when damaged or when it does not match its hash line (so one cut short between
+// two lines is refused too), with the SHA-1 that checks it; the IERS entry nearest in time being
+// the one used; JSON that is not a bulletin; the IERS addresses as SatDump reads them
+// (settings.json merged over the installed defaults). The IERS data is a short copy of the
+// published files (tests/offline); the orbit elements are made up.
 
 #include "db/iers/iers_handler.h"
 #include "db/kepler/kepler_handler.h"
@@ -28,10 +29,16 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <optional>
+#include <poll.h>
 #include <sqlite3.h>
 #include <string>
+#include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
+#include <vector>
 
 using test_log::LogCapture;
 
@@ -124,6 +131,98 @@ namespace
             start = line.find(',', start) + 1;
         size_t end = line.find(',', start);
         return line.substr(0, start) + value + (end == std::string::npos ? "" : line.substr(end));
+    }
+
+    // Answers HTTP requests on 127.0.0.1 from a thread of its own, one connection each, with the
+    // replies given (whole HTTP replies) in turn: a download can be tested without the network
+    class LocalHttpServer
+    {
+    public:
+        explicit LocalHttpServer(const std::vector<std::string> &replies)
+        {
+            listener = socket(AF_INET, SOCK_STREAM, 0);
+            REQUIRE(listener >= 0);
+            sockaddr_in addr = {};
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            socklen_t len = sizeof(addr);
+            REQUIRE(bind(listener, (sockaddr *)&addr, sizeof(addr)) == 0);
+            REQUIRE(listen(listener, 4) == 0);
+            REQUIRE(getsockname(listener, (sockaddr *)&addr, &len) == 0);
+            port = ntohs(addr.sin_port);
+            server = std::thread([this, replies]() { serve(replies); });
+        }
+
+        ~LocalHttpServer()
+        {
+            finish();
+            close(listener);
+        }
+
+        LocalHttpServer(const LocalHttpServer &) = delete;
+        LocalHttpServer &operator=(const LocalHttpServer &) = delete;
+
+        std::string url(const std::string &path) const { return "http://127.0.0.1:" + std::to_string(port) + path; }
+
+        // The first line of each request ("GET /path HTTP/1.1"), once every reply was sent (or no
+        // request came for 20 s)
+        std::vector<std::string> requests()
+        {
+            finish();
+            return asked;
+        }
+
+    private:
+        int listener = -1;
+        int port = 0;
+        std::thread server;
+        std::vector<std::string> asked;
+
+        void finish()
+        {
+            if (server.joinable())
+                server.join();
+        }
+
+        void serve(const std::vector<std::string> &replies)
+        {
+            for (const std::string &reply : replies)
+            {
+                pollfd waiting = {listener, POLLIN, 0};
+                if (poll(&waiting, 1, 20000) != 1)
+                    return;
+                int c = accept(listener, nullptr, nullptr);
+                if (c < 0)
+                    return;
+                std::string request;
+                char buffer[4096];
+                while (request.find("\r\n\r\n") == std::string::npos)
+                {
+                    ssize_t n = recv(c, buffer, sizeof(buffer), 0);
+                    if (n <= 0)
+                        break;
+                    request.append(buffer, (size_t)n);
+                }
+                asked.push_back(request.substr(0, request.find("\r\n")));
+                size_t sent = 0;
+                while (sent < reply.size())
+                {
+                    ssize_t n = send(c, reply.data() + sent, reply.size() - sent, MSG_NOSIGNAL);
+                    if (n <= 0)
+                        break;
+                    sent += (size_t)n;
+                }
+                close(c);
+            }
+        }
+    };
+
+    // An HTTP reply with this body. A smaller `sent` sends only the start of the body, under a
+    // length that counts all of it, as a download that fails part way
+    std::string http_reply(const std::string &body, size_t sent = std::string::npos)
+    {
+        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" +
+               body.substr(0, sent);
     }
 
     // METOP-B's elements, as read from TLE_TEXT
@@ -354,6 +453,37 @@ TEST_CASE("Orbit elements: a file with an entry a TLE cannot be made from change
     CHECK(rig->keplers->all_.empty());
     CHECK(warnings(c) == 1);
     CHECK(c.has(slog::LOG_WARN, "1 entries that cannot be read"));
+}
+
+TEST_CASE("Orbit elements: a download with entries that cannot be read uses the others, with a warning")
+{
+    // NOAA 19's drag term (BSTAR) of 1.2 cannot be written in a TLE. Such an entry of a download
+    // was dropped without a word, and NOAA 19 kept its old elements
+    LocalHttpServer server({http_reply(OMM_HEADER + OMM_METOP + "\n" + omm_with(OMM_NOAA, 14, "1.2") + "\n")});
+    const std::string url = server.url("/gp.php?GROUP=weather&FORMAT=csv");
+    LogCapture c;
+    std::vector<satdump::KeplerData> keps = satdump::tryFetchOMMFileFromURL(url);
+    REQUIRE(keps.size() == 1);
+    CHECK(keps[0].satellite_number == 38771);
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "1 of the orbit element entries downloaded from " + url + " cannot be read, so they are skipped"));
+    CHECK(server.requests() == std::vector<std::string>{"GET /gp.php?GROUP=weather&FORMAT=csv HTTP/1.1"});
+}
+
+TEST_CASE("Orbit elements: a single satellite's download that cannot be read says why")
+{
+    // The satellite's only entry cannot be used: the error that nothing came was all there was
+    LocalHttpServer server({http_reply(OMM_HEADER + omm_with(OMM_NOAA, 14, "1.2") + "\n")});
+    const nlohmann::ordered_json old_cfg = satdump::satdump_cfg.main_cfg;
+    satdump::satdump_cfg.main_cfg["kepler_settings"]["url_template"] = server.url("/gp.php?CATNR=%NORAD%&FORMAT=csv");
+    LogCapture c;
+    std::vector<satdump::KeplerData> keps = satdump::tryFetchSingleOMMwithNorad(33591);
+    satdump::satdump_cfg.main_cfg = old_cfg;
+    CHECK(keps.empty());
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "1 of the orbit element entries downloaded from " + server.url("/gp.php?CATNR=33591&FORMAT=csv") + " cannot be read"));
+    CHECK(c.has(slog::LOG_ERROR, "Error updating Kepler for 33591"));
+    CHECK(server.requests() == std::vector<std::string>{"GET /gp.php?CATNR=33591&FORMAT=csv HTTP/1.1"});
 }
 
 TEST_CASE("Orbit elements: stored elements a TLE cannot be made from are skipped, with a warning")

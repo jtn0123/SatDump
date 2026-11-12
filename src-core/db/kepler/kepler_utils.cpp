@@ -432,6 +432,19 @@ namespace satdump
         return keps;
     }
 
+    // Fork: the elements in a downloaded text (OMM CSV or TLE text). Entries that cannot be read,
+    // values a TLE cannot hold among them, are skipped with one warning that counts them. They
+    // were dropped without a word, and their satellites kept the elements already loaded
+    static std::vector<KeplerData> parseDownloadedKeplerText(const std::string &text, const std::string &url_str)
+    {
+        int bad_entries = 0;
+        std::vector<KeplerData> keps = parseKeplerText(text, bad_entries);
+        if (bad_entries > 0)
+            logger->warn("%d of the orbit element entries downloaded from %s cannot be read, so they are skipped; the elements already loaded are kept for them",
+                         bad_entries, url_str.c_str());
+        return keps;
+    }
+
     std::vector<KeplerData> tryFetchOMMFileFromURL(std::string url_str)
     {
         // Fork: a local file is read once; a missing one is not tried again ten times
@@ -448,8 +461,8 @@ namespace satdump
         {
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
-                int bad_entries = 0; // Fork: TLE text is read too, not only OMM CSV
-                new_registry = parseKeplerText(result, bad_entries);
+                // Fork: TLE text is read too, not only OMM CSV, and entries that cannot be read are reported
+                new_registry = parseDownloadedKeplerText(result, url_str);
                 success = new_registry.size() > 0;
             }
             else
@@ -484,7 +497,8 @@ namespace satdump
         {
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
-                new_registry = parseCcsdsOmmFile(result);
+                // Fork: as above (parseCcsdsOmmFile dropped such entries without a word)
+                new_registry = parseDownloadedKeplerText(result, url_str);
                 success = new_registry.size() > 0;
             }
             else

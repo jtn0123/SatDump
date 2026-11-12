@@ -46,13 +46,15 @@ namespace satdump
     // bad_entries is set to the number of entries that could not be read.
     std::vector<KeplerData> parseKeplerText(const std::string &text, int &bad_entries);
 
-    // Fork: a file:// URL is read from disk once (see readKeplerFile); other URLs are downloaded
+    // Fork: a file:// URL is read from disk once (see readKeplerFile); other URLs are downloaded.
+    // Entries of a download that cannot be read are skipped, with one warning that counts them
     std::vector<KeplerData> tryFetchOMMFileFromURL(std::string url_str);
 
     // Fork: reads the element file a file:// URL names. A file that is missing or cannot be read,
     // holds no elements, or has any entry that cannot be read, gives one warning and no elements,
     // so the elements already in the database are kept as they are.
     std::vector<KeplerData> readKeplerFile(const std::string &url_str);
+    // Fork: as tryFetchOMMFileFromURL, entries that cannot be read are skipped with a warning
     std::vector<KeplerData> tryFetchSingleOMMwithNorad(int norad);
 
     class KeplerDBHandler : public DBHandlerBase
