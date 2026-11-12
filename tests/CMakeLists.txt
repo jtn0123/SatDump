@@ -165,6 +165,11 @@ if(SATDUMP_RELOCATABLE)
     set_tests_properties(cli_install_layout PROPERTIES LABELS cli)
 endif()
 
+# Fork: the check prefix holds only what the last install wrote, so the cli tests run this build
+add_test(NAME cli_install_fresh
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_fresh.sh ${SATDUMP_CHECK_PREFIX} ${CMAKE_BINARY_DIR}/install_manifest.txt)
+set_tests_properties(cli_install_fresh PROPERTIES LABELS cli)
+
 # Fork: no headers are installed for code the core does not build (cmake/fork/codecs.cmake)
 add_test(NAME cli_install_headers COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_headers.sh ${CMAKE_BINARY_DIR})
 set_tests_properties(cli_install_headers PROPERTIES LABELS cli)

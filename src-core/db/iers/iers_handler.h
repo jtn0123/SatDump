@@ -38,13 +38,17 @@ namespace satdump
 
         // Fork: stores the leap second list (leap-seconds.list: NTP time, TAI-UTC and a comment
         // on each line). False, with one warning and nothing stored, when any line cannot be
-        // read or there are no entries.
+        // read, there are no entries, the times or the TAI-UTC values do not go up from each
+        // entry to the next, or the list has no expiry line ("#@") or does not match its hash
+        // line ("#h", the SHA-1 both published layouts end with).
         bool storeLeapSeconds(const std::string &text);
 
         // Fork: where the IERS bulletin and the leap second list come from: the settings
         // "iers_bulletin_url" and "leap_seconds_url" of satdump_general. Either can be a local
-        // file (file://). "" when the setting is missing, empty or not {"value": "<address>"}:
-        // that file is then not updated (there is no built-in address to fall back on).
+        // file (file://). "" unless the setting is {"value": "<text>"}: that file is then not
+        // updated. The code has no address of its own, but the settings are settings.json merged
+        // over the installed satdump_cfg.json, which holds the web addresses SatDump always used
+        // (see iersUrlSetting in iers_handler.cpp).
         static std::string bulletinUrl();
         static std::string leapSecondsUrl();
 

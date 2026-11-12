@@ -30,6 +30,7 @@ predict_orbital_elements_t *predict_parse_tle(const char *tle_line_1, const char
     m->element_number = atol(SubString(tle_line_1, SUBSTRING_BUFFER_LENGTH, substring_buffer, 64, 67));
     m->epoch_year = atoi(SubString(tle_line_1, SUBSTRING_BUFFER_LENGTH, substring_buffer, 18, 19));
     strncpy(m->designator, SubString(tle_line_1, SUBSTRING_BUFFER_LENGTH, substring_buffer, 9, 16), 8);
+    m->designator[8] = '\0'; // Fork: strncpy adds no NUL when the designator fills all 8 columns (99025BGQ)
     m->epoch_day = atof(SubString(tle_line_1, SUBSTRING_BUFFER_LENGTH, substring_buffer, 20, 31));
     m->inclination = atof(SubString(tle_line_2, SUBSTRING_BUFFER_LENGTH, substring_buffer, 8, 15));
     m->right_ascension = atof(SubString(tle_line_2, SUBSTRING_BUFFER_LENGTH, substring_buffer, 17, 24));

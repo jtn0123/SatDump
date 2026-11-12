@@ -1,6 +1,7 @@
-// Fork: a database held in memory, with the orbit element (Kepler) and IERS tables, made the
-// current one (satdump::db_keplers) under settings of the test's own. The settings and the
-// database in use before are put back when the rig goes. Nothing is read from the network.
+// Fork: a database held in memory (or in a file the test names), with the orbit element (Kepler)
+// and IERS tables, made the current one (satdump::db_keplers) under settings of the test's own.
+// The settings and the database in use before are put back when the rig goes. Nothing is read
+// from the network.
 #pragma once
 
 #include "core/config.h"
@@ -10,6 +11,7 @@
 #include "db/kepler/kepler_handler.h"
 #include "init.h"
 #include "nlohmann/json.hpp"
+#include "nlohmann/json_utils.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,6 +41,19 @@ namespace test_rig
         return k;
     }
 
+    // The settings SatDump runs with when its settings.json holds `user`: merged over the
+    // installed defaults (satdump_cfg.json, here the source tree's), as SatDumpConfigHandler does
+    inline nlohmann::ordered_json merged_over_defaults(const nlohmann::ordered_json &user)
+    {
+        return merge_json_diffs(loadJsonFile(std::string(SATDUMP_TEST_SOURCE_DIR) + "/satdump_cfg.json"), user);
+    }
+
+    // All the settings a rig runs with (satdump_cfg.main_cfg as a whole)
+    struct WholeSettings
+    {
+        nlohmann::ordered_json cfg;
+    };
+
     struct OfflineRig
     {
         nlohmann::ordered_json old_cfg;
@@ -48,8 +63,15 @@ namespace test_rig
         std::shared_ptr<satdump::KeplerDBHandler> keplers;
         std::shared_ptr<satdump::IersDBHandler> iers;
 
-        // Sets the settings, then makes the database (init() runs the start-up updates)
-        OfflineRig(const nlohmann::ordered_json &general_settings, const nlohmann::ordered_json &kepler_settings = kepler_sources({}))
+        // Sets the two parts of the settings, then makes the database (init() runs the start-up
+        // updates). db_path names a database file to use instead of one held in memory
+        OfflineRig(const nlohmann::ordered_json &general_settings, const nlohmann::ordered_json &kepler_settings = kepler_sources({}), const std::string &db_path = ":memory:")
+            : OfflineRig(with_parts(general_settings, kepler_settings), db_path)
+        {
+        }
+
+        // The same with the settings given as a whole
+        explicit OfflineRig(const WholeSettings &settings, const std::string &db_path = ":memory:")
         {
             // An event bus of its own: an update tells everything listening on the bus, and
             // objects of earlier tests (trackers, schedulers) stay listening after they are gone
@@ -57,17 +79,30 @@ namespace test_rig
             satdump::eventBus = std::make_shared<satdump::EventBus>();
             old_cfg = satdump::satdump_cfg.main_cfg;
             old_keplers = satdump::db_keplers;
-            satdump::satdump_cfg.main_cfg["satdump_general"] = general_settings;
-            satdump::satdump_cfg.main_cfg["kepler_settings"] = kepler_settings;
+            satdump::satdump_cfg.main_cfg = settings.cfg;
 
-            db = std::make_shared<satdump::DBHandler>(":memory:");
+            db = std::make_shared<satdump::DBHandler>(db_path);
             db->subhandlers.push_back(keplers = std::make_shared<satdump::KeplerDBHandler>(db));
             db->subhandlers.push_back(iers = std::make_shared<satdump::IersDBHandler>(db));
-            db->init();
+            try
+            {
+                db->init();
+            }
+            catch (...) // a rig that throws here is never destroyed: what it changed is put back now
+            {
+                put_back();
+                throw;
+            }
             satdump::db_keplers = keplers;
         }
 
-        ~OfflineRig()
+        ~OfflineRig() { put_back(); }
+
+        OfflineRig(const OfflineRig &) = delete;
+        OfflineRig &operator=(const OfflineRig &) = delete;
+
+    private:
+        void put_back()
         {
             // The updates init() scheduled must never run on a database that is gone (the task
             // thread is not started in the unit tests, this is to be safe)
@@ -81,7 +116,13 @@ namespace test_rig
             satdump::eventBus = old_bus;
         }
 
-        OfflineRig(const OfflineRig &) = delete;
-        OfflineRig &operator=(const OfflineRig &) = delete;
+        // The settings in use with these two parts replaced
+        static WholeSettings with_parts(const nlohmann::ordered_json &general_settings, const nlohmann::ordered_json &kepler_settings)
+        {
+            WholeSettings s{satdump::satdump_cfg.main_cfg};
+            s.cfg["satdump_general"] = general_settings;
+            s.cfg["kepler_settings"] = kepler_settings;
+            return s;
+        }
     };
 } // namespace test_rig

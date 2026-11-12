@@ -7,9 +7,14 @@
 #include "utils/http.h"
 #include "utils/string.h"
 #include <cctype>
+#include <climits>
+#include <cmath>
+#include <cstring>
 #include <exception>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
+#include <utility>
 #include "common/utils.h"
 
 namespace satdump
@@ -53,7 +58,9 @@ namespace satdump
 
             int coefflen = std::to_string(coef).size();
 
-            std::string res = std::to_string((int)(val * pow(10, mult)));
+            // Fork: a long long, not an int. The loop above ends by 10 x 2^53 at the latest, which
+            // can be past an int: the cast was then undefined
+            std::string res = std::to_string((long long)(val * pow(10, mult)));
 
             if (res.size() > sz - 1 - coefflen)
                 res.resize(sz - 1 - coefflen);
@@ -70,8 +77,56 @@ namespace satdump
             throw satdump_exception("Error, value must be below 1!");
     }
 
+    // Fork: see kepler_handler.h
+    std::string keplerTleProblem(const KeplerData &kep)
+    {
+        const std::pair<const char *, double> values[] = {{"epoch", kep.epoch},
+                                                          {"inclination", kep.inclination},
+                                                          {"right ascension", kep.right_ascension},
+                                                          {"eccentricity", kep.eccentricity},
+                                                          {"argument of perigee", kep.argument_of_perigee},
+                                                          {"mean anomaly", kep.mean_anomaly},
+                                                          {"mean motion", kep.mean_motion},
+                                                          {"first derivative of the mean motion", kep.derivative_mean_motion},
+                                                          {"second derivative of the mean motion", kep.second_derivative_mean_motion},
+                                                          {"drag term (BSTAR)", kep.bstar_drag_term}};
+        for (auto &v : values)
+            if (!std::isfinite(v.second))
+                return std::string("the ") + v.first + " is not a finite number";
+
+        // 2000-01-01 to 2100-01-01 UTC: the TLE gives the year in two digits, read back as 20yy
+        if (kep.epoch < 946684800.0 || kep.epoch >= 4102444800.0)
+            return "the epoch is not in the years 2000 to 2099";
+
+        // A TLE holds these as five digits and a one-digit exponent, so 0 or a size from 1e-14 to
+        // just under 1. strLE threw at 1 and above, and never finished below about 1e-292
+        const std::pair<const char *, double> exponent_values[] = {{"second derivative of the mean motion", kep.second_derivative_mean_motion},
+                                                                   {"drag term (BSTAR)", kep.bstar_drag_term}};
+        for (auto &v : exponent_values)
+            if (v.second != 0 && !(std::fabs(v.second) >= 1e-14 && std::fabs(v.second) < 1))
+                return std::string("the ") + v.first + " is not 0 or of a size from 1e-14 to 1";
+
+        return "";
+    }
+
+    // Fork: whether a designator has the OMM form, YYYY-NNN then 1 to 3 letters for the piece
+    static bool isOmmDesignator(const std::string &d)
+    {
+        if (d.size() < 9 || d.size() > 11 || d[4] != '-')
+            return false;
+        for (size_t i = 0; i < d.size(); i++)
+            if (i != 4 && !(i < 8 ? isdigit((unsigned char)d[i]) : isalpha((unsigned char)d[i])))
+                return false;
+        return true;
+    }
+
     TLE keplerToTle(KeplerData kep)
     {
+        // Fork: values a TLE cannot hold are an error, never a hang or a wrong line (see above)
+        std::string problem = keplerTleProblem(kep);
+        if (!problem.empty())
+            throw satdump_exception("the elements of satellite " + std::to_string(kep.satellite_number) + " cannot be written as a TLE: " + problem);
+
         TLE tle;
         tle.name = kep.name;
         tle.norad = kep.satellite_number;
@@ -89,27 +144,14 @@ namespace satdump
 
         double days = (kep.epoch - yearT) / (3600.0 * 24.0);
 
+        // Fork: an OMM designator ("2019-074AB") is written in TLE form ("19074AB "). Only the one
+        // with a one-letter piece was, and longer ones were cut to "2019-074". Every designator is
+        // padded with spaces to 8, as in a TLE; resize(8) padded the shorter ones TLE text gives
+        // ("12049A") with NUL characters
         std::string des = kep.designator;
-        if (des.size() == 9)
-        {
-            std::string ori = des;
-            des.resize(8);
-
-            for (auto &c : des)
-                c = ' ';
-
-            des[0] = ori[2];
-            des[1] = ori[3];
-
-            des[2] = ori[5];
-            des[3] = ori[6];
-            des[4] = ori[7];
-
-            des[5] = ori[8];
-        }
-        else
-            des.resize(8, ' '); // Fork: padded with spaces, as in a TLE; resize(8) padded the shorter
-                                // designators TLE text gives ("12049A") with NUL characters
+        if (isOmmDesignator(des))
+            des = des.substr(2, 2) + des.substr(5, 3) + des.substr(8);
+        des.resize(8, ' ');
 
         tle.line1 = "1 " +                                              // Line Number
                     strL(tle_id, 5) +                                   // Satellite Number
@@ -136,6 +178,16 @@ namespace satdump
                     "C";                                     // Checksum
 
         return tle;
+    }
+
+    // Fork: a whole-number column of OMM CSV (catalogue number, element set, revolutions). It went
+    // from std::stod straight into an int, which is undefined for "1e20" or "nan"
+    static int ommWholeNumber(const std::string &text)
+    {
+        double v = std::stod(text);
+        if (!(v >= 0 && v <= INT_MAX))
+            throw std::out_of_range("not a whole number from 0 to INT_MAX");
+        return (int)v;
     }
 
     bool ccsdsOmmToKepler(std::string omm, KeplerData &kep)
@@ -169,9 +221,9 @@ namespace satdump
             kep.argument_of_perigee = std::stod(elems[7]);
             kep.mean_anomaly = std::stod(elems[8]);
 
-            kep.satellite_number = std::stod(elems[11]);
-            kep.element_number = std::stod(elems[12]);
-            kep.revolutions_at_epoch = std::stod(elems[13]);
+            kep.satellite_number = ommWholeNumber(elems[11]);
+            kep.element_number = ommWholeNumber(elems[12]);
+            kep.revolutions_at_epoch = ommWholeNumber(elems[13]);
 
             kep.bstar_drag_term = std::stod(elems[14]);
             kep.derivative_mean_motion = std::stod(elems[15]);
@@ -182,7 +234,9 @@ namespace satdump
             return false;
         }
 
-        return true;
+        // Fork: a line with values a TLE cannot be made from cannot be used either. It was stored,
+        // and making the TLE then threw, which stopped SatDump at start-up (exit 134)
+        return keplerTleProblem(kep).empty();
     }
 
     bool tleToKepler(TLE tle, KeplerData &kep)
@@ -195,7 +249,9 @@ namespace satdump
         kep.satellite_number = tle_ephems->satellite_number; // Satellite number
         kep.element_number = tle_ephems->element_number;     // Element number
         kep.name = tle.name;                                 // Satellite Name
-        kep.designator = tle_ephems->designator;             // International designator
+        // International designator. Fork: 8 characters at most; a full one ("99025BGQ") has no NUL
+        // after it, and the copy read on into the bytes that follow
+        kep.designator = std::string(tle_ephems->designator, strnlen(tle_ephems->designator, 8));
 
         std::tm timeS;
         memset(&timeS, 0, sizeof(std::tm));
@@ -215,7 +271,8 @@ namespace satdump
 
         predict_destroy_orbital_elements(tle_ephems);
 
-        return true;
+        // Fork: see ccsdsOmmToKepler (an exponent column that is not a digit can give a BSTAR of 1e16)
+        return keplerTleProblem(kep).empty();
     }
 
     std::vector<KeplerData> parseCcsdsOmmFile(std::string fileCont)
@@ -375,6 +432,19 @@ namespace satdump
         return keps;
     }
 
+    // Fork: the elements in a downloaded text (OMM CSV or TLE text). Entries that cannot be read,
+    // values a TLE cannot hold among them, are skipped with one warning that counts them. They
+    // were dropped without a word, and their satellites kept the elements already loaded
+    static std::vector<KeplerData> parseDownloadedKeplerText(const std::string &text, const std::string &url_str)
+    {
+        int bad_entries = 0;
+        std::vector<KeplerData> keps = parseKeplerText(text, bad_entries);
+        if (bad_entries > 0)
+            logger->warn("%d of the orbit element entries downloaded from %s cannot be read, so they are skipped; the elements already loaded are kept for them",
+                         bad_entries, url_str.c_str());
+        return keps;
+    }
+
     std::vector<KeplerData> tryFetchOMMFileFromURL(std::string url_str)
     {
         // Fork: a local file is read once; a missing one is not tried again ten times
@@ -389,10 +459,13 @@ namespace satdump
         int http_res = 1, trials = 0;
         while (http_res == 1 && trials < 10)
         {
+            // Fork: each try starts from nothing; a try that failed part way left its text, and
+            // the next one was added to it
+            result.clear();
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
-                int bad_entries = 0; // Fork: TLE text is read too, not only OMM CSV
-                new_registry = parseKeplerText(result, bad_entries);
+                // Fork: TLE text is read too, not only OMM CSV, and entries that cannot be read are reported
+                new_registry = parseDownloadedKeplerText(result, url_str);
                 success = new_registry.size() > 0;
             }
             else
@@ -425,9 +498,13 @@ namespace satdump
         int http_res = 1, trials = 0;
         while (http_res == 1 && trials < 10)
         {
+            // Fork: each try starts from nothing; a try that failed part way left its text, and
+            // the next one was added to it
+            result.clear();
             if ((http_res = perform_http_request(url_str, result)) != 1)
             {
-                new_registry = parseCcsdsOmmFile(result);
+                // Fork: as above (parseCcsdsOmmFile dropped such entries without a word)
+                new_registry = parseDownloadedKeplerText(result, url_str);
                 success = new_registry.size() > 0;
             }
             else

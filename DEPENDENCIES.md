@@ -132,7 +132,7 @@ version number.
 | muparserx | `src-core/libs/muparserx` | 4.0.12 (2023-03-04), in `mpDefines.h` (`MUP_PARSER_VERSION`) | <https://github.com/beltoforion/muparserx> | BSD-2-Clause | none |
 | OpenJPEG | `src-core/libs/openjp2` | 2.5.0 (`opj_config_private.h`, `OPJ_PACKAGE_VERSION`) | <https://github.com/uclouvain/openjpeg> | BSD-2-Clause | build fixes for Windows, macOS and ARM64; AVX turned off; SatDump's read-from-memory stream |
 | NetBSD strptime | `src-core/libs/others` | 1.62 (2017/08/24), in `strptime.cpp` (`$NetBSD$` line) | <https://cvsweb.netbsd.org/bsdweb.cgi/src/lib/libc/time/strptime.c> | BSD-2-Clause | made into C++ for Windows |
-| libpredict | `src-core/libs/predict` | 3.0.0 (`predict.h`, `PREDICT_VERSION_STRING`) | <https://github.com/la1k/libpredict> | GPL-2.0 | many: Windows fixes (2022, 2026), time fixes (2024), TLE phase-out in `orbit.c` (2026) |
+| libpredict | `src-core/libs/predict` | 3.0.0 (`predict.h`, `PREDICT_VERSION_STRING`) | <https://github.com/la1k/libpredict> | GPL-2.0 | many: Windows fixes (2022, 2026), time fixes (2024), TLE phase-out in `orbit.c` (2026); the designator in `orbit.c` ended with a NUL when it fills all 8 columns *(fork)* |
 | SuperNOVAS | `src-core/libs/supernovas` | 1.5.0-devel (`novas.h`, `SUPERNOVAS_*_VERSION` and `RELEASE_STRING`) | <https://github.com/Sigmyne/SuperNOVAS> | Unlicense | Windows fixes |
 | CLI11 | `src-core/libs/CLI11.hpp` | 2.5.0 (`CLI11_VERSION`) | <https://github.com/CLIUtils/CLI11> | BSD-3-Clause | none |
 | QOI | `src-core/libs/qoi.h` | unversioned | <https://github.com/phoboslab/qoi> | MIT | none |

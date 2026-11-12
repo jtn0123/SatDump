@@ -1,10 +1,15 @@
 // Fork: orbit elements and Earth orientation (IERS) data from local files (file:// URLs), as the
 // Controller supplies them so SatDump never has to go online. Covers: TLE text and OMM CSV both
 // read; a local file read at start-up, before init() returns; a missing file reported once at
-// once (no ten retries); a damaged or empty file changing nothing; the leap second list in the
-// layouts it is published in; the IERS entry nearest in time being the one used; JSON that is not
-// a bulletin; an address setting that cannot be read never leading to a download. The IERS data
-// is a short copy of the published files (tests/offline); the orbit elements are made up.
+// once (no ten retries); a damaged or empty file changing nothing, including one with values a
+// TLE cannot be made from, and stored elements of that kind being skipped; downloads (from a
+// local test server) reporting the entries they skip; international designators (full
+// 8-character ones, the OMM form, a quote); the leap second list in the layouts it is published
+// in, and refused when damaged or when it does not match its hash line (so one cut short between
+// two lines is refused too), with the SHA-1 that checks it; the IERS entry nearest in time being
+// the one used; JSON that is not a bulletin; the IERS addresses as SatDump reads them
+// (settings.json merged over the installed defaults). The IERS data is a short copy of the
+// published files (tests/offline); the orbit elements are made up.
 
 #include "db/iers/iers_handler.h"
 #include "db/kepler/kepler_handler.h"
@@ -13,15 +18,27 @@
 #include "log_capture.h"
 #include "offline_rig.h"
 #include "utils/file_url.h"
+#include "utils/sha1.h"
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <optional>
+#include <poll.h>
 #include <sqlite3.h>
 #include <string>
+#include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
+#include <vector>
 
 using test_log::LogCapture;
 
@@ -87,6 +104,134 @@ namespace
         REQUIRE(at != std::string::npos);
         text[at + 30] = text[at + 30] == '5' ? '6' : '5';
         return text;
+    }
+
+    // A TLE line from its first 68 characters, with its checksum added
+    std::string tle_line(const std::string &first68)
+    {
+        REQUIRE(first68.size() == 68);
+        int sum = 0;
+        for (char ch : first68)
+            sum += ch == '-' ? 1 : (ch >= '0' && ch <= '9' ? ch - '0' : 0);
+        return first68 + char('0' + sum % 10);
+    }
+
+    // OMM CSV as the default sources send it: the header line, then METOP-B and NOAA 19 (the
+    // columns are those of the header)
+    const std::string OMM_HEADER = "OBJECT_NAME,OBJECT_ID,EPOCH,MEAN_MOTION,ECCENTRICITY,INCLINATION,RA_OF_ASC_NODE,ARG_OF_PERICENTER,MEAN_ANOMALY,"
+                                   "EPHEMERIS_TYPE,CLASSIFICATION_TYPE,NORAD_CAT_ID,ELEMENT_SET_NO,REV_AT_EPOCH,BSTAR,MEAN_MOTION_DOT,MEAN_MOTION_DDOT\n";
+    const std::string OMM_METOP = "METOP-B,2012-049A,2025-11-10T12:00:00.000000,14.21512345,.00015,98.69,10.1234,90.1,270.05,0,U,38771,999,67890,.00005,.000001,0";
+    const std::string OMM_NOAA = "NOAA 19,2009-005A,2025-11-10T12:00:00.000000,14.13,.00014,99.05,40.5,100.2,260,0,U,33591,999,86543,.00005,.000001,0";
+
+    // An OMM CSV line with one column replaced
+    std::string omm_with(const std::string &line, size_t column, const std::string &value)
+    {
+        size_t start = 0;
+        for (size_t i = 0; i < column; i++)
+            start = line.find(',', start) + 1;
+        size_t end = line.find(',', start);
+        return line.substr(0, start) + value + (end == std::string::npos ? "" : line.substr(end));
+    }
+
+    // Answers HTTP requests on 127.0.0.1 from a thread of its own, one connection each, with the
+    // replies given (whole HTTP replies) in turn: a download can be tested without the network
+    class LocalHttpServer
+    {
+    public:
+        explicit LocalHttpServer(const std::vector<std::string> &replies)
+        {
+            listener = socket(AF_INET, SOCK_STREAM, 0);
+            REQUIRE(listener >= 0);
+            sockaddr_in addr = {};
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            socklen_t len = sizeof(addr);
+            REQUIRE(bind(listener, (sockaddr *)&addr, sizeof(addr)) == 0);
+            REQUIRE(listen(listener, 4) == 0);
+            REQUIRE(getsockname(listener, (sockaddr *)&addr, &len) == 0);
+            port = ntohs(addr.sin_port);
+            server = std::thread([this, replies]() { serve(replies); });
+        }
+
+        ~LocalHttpServer()
+        {
+            finish();
+            close(listener);
+        }
+
+        LocalHttpServer(const LocalHttpServer &) = delete;
+        LocalHttpServer &operator=(const LocalHttpServer &) = delete;
+
+        std::string url(const std::string &path) const { return "http://127.0.0.1:" + std::to_string(port) + path; }
+
+        // The first line of each request ("GET /path HTTP/1.1"), once every reply was sent (or no
+        // request came for 20 s)
+        std::vector<std::string> requests()
+        {
+            finish();
+            return asked;
+        }
+
+    private:
+        int listener = -1;
+        int port = 0;
+        std::thread server;
+        std::vector<std::string> asked;
+
+        void finish()
+        {
+            if (server.joinable())
+                server.join();
+        }
+
+        void serve(const std::vector<std::string> &replies)
+        {
+            for (const std::string &reply : replies)
+            {
+                pollfd waiting = {listener, POLLIN, 0};
+                if (poll(&waiting, 1, 20000) != 1)
+                    return;
+                int c = accept(listener, nullptr, nullptr);
+                if (c < 0)
+                    return;
+                std::string request;
+                char buffer[4096];
+                while (request.find("\r\n\r\n") == std::string::npos)
+                {
+                    ssize_t n = recv(c, buffer, sizeof(buffer), 0);
+                    if (n <= 0)
+                        break;
+                    request.append(buffer, (size_t)n);
+                }
+                asked.push_back(request.substr(0, request.find("\r\n")));
+                size_t sent = 0;
+                while (sent < reply.size())
+                {
+                    ssize_t n = send(c, reply.data() + sent, reply.size() - sent, MSG_NOSIGNAL);
+                    if (n <= 0)
+                        break;
+                    sent += (size_t)n;
+                }
+                close(c);
+            }
+        }
+    };
+
+    // An HTTP reply with this body. A smaller `sent` sends only the start of the body, under a
+    // length that counts all of it, as a download that fails part way
+    std::string http_reply(const std::string &body, size_t sent = std::string::npos)
+    {
+        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" +
+               body.substr(0, sent);
+    }
+
+    // METOP-B's elements, as read from TLE_TEXT
+    satdump::KeplerData metop_elements()
+    {
+        int bad = -1;
+        std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(TLE_TEXT, bad);
+        REQUIRE(keps.size() == 3);
+        return keps[0];
     }
 } // namespace
 
@@ -173,6 +318,242 @@ TEST_CASE("Orbit elements: the TLE given out for elements read from TLE text is 
     REQUIRE(elements != nullptr);
     CHECK(elements->satellite_number == 38771);
     predict_destroy_orbital_elements(elements);
+}
+
+TEST_CASE("Orbit elements: a designator that fills all 8 columns is read as it is")
+{
+    // A debris piece with a three-letter designator. The orbit library copied the 8 characters
+    // with no NUL after them, and the designator SatDump stored read on into the bytes that follow
+    const std::string line1 = tle_line("1 31141U 99025BGQ 25314.50000000  .00000100  00000-0  50000-4 0  999");
+    const std::string line2 = tle_line("2 31141  98.6900  10.1234 0001500  90.1000 270.0500 14.2151234567890");
+
+    // The memory the library is about to get is filled first, so bytes left unset show: blocks of
+    // its size are filled and freed, and the allocator hands the last ones freed out first. A few,
+    // as the reading below takes one or two for its own text first. (Called through volatile
+    // pointers, so the compiler cannot drop them)
+    const auto fill_freed_memory = []
+    {
+        void *(*volatile allocate)(size_t) = std::malloc;
+        void (*volatile release)(void *) = std::free;
+        std::vector<void *> blocks;
+        for (int i = 0; i < 8; i++)
+            if (void *block = allocate(sizeof(predict_orbital_elements_t)))
+                blocks.push_back(std::memset(block, 0xA5, sizeof(predict_orbital_elements_t)));
+        for (void *block : blocks)
+            release(block);
+        return blocks.size();
+    };
+    REQUIRE(fill_freed_memory() == 8);
+    predict_orbital_elements_t *elements = predict_parse_tle(line1.c_str(), line2.c_str());
+    REQUIRE(elements != nullptr);
+    CHECK(strnlen(elements->designator, sizeof(elements->designator)) == 8);
+    predict_destroy_orbital_elements(elements);
+
+    // SatDump's copy stops at 8 characters on its own, even if the library left no NUL
+    const std::string text = "DEBRIS\n" + line1 + "\n" + line2 + "\n";
+    int bad = -1;
+    REQUIRE(fill_freed_memory() == 8);
+    std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(text, bad);
+    CHECK(bad == 0);
+    REQUIRE(keps.size() == 1);
+    CHECK(keps[0].designator == "99025BGQ");
+    CHECK(satdump::keplerToTle(keps[0]).line1.substr(9, 8) == "99025BGQ");
+}
+
+TEST_CASE("Orbit elements: OMM designators are written in TLE form, the longer ones too")
+{
+    // Only "YYYY-NNNP" (a one-letter piece) was turned into TLE form; "2019-074AB" was cut to
+    // "2019-074"
+    satdump::KeplerData kep = metop_elements();
+    for (auto &d : std::vector<std::pair<std::string, std::string>>{{"2012-049A", "12049A  "},
+                                                                     {"2019-074AB", "19074AB "},
+                                                                     {"1999-025BGQ", "99025BGQ"},
+                                                                     {"12049A", "12049A  "},
+                                                                     {"99025BGQ", "99025BGQ"},
+                                                                     {"", "        "}})
+    {
+        CAPTURE(d.first);
+        kep.designator = d.first;
+        satdump::TLE tle = satdump::keplerToTle(kep);
+        CHECK(tle.line1.substr(9, 8) == d.second);
+        CHECK(tle.line1.size() == 69);
+    }
+
+    // From an OMM file, through the database
+    TempDir dir;
+    dir.write("elements.csv", OMM_HEADER + omm_with(OMM_METOP, 1, "2019-074AB") + "\n");
+    test_rig::OfflineRig rig(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.csv")}));
+    std::optional<satdump::TLE> tle = rig.keplers->get_from_norad(38771);
+    REQUIRE(tle.has_value());
+    CHECK(tle->line1.substr(0, 18) == "1 38771U 19074AB  ");
+    predict_orbital_elements_t *elements = predict_parse_tle(tle->line1.c_str(), tle->line2.c_str());
+    REQUIRE(elements != nullptr);
+    CHECK(std::string(elements->designator) == "19074AB");
+    predict_destroy_orbital_elements(elements);
+}
+
+TEST_CASE("Orbit elements: a designator with a quote is stored, with the rest of its file")
+{
+    // It went into the database's SQL as it was, so that entry failed while the rest of the file
+    // was stored
+    TempDir dir;
+    dir.write("elements.csv", OMM_HEADER + OMM_METOP + "\n" + omm_with(OMM_NOAA, 1, "2009-005'A") + "\n");
+    LogCapture c;
+    test_rig::OfflineRig rig(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.csv")}));
+    satdump::KeplerData kep;
+    REQUIRE(rig.keplers->getKepler(kep, 33591));
+    CHECK(kep.designator == "2009-005'A");
+    CHECK(rig.keplers->getAllNewestKepler().size() == 2);
+    CHECK_FALSE(c.has(slog::LOG_ERROR, "Error inserting"));
+}
+
+TEST_CASE("Orbit elements: an entry a TLE cannot be made from cannot be read, so its file is not used")
+{
+    int bad = -1;
+    CHECK(satdump::parseKeplerText(OMM_HEADER + OMM_METOP + "\n", bad).size() == 1);
+    CHECK(bad == 0);
+
+    // One value changed in each. They were read, stored, and making the TLE then threw (a drag
+    // term of 1 or more), never finished (a tiny one) or was undefined (a catalogue number too
+    // big for an int)
+    const std::vector<std::pair<size_t, std::string>> changes = {
+        {14, "1.2"},  {14, "-1"},   {14, "1e-300"}, {14, "nan"},  {16, "1"},    {16, "-inf"}, {3, "inf"},
+        {4, "nan"},   {11, "1e20"}, {11, "nan"},    {11, "-5"},   {12, "1e10"}, {13, "-1"},
+        {2, "2025-11-10T12:00:nan"}, {2, "2025-11-10T12:00:1e300"}, {2, "1999-12-31T23:59:59"}, {2, "2100-01-01T00:00:00"},
+    };
+    for (auto &change : changes)
+    {
+        std::string line = omm_with(OMM_METOP, change.first, change.second);
+        CAPTURE(line);
+        std::vector<satdump::KeplerData> keps = satdump::parseKeplerText(OMM_HEADER + line + "\n" + OMM_NOAA + "\n", bad);
+        CHECK(bad == 1);
+        CHECK(keps.size() == 1);
+    }
+
+    // TLE text: an exponent column that is not a digit gives a drag term of 5e15
+    std::string tle = TLE_TEXT;
+    size_t line1 = tle.find("1 38771");
+    std::string changed = tle.substr(line1, 60) + " ";
+    tle.replace(line1, 69, tle_line(changed + tle.substr(line1 + 61, 7)));
+    CHECK(satdump::parseKeplerText(tle, bad).size() == 2);
+    CHECK(bad == 1);
+}
+
+TEST_CASE("Orbit elements: a file with an entry a TLE cannot be made from changes nothing at start-up, with one warning")
+{
+    // Read at start-up, it was stored, and making the TLEs then threw out of init(); SatDump fell
+    // back to a database in memory, read the file again there, and stopped (exit 134)
+    TempDir dir;
+    dir.write("elements.csv", OMM_HEADER + OMM_METOP + "\n" + omm_with(OMM_NOAA, 14, "1.2") + "\n");
+    LogCapture c;
+    std::unique_ptr<test_rig::OfflineRig> rig;
+    CHECK_NOTHROW(rig = std::make_unique<test_rig::OfflineRig>(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.csv")})));
+    REQUIRE(rig != nullptr);
+    CHECK(rig->keplers->getAllNewestKepler().empty());
+    CHECK(rig->keplers->all_.empty());
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "1 entries that cannot be read"));
+}
+
+TEST_CASE("Orbit elements: a download with entries that cannot be read uses the others, with a warning")
+{
+    // NOAA 19's drag term (BSTAR) of 1.2 cannot be written in a TLE. Such an entry of a download
+    // was dropped without a word, and NOAA 19 kept its old elements
+    LocalHttpServer server({http_reply(OMM_HEADER + OMM_METOP + "\n" + omm_with(OMM_NOAA, 14, "1.2") + "\n")});
+    const std::string url = server.url("/gp.php?GROUP=weather&FORMAT=csv");
+    LogCapture c;
+    std::vector<satdump::KeplerData> keps = satdump::tryFetchOMMFileFromURL(url);
+    REQUIRE(keps.size() == 1);
+    CHECK(keps[0].satellite_number == 38771);
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "1 of the orbit element entries downloaded from " + url + " cannot be read, so they are skipped"));
+    CHECK(server.requests() == std::vector<std::string>{"GET /gp.php?GROUP=weather&FORMAT=csv HTTP/1.1"});
+}
+
+TEST_CASE("Orbit elements: a download tried again after failing part way is read on its own")
+{
+    // The first try ends part way through METOP-B's line, and the second sends it all. The text
+    // of the first was kept and the second added to it, so a line made of both was an entry that
+    // could not be read
+    const std::string body = OMM_HEADER + OMM_METOP + "\n" + OMM_NOAA + "\n";
+    LocalHttpServer server({http_reply(body, OMM_HEADER.size() + 20), http_reply(body)});
+    LogCapture c;
+    std::vector<satdump::KeplerData> keps = satdump::tryFetchOMMFileFromURL(server.url("/elements.csv"));
+    CHECK(keps.size() == 2);
+    CHECK(warnings(c) == 0);
+    CHECK(server.requests().size() == 2);
+}
+
+TEST_CASE("Orbit elements: a single satellite's download that cannot be read says why")
+{
+    // The satellite's only entry cannot be used: the error that nothing came was all there was
+    LocalHttpServer server({http_reply(OMM_HEADER + omm_with(OMM_NOAA, 14, "1.2") + "\n")});
+    const nlohmann::ordered_json old_cfg = satdump::satdump_cfg.main_cfg;
+    satdump::satdump_cfg.main_cfg["kepler_settings"]["url_template"] = server.url("/gp.php?CATNR=%NORAD%&FORMAT=csv");
+    LogCapture c;
+    std::vector<satdump::KeplerData> keps = satdump::tryFetchSingleOMMwithNorad(33591);
+    satdump::satdump_cfg.main_cfg = old_cfg;
+    CHECK(keps.empty());
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "1 of the orbit element entries downloaded from " + server.url("/gp.php?CATNR=33591&FORMAT=csv") + " cannot be read"));
+    CHECK(c.has(slog::LOG_ERROR, "Error updating Kepler for 33591"));
+    CHECK(server.requests() == std::vector<std::string>{"GET /gp.php?CATNR=33591&FORMAT=csv HTTP/1.1"});
+}
+
+TEST_CASE("Orbit elements: stored elements a TLE cannot be made from are skipped, with a warning")
+{
+    // Elements stored before such values were refused. Making their TLE threw: at start-up that
+    // made SatDump drop the whole database for the run, and a product asking for them failed
+    TempDir dir;
+    dir.write("elements.tle", TLE_TEXT);
+    const std::string db_path = (dir.path / "main.db").string();
+    {
+        test_rig::OfflineRig earlier(test_rig::general("Never", false), test_rig::kepler_sources({}), db_path);
+        satdump::KeplerData kep = metop_elements();
+        kep.satellite_number = 99999;
+        kep.name = "FORK BAD";
+        kep.bstar_drag_term = 1.5;
+        earlier.keplers->putKepler(kep);
+    }
+
+    LogCapture c;
+    std::unique_ptr<test_rig::OfflineRig> rig;
+    CHECK_NOTHROW(rig = std::make_unique<test_rig::OfflineRig>(test_rig::general("4 hours", false), test_rig::kepler_sources({dir.url("elements.tle")}), db_path));
+    REQUIRE(rig != nullptr);
+    CHECK(rig->keplers->getAllNewestKepler().size() == 4);
+    CHECK(rig->keplers->all_.size() == 3);
+    CHECK(c.has(slog::LOG_WARN, "Stored orbit elements are not used: the elements of satellite 99999 cannot be written as a TLE: the drag term (BSTAR)"));
+    CHECK_FALSE(rig->keplers->get_from_norad(99999).has_value());
+    CHECK_FALSE(rig->keplers->get_from_norad_time(99999, EPOCH).has_value());
+    CHECK(rig->keplers->get_from_norad(38771).has_value());
+}
+
+TEST_CASE("Orbit elements: making a TLE refuses values it cannot write, and never hangs")
+{
+    satdump::KeplerData kep = metop_elements();
+    CHECK(satdump::keplerTleProblem(kep) == "");
+    kep.bstar_drag_term = -0.00012;
+    CHECK(satdump::keplerTleProblem(kep) == "");
+
+    // strLE went round its loop for ever below about 1e-292, and threw at 1 and above
+    for (double v : {1e-300, -1e-300, 5e-324, 1e-15, 1.0, -1.0, 2.5})
+    {
+        CAPTURE(v);
+        kep = metop_elements();
+        kep.bstar_drag_term = v;
+        CHECK(satdump::keplerTleProblem(kep).find("drag term (BSTAR)") != std::string::npos);
+        CHECK_THROWS_AS(satdump::keplerToTle(kep), std::exception);
+        kep = metop_elements();
+        kep.second_derivative_mean_motion = v;
+        CHECK(satdump::keplerTleProblem(kep).find("second derivative") != std::string::npos);
+        CHECK_THROWS_AS(satdump::keplerToTle(kep), std::exception);
+    }
+    kep = metop_elements();
+    kep.mean_motion = NAN;
+    CHECK(satdump::keplerTleProblem(kep) == "the mean motion is not a finite number");
+    kep = metop_elements();
+    kep.epoch = 4102444800.0; // 2100-01-01
+    CHECK(satdump::keplerTleProblem(kep) == "the epoch is not in the years 2000 to 2099");
 }
 
 TEST_CASE("Orbit elements: a local file is read at start-up, before init() returns")
@@ -367,18 +748,37 @@ TEST_CASE("IERS: the leap second list in both published layouts; a damaged one c
 {
     test_rig::OfflineRig rig(test_rig::general("Never", false));
 
-    // The copy in tzdata (IANA) has tabs between the columns
-    CHECK(rig.iers->storeLeapSeconds("#\tleap seconds\n2272060800\t10\t# 1 Jan 1972\n3692217600\t37\t# 1 Jan 2017\n"));
+    // The copy in tzdata (IANA) has tabs between the columns (the fixture has spaces). Both have
+    // the expiry line, "#@" and a time, and end with the hash line, "#h" and the SHA-1 of the data
+    CHECK(rig.iers->storeLeapSeconds("#\tleap seconds\n#@\t4023129600\n2272060800\t10\t# 1 Jan 1972\n3692217600\t37\t# 1 Jan 2017\n"
+                                     "#h\t8a926661 247bf802 7ce3dbc4 992c37ed a7b37e89\n"));
     CHECK(rig.db->get_table_size("leap_seconds") == 2);
     CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
 
+    // Each refused list gives one warning and changes nothing
     LogCapture c;
-    CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 thirty-seven\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 thirty-seven\n"));
     CHECK(warnings(c) == 1);
-    CHECK(c.has(slog::LOG_WARN, "line 2"));
-    CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 37 1 Jan 2017\n"));
+    CHECK(c.has(slog::LOG_WARN, "line 3"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 37 1 Jan 2017\n"));
     CHECK_FALSE(rig.iers->storeLeapSeconds("<html><body>Not found</body></html>\n"));
-    CHECK_FALSE(rig.iers->storeLeapSeconds("# only comments\n\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n# only comments\n\n"));
+    CHECK(warnings(c) == 4);
+
+    // Cut short inside the last value: it was read as 3 s from 2017 on, over the 37 stored
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@\t4023129600\n2272060800\t10\t# 1 Jan 1972\n3692217600\t3"));
+    CHECK(c.has(slog::LOG_WARN, "line 3 (3692217600\t3) does not have a later time and more leap seconds"));
+    // Not in time order, and TAI-UTC not going up
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n3692217600 37 # 1 Jan 2017\n2272060800 10 # 1 Jan 1972\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@ 4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 10 # 1 Jan 2017\n"));
+    CHECK(warnings(c) == 7);
+    // No expiry line, or one with no time (both published layouts have one). A list cut short
+    // between two lines still has it, as it comes before the entries: the next test covers that
+    CHECK_FALSE(rig.iers->storeLeapSeconds("2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds("#@\n2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"));
+    CHECK(c.has(slog::LOG_WARN, "no expiry line"));
+    CHECK(warnings(c) == 9);
+
     CHECK(rig.db->get_table_size("leap_seconds") == 2);
     CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
 
@@ -387,6 +787,89 @@ TEST_CASE("IERS: the leap second list in both published layouts; a damaged one c
     CHECK_FALSE(rig.iers->storeBulletinA(R"({"EOP": {"data": {"timeSeries": []}}})"));
     CHECK(c.has(slog::LOG_WARN, "no entries that can be used"));
     CHECK(rig.db->get_table_size("iers") == 0);
+}
+
+TEST_CASE("IERS: a leap second list is used only when it matches its hash line, so one cut short is refused")
+{
+    const std::string whole = fixture("leap-seconds.list");
+    const size_t last_entry = whole.find("3692217600 ");
+    const size_t hash_line = whole.find("#h\t");
+    REQUIRE(last_entry != std::string::npos);
+    REQUIRE(hash_line != std::string::npos);
+    REQUIRE(whole.find("#@\t") < last_entry);
+
+    test_rig::OfflineRig rig(test_rig::general("Never", false));
+    LogCapture c;
+
+    // Cut short between two lines: the expiry line and the entries up to 2015 are there, the last
+    // line (the hash) is not. It was stored, and gave 36 s from 2017 on, not 37
+    CHECK_FALSE(rig.iers->storeLeapSeconds(whole.substr(0, last_entry)));
+    CHECK(warnings(c) == 1);
+    CHECK(c.has(slog::LOG_WARN, "no hash line"));
+    CHECK(rig.db->get_table_size("leap_seconds") == 0);
+    CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 0);
+    // Cut short after the last entry, before the hash line: the same
+    CHECK_FALSE(rig.iers->storeLeapSeconds(whole.substr(0, hash_line)));
+    // A hash line that is not five words of 1 to 8 hexadecimal digits is no hash line
+    const std::string data = whole.substr(0, hash_line);
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54 5923836a 5923836a\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54 5923836g\n"));
+    CHECK_FALSE(rig.iers->storeLeapSeconds(data + "#h\ta9bad145 84c31c70 758402aa b37bfd54 15923836a\n"));
+    CHECK(warnings(c) == 6);
+    // Cut short inside the hash line, or with an entry changed: the data does not match the hash
+    CHECK_FALSE(rig.iers->storeLeapSeconds(whole.substr(0, whole.size() - 4)));
+    std::string changed = whole;
+    changed.replace(changed.find("3692217600      37"), 18, "3692217600      38");
+    CHECK_FALSE(rig.iers->storeLeapSeconds(changed));
+    std::string changed_expiry = whole;
+    changed_expiry.replace(changed_expiry.find("#@\t4023129600"), 13, "#@\t4038854400");
+    CHECK_FALSE(rig.iers->storeLeapSeconds(changed_expiry));
+    CHECK(c.has(slog::LOG_WARN, "does not match its hash line"));
+    CHECK(warnings(c) == 9);
+    CHECK(rig.db->get_table_size("leap_seconds") == 0);
+
+    // The hash is made of the digits of the entries and of the "#$" and "#@" times, in the order of
+    // the file: other comments, tabs for spaces and \r\n line ends do not change it
+    std::string retyped = whole;
+    size_t at = 0;
+    while ((at = retyped.find("      ", at)) != std::string::npos)
+        retyped.replace(at, 6, "\t");
+    retyped.replace(retyped.find("# 1 Jan 2017"), 12, "# 1 January 2017, the last one so far");
+    at = 0;
+    while ((at = retyped.find('\n', at)) != std::string::npos)
+    {
+        retyped.replace(at, 1, "\r\n");
+        at += 2;
+    }
+    CHECK(rig.iers->storeLeapSeconds(retyped));
+    CHECK(rig.db->get_table_size("leap_seconds") == 28);
+    CHECK(rig.iers->getBestIERSInfo(EPOCH).leap_seconds == 37);
+
+    // A word of the hash may be written without its leading zeros (the second is 00a81a2b here)
+    CHECK(rig.iers->storeLeapSeconds("#$\t3992312699\n#@\t4023129600\n2272060800 10 # 1 Jan 1972\n3692217600 37 # 1 Jan 2017\n"
+                                     "#h\t4ad02730 a81a2b 564bc7c7 55c125b0 dc8802a1\n"));
+    CHECK(warnings(c) == 9);
+}
+
+TEST_CASE("IERS: SHA-1 of the standard test texts, and of lengths at the end of a block")
+{
+    auto hex = [](const std::string &bytes)
+    {
+        std::array<uint32_t, 5> d = satdump::sha1Digest(bytes);
+        char text[48];
+        snprintf(text, sizeof(text), "%08x %08x %08x %08x %08x", (unsigned)d[0], (unsigned)d[1], (unsigned)d[2], (unsigned)d[3], (unsigned)d[4]);
+        return std::string(text);
+    };
+    // FIPS 180-2, appendix A, and the empty text
+    CHECK(hex("") == "da39a3ee 5e6b4b0d 3255bfef 95601890 afd80709");
+    CHECK(hex("abc") == "a9993e36 4706816a ba3e2571 7850c26c 9cd0d89d");
+    CHECK(hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") == "84983e44 1c3bd26e baae4aa1 f95129e5 e54670f1");
+    CHECK(hex(std::string(1000000, 'a')) == "34aa973c d4c4daa4 f61eeb2b dbad2731 6534016f");
+    // 55 bytes leave room in their block for the end mark and the length, 56 and 64 do not
+    CHECK(hex(std::string(55, 'a')) == "c1c8bbdc 22796e28 c0e15163 d20899b6 5621d65a");
+    CHECK(hex(std::string(56, 'a')) == "c2db330f 6083854c 99d4b5bf b6e8f29f 201be699");
+    CHECK(hex(std::string(64, 'a')) == "0098ba82 4b5c1642 7bd7a112 2a5a442a 25ec644d");
 }
 
 TEST_CASE("IERS: JSON that is not a bulletin changes nothing and leaves no transaction open")
@@ -440,29 +923,77 @@ TEST_CASE("IERS: local files are read at start-up; a missing one gives one warni
         test_rig::OfflineRig rig(test_rig::general("Never", false, dir.url("finals.json"), dir.url("leap.list")));
         CHECK(rig.db->get_table_size("iers") == 0);
     }
+}
 
+TEST_CASE("IERS: the addresses as SatDump reads them, settings.json merged over the installed defaults")
+{
+    // The installed satdump_cfg.json holds the web addresses SatDump always used (for the GUI's
+    // users who switch the update on), with the update off
+    const nlohmann::ordered_json defaults = test_rig::merged_over_defaults(nlohmann::ordered_json::object());
+    const std::string web_bulletin = defaults["satdump_general"]["iers_bulletin_url"]["value"];
+    const std::string web_leap = defaults["satdump_general"]["leap_seconds_url"]["value"];
+    CHECK(web_bulletin.rfind("https://", 0) == 0);
+    CHECK(web_leap.rfind("https://", 0) == 0);
+    CHECK(defaults["satdump_general"]["iers_auto_update"]["value"] == false);
+
+    // An address is used only when settings.json gives it as {"value": "<text>"}, or leaves it
+    // out (or gives an object without "value"), which means that web address (downloaded in the
+    // background when the update is on). Anything else is no address: {"value": ""},
+    // {"value": null} (the merge removes "value"), a value that is not text, null (the merge
+    // removes the setting) or a setting that is not an object. (This test once replaced the whole
+    // "satdump_general" part, which a run never has, so a left-out address seemed to be none.)
+    const nlohmann::ordered_json old_cfg = satdump::satdump_cfg.main_cfg;
+    nlohmann::ordered_json update_on;
+    update_on["satdump_general"]["iers_auto_update"]["value"] = true;
+    satdump::satdump_cfg.main_cfg = test_rig::merged_over_defaults(update_on);
+    CHECK(satdump::IersDBHandler::bulletinUrl() == web_bulletin);
+    CHECK(satdump::IersDBHandler::leapSecondsUrl() == web_leap);
+    auto bulletin_with = [&update_on](const nlohmann::ordered_json &setting)
     {
-        // An address not in the form {"value": "<address>"} (here bare text naming a web address)
-        // is not set: that file is not updated, with one warning, and nothing is downloaded. The
-        // other file, local, is still read at start-up
+        nlohmann::ordered_json with = update_on;
+        with["satdump_general"]["iers_bulletin_url"] = setting;
+        satdump::satdump_cfg.main_cfg = test_rig::merged_over_defaults(with);
+        return satdump::IersDBHandler::bulletinUrl();
+    };
+    CHECK(bulletin_with(nlohmann::ordered_json::object()) == web_bulletin);
+    CHECK(bulletin_with({{"Value", "file:///data/finals.json"}}) == web_bulletin);
+    CHECK(bulletin_with({{"value", "file:///data/finals.json"}}) == "file:///data/finals.json");
+    CHECK(bulletin_with({{"value", ""}}) == "");
+    CHECK(bulletin_with(nullptr) == "");
+    CHECK(bulletin_with({{"value", nullptr}}) == "");
+    CHECK(bulletin_with({{"value", 42}}) == "");
+    CHECK(bulletin_with("file:///data/finals.json") == "");
+    CHECK(bulletin_with(42) == "");
+    satdump::satdump_cfg.main_cfg = old_cfg;
+
+    TempDir dir;
+    dir.write("leap.list", fixture("leap-seconds.list"));
+    {
+        // No address for either, the update on: nothing is fetched, with one warning per file
+        nlohmann::ordered_json user;
+        user["satdump_general"]["iers_auto_update"]["value"] = true;
+        user["satdump_general"]["iers_bulletin_url"]["value"] = "";
+        user["satdump_general"]["leap_seconds_url"] = nullptr;
         LogCapture c;
-        nlohmann::ordered_json g = test_rig::general("Never", true, "", dir.url("leap.list"));
-        g["iers_bulletin_url"] = "https://example.invalid/finals2000A.all.json";
-        test_rig::OfflineRig rig(g);
-        CHECK(satdump::IersDBHandler::bulletinUrl() == "");
+        test_rig::OfflineRig rig(test_rig::WholeSettings{test_rig::merged_over_defaults(user)});
+        CHECK(warnings(c) == 2);
+        CHECK(c.has(slog::LOG_WARN, "No address is set for the IERS bulletin"));
+        CHECK(c.has(slog::LOG_WARN, "No address is set for the leap second list"));
+        CHECK_FALSE(c.has(slog::LOG_TRACE, "Downloading"));
+        CHECK(rig.db->get_table_size("leap_seconds") == 0);
+    }
+    {
+        // Bare text naming a web address is no address: one warning, nothing downloaded. The
+        // other file, local, is still read at start-up
+        nlohmann::ordered_json user;
+        user["satdump_general"]["iers_auto_update"]["value"] = true;
+        user["satdump_general"]["iers_bulletin_url"] = "https://example.invalid/finals2000A.all.json";
+        user["satdump_general"]["leap_seconds_url"]["value"] = dir.url("leap.list");
+        LogCapture c;
+        test_rig::OfflineRig rig(test_rig::WholeSettings{test_rig::merged_over_defaults(user)});
         CHECK(rig.db->get_table_size("leap_seconds") == 28);
         CHECK(warnings(c) == 1);
         CHECK(c.has(slog::LOG_WARN, "No address is set for the IERS bulletin"));
         CHECK_FALSE(c.has(slog::LOG_TRACE, "Downloading"));
     }
-
-    // No address in the settings at all: there is no built-in web address to fall back on (it
-    // used to be the one SatDump always used), so nothing is fetched, with one warning per file
-    LogCapture c;
-    test_rig::OfflineRig rig(test_rig::general("Never", true));
-    CHECK(satdump::IersDBHandler::bulletinUrl() == "");
-    CHECK(satdump::IersDBHandler::leapSecondsUrl() == "");
-    CHECK(warnings(c) == 2);
-    CHECK(c.has(slog::LOG_WARN, "No address is set for the leap second list"));
-    CHECK_FALSE(c.has(slog::LOG_TRACE, "Downloading"));
 }
