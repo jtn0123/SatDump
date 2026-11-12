@@ -53,7 +53,7 @@ jobs:
             ocl-icd-opencl-dev libdbus-1-dev portaudio19-dev librtlsdr-dev libairspy-dev libairspyhf-dev \
             libglfw3-dev libgl-dev libx11-dev libxcursor-dev libxext-dev libxi-dev libxinerama-dev libxrandr-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -62,7 +62,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.name }}-${{ github.sha }}
@@ -82,7 +82,7 @@ jobs:
 
       - name: Keep the logs of a failed run
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-${{ matrix.name }}
           path: |
