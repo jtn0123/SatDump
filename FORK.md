@@ -157,6 +157,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Crash fix | A live module is stopped once more after its task ends: a stop right after start-up could leave DSP blocks it started late running while they were destroyed (exit 134) | 2026-11-12 |
 | Tests | `cli_offline`: a whole station run (settings, element and IERS files, a live run, products) inside a network namespace with no network, so any connection attempt fails the test; skipped (77) where namespaces are not allowed, a failure instead with `SATDUMP_REQUIRE_NETNS=1` | 2026-11-12 |
 | Tests | `cli_supervision` (start, watch through `/api`, stop with SIGTERM, exit codes), and unit tests for pass heights, the offline data files and the single-driver radio probe | 2026-11-12 |
+| Crash fix | `-v` / `--verbose`: the flag's value was a local of the command handler's constructor, so reading the options wrote into a stack frame that had already returned (found by the sanitizer build); it now lives in the handler | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |

@@ -43,7 +43,6 @@ namespace satdump
         {
             // Command basics
             app.set_help_all_flag("--help-all", "Expand all help");
-            bool verbose = false;
             app.add_flag("-v,--verbose", verbose, "Make the logger more verbose");
             app.require_subcommand();
 

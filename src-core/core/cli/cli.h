@@ -24,6 +24,9 @@ namespace satdump
             CLI::App app;
 
             bool is_help = false;
+            // Fork: the -v flag's value lives here; it was a local of the constructor, so parse()
+            // wrote into a stack frame that had already returned
+            bool verbose = false;
 
             std::vector<std::shared_ptr<satdump::CmdHandler>> cmd_handlers;
 

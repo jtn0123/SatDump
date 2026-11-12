@@ -73,6 +73,9 @@ namespace test_rig
             // thread is not started in the unit tests, this is to be safe)
             satdump::taskScheduler->del_task("auto_kepler_update_todorework");
             satdump::taskScheduler->del_task("auto_iers_update");
+            // The database holds its tables and each table holds the database: the loop is
+            // broken here, or none of them is ever freed
+            db->subhandlers.clear();
             satdump::db_keplers = old_keplers;
             satdump::satdump_cfg.main_cfg = old_cfg;
             satdump::eventBus = old_bus;
