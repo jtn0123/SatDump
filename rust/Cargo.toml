@@ -1,0 +1,21 @@
+# Fork: SatDump's Rust parts. Built only with -DSATDUMP_WITH_RUST=ON (cmake/fork/rust.cmake),
+# as a static library inside libsatdump_core.so. No dependencies, so it builds offline.
+[package]
+name = "satdump_rs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+
+[profile.release]
+# A panic is caught at the C++ boundary (src/ffi.rs) and SatDump goes on with its C++ code
+panic = "unwind"
+# Integer overflow is a caught panic rather than a silently wrong number
+overflow-checks = true

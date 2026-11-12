@@ -127,6 +127,7 @@ unset(ANGELSCRIPT_SOURCE)
 find_package(PkgConfig)
 
 add_library(satdump_core SHARED ${SatDump_core_CPPS})
+include(${PROJECT_SOURCE_DIR}/cmake/fork/rust.cmake)
 target_include_directories(satdump_core PUBLIC .)
 #target_precompile_headers(satdump_core PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/nlohmann/json.hpp>")
 

@@ -12,6 +12,9 @@
 #endif
 
 #include "core/config.h"
+#ifdef SATDUMP_WITH_RUST
+#include "rust_bridge.h"
+#endif
 #include "core/plugin.h"
 #include "core/resources.h"
 #include "init.h"
@@ -116,6 +119,9 @@ namespace satdump
         logger->info("/____/\\__,_/\\__/_____/\\__,_/_/ /_/ /_/ .___/ ");
         logger->info("                                    /_/      ");
         logger->info(_("Starting ") + getSatDumpVersionName());
+#ifdef SATDUMP_WITH_RUST
+        logger->info("Rust parts: %s", satdump::rust::enabled() ? "on" : "off (SATDUMP_NO_RUST is set)");
+#endif
         logger->info("");
         logger->set_level(lvl);
 

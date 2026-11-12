@@ -1,4 +1,7 @@
 #include "randomization.h"
+#ifdef SATDUMP_WITH_RUST
+#include "rust_bridge.h"
+#endif
 
 // Byte-level PNu
 uint8_t ccsds_pn[255] = {
@@ -69,12 +72,22 @@ bool ccsds_soft_pn[255] = {1, 1, 1, 1, 1, 1, 1, 1,
                            1, 1, 1, 0, 1, 0, 1, 0,
                            1, 0, 1, 1, 0, 0, 0};
 
-void derand_ccsds(uint8_t *data, int length)
+void derand_ccsds_cpp(uint8_t *data, int length)
 {
     for (int i = 0; i < length; i++)
     {
         data[i] ^= ccsds_pn[i % 255];
     }
+}
+
+void derand_ccsds(uint8_t *data, int length)
+{
+#ifdef SATDUMP_WITH_RUST
+    // Fork: the Rust version when it is built in; the C++ one when Rust is off or fails
+    if (satdump::rust::derand_ccsds(data, length))
+        return;
+#endif
+    derand_ccsds_cpp(data, length);
 }
 
 void derand_ccsds_soft(int8_t *data, int length)

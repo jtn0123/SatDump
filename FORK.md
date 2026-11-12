@@ -43,6 +43,8 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
 | Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
 | Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
+| Rust | `SATDUMP_WITH_RUST` (off by default): the Rust crate in `rust/`, linked into the core library with its symbols hidden; `SATDUMP_NO_RUST=1` switches it off at run time | 2026-11-11 |
+| Rust | First Rust part: the CCSDS derandomiser, tested byte for byte against the C++ one | 2026-11-11 |
 | Tests | Fuzzing (`SATDUMP_FUZZ`, clang): random input for the MetOp/Meteor packet readers, the admin messages and Reed-Solomon | 2026-11-11 |
 | Tests | `tests/guard.sh`: on a receiving station the test gate never starts during a pass or when the disk is low | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |
@@ -113,6 +115,35 @@ running `satdump` process) and when less than `SATDUMP_MIN_FREE_GB` (default 4) 
 It runs at the lowest CPU and disk priority, caps ccache at 2 GB, and writes its process id
 to `$XDG_RUNTIME_DIR/satdump-gate.pid` so a pass scheduler can stop it. `SATDUMP_GUARD=off`
 skips the two checks on machines that never receive passes (CI does this).
+
+## Rust parts
+
+Rust is off by default; the Pi build leaves it off. To build with it (Debian 13's `cargo`,
+`rustc` and `rust-clippy`, Rust 1.85; the crate has no dependencies, so it builds offline):
+
+```bash
+cmake -S . -B build -DSATDUMP_WITH_RUST=ON     # added to any of the configurations above
+tests/gate.sh build                            # adds the Rust tests below
+```
+
+How it fits together:
+
+- `rust/` is one crate, built by cargo from `cmake/fork/rust.cmake` into a static library
+  inside `libsatdump_core.so`. Its symbols are hidden there, so plugins reach Rust only
+  through the C++ functions in `rust/bridge/rust_bridge.h`.
+- Rules for every Rust function C++ calls (`rust/src/ffi.rs`): a panic is caught and comes
+  back as a status code; arguments are checked before anything is changed, so on any error
+  the buffer is untouched and the C++ code does the work instead; a Rust failure is logged
+  once and switches Rust off for the rest of the run.
+- `SATDUMP_NO_RUST=1` in the environment switches Rust off; the log says
+  `Rust parts: on` or `off` at start-up.
+- Each Rust part keeps its C++ twin (for example `derand_ccsds_cpp`) as the reference: the
+  unit tests compare them byte for byte, and the golden pictures are checked with Rust on and
+  off. Rust files stay at 500 lines or fewer.
+
+Rust tests in the gate: `rust_unit` (cargo test), `rust_clippy` (clippy, warnings are
+errors), `cli_rust` (no Rust symbols exported, no extra libraries needed, the switch works),
+`golden_no_rust`, and the C++-against-Rust cases in `unit`.
 
 ## Known issues left as they are
 

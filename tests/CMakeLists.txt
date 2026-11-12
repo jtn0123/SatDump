@@ -23,6 +23,9 @@ target_include_directories(satdump-unit-tests PRIVATE
     ${PROJECT_SOURCE_DIR}/plugins/noaa_metop_support
 )
 target_link_libraries(satdump-unit-tests PRIVATE satdump_core)
+if(SATDUMP_WITH_RUST)
+    target_sources(satdump-unit-tests PRIVATE unit/test_rust_bridge.cpp)
+endif()
 
 add_test(NAME unit COMMAND satdump-unit-tests)
 set_tests_properties(unit PROPERTIES LABELS unit)
@@ -57,6 +60,24 @@ endif()
 if(SATDUMP_RELOCATABLE)
     add_test(NAME cli_install_layout COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_layout.sh ${SATDUMP_CHECK_PREFIX})
     set_tests_properties(cli_install_layout PROPERTIES LABELS cli)
+endif()
+
+# Rust builds (-DSATDUMP_WITH_RUST=ON): the crate's own tests, clippy with warnings as errors,
+# the golden pictures once more with Rust switched off, and how the Rust code is linked
+if(SATDUMP_WITH_RUST)
+    set(_cargo ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${SATDUMP_RUST_TARGET_DIR} ${SATDUMP_CARGO})
+    set(_manifest --manifest-path ${PROJECT_SOURCE_DIR}/rust/Cargo.toml)
+    add_test(NAME rust_unit COMMAND ${_cargo} test --release --offline --locked ${_manifest})
+    add_test(NAME rust_clippy COMMAND ${_cargo} clippy --release --offline --locked --all-targets ${_manifest} -- -D warnings)
+    set_tests_properties(rust_unit PROPERTIES LABELS unit RESOURCE_LOCK cargo)
+    set_tests_properties(rust_clippy PROPERTIES LABELS lint RESOURCE_LOCK cargo)
+    add_test(NAME cli_rust COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rust.sh ${SATDUMP_CHECK_PREFIX})
+    set_tests_properties(cli_rust PROPERTIES LABELS cli)
+    if(Python3_FOUND)
+        add_test(NAME golden_no_rust COMMAND ${CMAKE_COMMAND} -E env SATDUMP_NO_RUST=1
+            bash ${CMAKE_CURRENT_SOURCE_DIR}/golden/golden.sh ${SATDUMP_CHECK_PREFIX} ${_golden_mode})
+        set_tests_properties(golden_no_rust PROPERTIES LABELS cli)
+    endif()
 endif()
 
 if(SATDUMP_FUZZ)
