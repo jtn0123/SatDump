@@ -36,6 +36,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Build | Linux installs are relocatable (`SATDUMP_RELOCATABLE`, on in the preset): they find their files and libraries wherever they are unpacked | 2026-11-11 |
 | Security | The experimental TestRemoteRec server listens on 127.0.0.1 only | 2026-11-11 |
 | Tests | `tests/`: unit and CLI tests, a compiler-warning ratchet, and `tests/gate.sh` | 2026-11-11 |
+| Tests | Golden tests: synthetic MetOp and NOAA recordings (`tests/golden/make_recordings.py`) must give exactly the known-good pictures | 2026-11-11 |
 | Tests | Sanitizer build (`SATDUMP_SANITIZERS`): the same tests with memory and undefined-behaviour checks | 2026-11-11 |
 | CI | Upstream's multi-platform build runs only when started by hand | 2026-11-11 |
 
@@ -61,6 +62,12 @@ cmake --install build --prefix ~/satdump    # a relocatable install
 warnings are fixed, `tests/gate.sh build --update` lowers the baseline in
 `tests/warnings/<arch>.txt`; the baseline should only ever go down. The tests never
 contact the network.
+
+The golden test decodes two small synthetic recordings (a MetOp-B and a NOAA-19 pass,
+generated on the fly from fixed seeds; nothing in them is received data) and compares a
+fingerprint of every picture with `tests/golden/expected-<arch>.txt`. When a change is
+meant to alter the pictures, look at them first, then record the new fingerprints with
+`tests/golden/golden.sh build/check-prefix --update`.
 
 A second build folder runs the same tests under AddressSanitizer and UBSan, which stop on
 any out-of-bounds read or write, use of freed memory, or undefined behaviour (exit code 86):

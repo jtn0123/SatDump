@@ -40,6 +40,16 @@ set_tests_properties(cli_exit_codes PROPERTIES LABELS cli)
 add_test(NAME cli_short_inputs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/short_inputs.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_short_inputs PROPERTIES LABELS cli)
 
+# Synthetic MetOp and NOAA recordings must give exactly the known-good pictures. Sanitizer
+# builds compare only which pictures are made (their compiler settings differ).
+if(Python3_FOUND)
+    if(SATDUMP_SANITIZERS)
+        set(_golden_mode --names-only)
+    endif()
+    add_test(NAME golden COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/golden/golden.sh ${SATDUMP_CHECK_PREFIX} ${_golden_mode})
+    set_tests_properties(golden PROPERTIES LABELS cli)
+endif()
+
 # Only a relocatable build (the fork presets) is meant to run without LD_LIBRARY_PATH
 if(SATDUMP_RELOCATABLE)
     add_test(NAME cli_install_layout COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/install_layout.sh ${SATDUMP_CHECK_PREFIX})
