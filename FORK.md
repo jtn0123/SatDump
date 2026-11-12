@@ -61,6 +61,10 @@ contact the network.
 
 ## Known issues left as they are
 
+- When a pipeline runs the demodulator and decoder together (any `baseband` input), the
+  hand-off between them at the end of the file drops the last few dozen frames (about
+  0.1 s of signal); the exact number changes from run to run. This is upstream behaviour;
+  the products of the test recordings are not affected.
 - `crcCheckHLDC32` (GK-2A only) compares with `crc ^ 0xFFFFFFFF == crc2`, which C++
   reads as `crc ^ (0xFFFFFFFF == crc2)`. Fixing it safely needs GK-2A recordings to test with.
 
