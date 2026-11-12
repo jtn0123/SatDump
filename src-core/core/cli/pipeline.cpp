@@ -11,12 +11,13 @@ namespace satdump
     void PipelineCmdHandler::reg(CLI::App *app)
     {
         CLI::App *sub_pipeline = app->add_subcommand("pipeline", "Run a pipeline");
+        sub_pipeline->require_subcommand(1); // Fork: a pipeline name is required (usage error otherwise)
         for (auto &p : satdump::pipeline::pipelines)
         {
             CLI::App *sub_p = sub_pipeline->add_subcommand(p.id);
 
             sub_p->add_option("level", "Level of the input file. Can be cadu, file, baseband...")->required();
-            sub_p->add_option("input_file", "Actual input file (eg. metop_ahrpt.cadu, a baseband, etc)")->required();
+            sub_p->add_option("input_file", "Actual input file (eg. metop_ahrpt.cadu, a baseband, etc)")->required()->check(CLI::ExistingPath); // Fork: usage error if missing
             sub_p->add_option("output_folder", "Output folder for processed data")->required();
 
             nlohmann::json common = satdump::satdump_cfg.main_cfg["user_interface"]["default_offline_parameters"];
