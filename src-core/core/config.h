@@ -32,6 +32,7 @@ namespace satdump
     public:                                 // TODOREWORK make private again asap!
         nlohmann::ordered_json default_cfg; // The main system-wide satdump_cfg.json
         std::string user_cfg_path;
+        bool user_cfg_unreadable = false; // Fork: the settings file could not be read, so it is never overwritten
 
     private:
         void checkOutputDirs();

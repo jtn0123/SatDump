@@ -109,9 +109,22 @@ namespace satdump
         if (final_path != "")
         {
             logger->info("Loading user settings " + final_path);
-            nlohmann::ordered_json diff_json = loadJsonFile(final_path);
-            main_cfg = merge_json_diffs(default_cfg, diff_json);
             user_cfg_path = final_path;
+            try
+            {
+                nlohmann::ordered_json diff_json = loadJsonFile(final_path);
+                main_cfg = merge_json_diffs(default_cfg, diff_json);
+            }
+            catch (std::exception &e)
+            {
+                // Fork: a damaged settings file no longer stops SatDump. The defaults are used, and
+                // the file is kept as it is (never overwritten) so it can be repaired.
+                logger->error("Cannot read the settings file %s (%s). Using the default settings; "
+                              "the file is left as it is, and settings changes are not saved until it is fixed or removed.",
+                              final_path.c_str(), e.what());
+                main_cfg = default_cfg;
+                user_cfg_unreadable = true;
+            }
         }
         else
         {
@@ -124,6 +137,12 @@ namespace satdump
 
     void SatDumpConfigHandler::saveUser()
     {
+        if (user_cfg_unreadable) // Fork: see loadUser()
+        {
+            logger->error("Settings not saved: %s could not be read at start-up, and is kept as it is", user_cfg_path.c_str());
+            return;
+        }
+
         nlohmann::ordered_json diff_json = perform_json_diff(default_cfg, main_cfg); // Get diff between user settings and the master CFG
 
         try

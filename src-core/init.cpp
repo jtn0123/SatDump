@@ -6,6 +6,10 @@
 #include "db/kepler/kepler_handler.h"
 #include "i18n.h"
 #include <cstdlib>
+#ifndef _WIN32
+#include <pwd.h>
+#include <unistd.h>
+#endif
 
 #include "core/config.h"
 #include "core/plugin.h"
@@ -123,7 +127,17 @@ namespace satdump
 #elif __ANDROID__
         user_path = ".";
 #else
-        user_path = std::string(getenv("HOME")) + "/.config/satdump";
+        // Fork: HOME can be unset (services, cron); a null getenv() result crashed here
+        if (const char *home = getenv("HOME"); home != nullptr && home[0] != '\0')
+            user_path = std::string(home) + "/.config/satdump";
+        else if (const char *xdg = getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0')
+            user_path = std::string(xdg) + "/satdump";
+        else if (const passwd *pw = getpwuid(getuid()); pw != nullptr && pw->pw_dir != nullptr)
+            user_path = std::string(pw->pw_dir) + "/.config/satdump";
+        else
+            user_path = "./.config/satdump";
+        if (getenv("HOME") == nullptr)
+            logger->warn("HOME is not set; using %s for settings", user_path.c_str());
 #endif
 
         try
@@ -132,8 +146,6 @@ namespace satdump
                 satdump_cfg.load("satdump_cfg.json", user_path);
             else
                 satdump_cfg.load(satdump::RESPATH + "satdump_cfg.json", user_path);
-
-            db = std::make_shared<DBHandler>(user_path + "/main.db");
         }
         catch (std::exception &e)
         {
@@ -141,6 +153,18 @@ namespace satdump
             // if (is_gui)
             //    pfd::message("SatDump", "Error loading SatDump config! SatDump will now exit. Error:\n\n" + std::string(e.what()), pfd::choice::ok, pfd::icon::error); TODOREWORK bring this back
             exit(1);
+        }
+
+        // Fork: main.db only caches downloads and a few preferences, so a database that cannot be
+        // opened (or, below, set up) is left as it is and this run keeps its data in memory
+        try
+        {
+            db = std::make_shared<DBHandler>(user_path + "/main.db");
+        }
+        catch (std::exception &e)
+        {
+            logger->error("Cannot open the database %s/main.db (%s); this run keeps its data in memory only", user_path.c_str(), e.what());
+            db = std::make_shared<DBHandler>(":memory:");
         }
 
 #if ENABLE_I18N
@@ -197,9 +221,22 @@ namespace satdump
 #endif
 
         // Database : TLEs, IERS stuff, etc...
-        db->subhandlers.push_back(db_keplers = std::make_shared<KeplerDBHandler>(db));
-        db->subhandlers.push_back(db_iers = std::make_shared<IersDBHandler>(db));
-        db->init();
+        auto setup_db = [&]()
+        {
+            db->subhandlers.push_back(db_keplers = std::make_shared<KeplerDBHandler>(db));
+            db->subhandlers.push_back(db_iers = std::make_shared<IersDBHandler>(db));
+            db->init();
+        };
+        try
+        {
+            setup_db();
+        }
+        catch (std::exception &e) // Fork: for example a damaged main.db (see above)
+        {
+            logger->error("Cannot use the database %s/main.db (%s); it is left as it is and this run keeps its data in memory only", user_path.c_str(), e.what());
+            db = std::make_shared<DBHandler>(":memory:");
+            setup_db();
+        }
 
         // Products
         products::registerProducts();

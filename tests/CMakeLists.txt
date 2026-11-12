@@ -40,6 +40,9 @@ set_tests_properties(cli_exit_codes PROPERTIES LABELS cli)
 add_test(NAME cli_short_inputs COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/short_inputs.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_short_inputs PROPERTIES LABELS cli)
 
+add_test(NAME cli_startup COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/startup.sh ${SATDUMP_CHECK_PREFIX})
+set_tests_properties(cli_startup PROPERTIES LABELS cli)
+
 # Synthetic MetOp and NOAA recordings must give exactly the known-good pictures. Sanitizer
 # builds compare only which pictures are made (their compiler settings differ).
 if(Python3_FOUND)

@@ -2,6 +2,7 @@
 # HOME and no network downloads. Source it with the install prefix as $1.
 set -u
 PREFIX=${1:?usage: $0 <install prefix>}
+PREFIX=$(cd "$PREFIX" 2> /dev/null && pwd) || { echo "no folder $1"; exit 1; }
 SD="$PREFIX/bin/satdump"
 [ -x "$SD" ] || { echo "no satdump at $SD (run tests/gate.sh, which installs first)"; exit 1; }
 export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -27,6 +28,18 @@ run() {
     else
         echo "FAIL $name: exit $got, expected $want"
         sed 's/\x1b\[[0-9;]*m//g' "$WORK/$name.log" | tail -8 | sed 's/^/     /'
+        FAILED=1
+    fi
+}
+
+# check <name> <command...>: a plain true/false check, reported like run()
+check() {
+    local name=$1
+    shift
+    if "$@"; then
+        echo "ok   $name"
+    else
+        echo "FAIL $name"
         FAILED=1
     fi
 }
