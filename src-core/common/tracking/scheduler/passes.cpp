@@ -3,13 +3,18 @@
 #include "init.h"
 #include "libs/predict/predict.h"
 #include "logger.h"
+#include <memory>
 
 namespace satdump
 {
     std::vector<SatellitePass> getPassesForSatellite(int norad, double initial_time, double timespan, double qth_lon, double qth_lat, double qth_alt, std::vector<SatellitePass> premade_passes)
     {
         std::vector<SatellitePass> passes;
-        predict_observer_t *observer_station = predict_create_observer("Main", qth_lat * DEG_TO_RAD, qth_lon * DEG_TO_RAD, qth_alt * DEG_TO_RAD);
+        // Fork: the observer and the orbit were not freed when the satellite had no orbit data or was
+        // geostationary (a leak per satellite on every schedule update); now they are freed on every return
+        std::unique_ptr<predict_observer_t, decltype(&predict_destroy_observer)> observer_owner(
+            predict_create_observer("Main", qth_lat * DEG_TO_RAD, qth_lon * DEG_TO_RAD, qth_alt * DEG_TO_RAD), &predict_destroy_observer);
+        predict_observer_t *observer_station = observer_owner.get();
         auto tle = db_keplers->get_from_norad(norad);
         if (!tle.has_value())
         {
@@ -17,7 +22,14 @@ namespace satdump
             return passes;
         }
 
-        predict_orbital_elements_t *satellite_object_ = predict_parse_tle(tle->line1.c_str(), tle->line2.c_str());
+        std::unique_ptr<predict_orbital_elements_t, decltype(&predict_destroy_orbital_elements)> orbit_owner(
+            predict_parse_tle(tle->line1.c_str(), tle->line2.c_str()), &predict_destroy_orbital_elements);
+        predict_orbital_elements_t *satellite_object_ = orbit_owner.get();
+        if (observer_station == nullptr || satellite_object_ == nullptr)
+        {
+            logger->error("Out of memory computing the passes of NORAD #%d", norad);
+            return passes;
+        }
         double current_time = initial_time;
 
         if (predict_is_geosynchronous(satellite_object_))
@@ -98,9 +110,6 @@ namespace satdump
                 passes.push_back(pass);
             }
         }
-
-        predict_destroy_orbital_elements(satellite_object_);
-        predict_destroy_observer(observer_station);
 
         return passes;
     }
