@@ -246,6 +246,12 @@
             ],
             "description": "Frequency to update TLEs. Auto update happens at launch only\n\nWarning: The older your TLEs, the more inaccurate projections\nmay be."
         },
+        "iers_auto_update": {
+            "type": "bool",
+            "value": true,
+            "name": "IERS Auto Update",
+            "description": "Download Earth orientation data (IERS bulletins and leap seconds)\nat launch and every few days while running."
+        },
         "tle_space_track_login": {
             "type": "string",
             "value": "yourloginemail",

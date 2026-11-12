@@ -1,4 +1,5 @@
 #include "iers_handler.h"
+#include "core/config.h"
 #include "core/plugin.h"
 #include "db/db_handler.h"
 #include "logger.h"
@@ -30,7 +31,15 @@ namespace satdump
             throw satdump_exception("Failed creating leap seconds database!");
 
         time_t last_update = std::stoull(h->get_meta("iers_last_updated", "0"));
-        bool honor_setting = true;
+        bool honor_setting = true; // Fork: the "iers_auto_update" setting can switch the downloads off
+        try
+        {
+            honor_setting = satdump_cfg.getValueFromSatDumpGeneral<bool>("iers_auto_update");
+        }
+        catch (std::exception &e)
+        {
+            logger->warn("Could not read the IERS auto-update setting (%s), keeping it on", e.what());
+        }
         time_t update_interval = 3600 * 60; // TODOREWORK
 
 #if 0
