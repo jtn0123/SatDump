@@ -567,9 +567,12 @@ int main_live(int argc, char *argv[])
             }
             catch (...)
             {
-                // Fork: an error once everything runs (a bad setting such as --finish_processing given
-                // as a number, read when the run ends) stops it all before it is reported. It used to
-                // hang the program for ever
+                // Fork: an error in this block stops whatever still runs (the radio, the FFT blocks,
+                // the pipeline) before it is reported. Upstream, an error while they ran (--http_server
+                // given as a number threw here) left them running, and the program waited for ever.
+                // Nothing known throws here before the normal stop now, so this is for errors not
+                // foreseen. An error after that stop, such as --finish_processing given as a number,
+                // comes here too; stopping again then does nothing
                 stop_running();
                 if (webserver_started)
                     webserver::stop();

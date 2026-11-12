@@ -174,8 +174,10 @@ if [ "$(uname)" = Linux ]; then
 else
     echo "note legacy-block-fails-one-cpu not run: it needs taskset and chrt (Linux)"
 fi
-# An error once everything runs (here --finish_processing given as a number, read when the run
-# ends) stops it all and is reported; it used to hang for ever, past --timeout
+# An error after the radio and the pipeline have stopped (--finish_processing given as a number,
+# read only then) is reported with exit code 2. This checks only that; nothing known throws
+# while everything runs, so the stop on such an error has no test here (multi-VFO has one:
+# live-vfo-cannot-start)
 run 2 live-error-after-start legacy live fork_fault_live_good out_live_error "${LIVE[@]}" --finish_processing 5
 check live-error-after-start-logged logged live-error-after-start "Error running command"
 # --http_server given as a number, or with no value, is not an address: like a server that cannot
