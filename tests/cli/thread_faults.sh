@@ -158,6 +158,22 @@ run 2 live-block-fails legacy live fork_fault_live_blockfail out_live_blockfail 
 check live-block-fails-logged logged live-block-fails "Error running command : a DSP block failed.*block failure on purpose"
 run 2 legacy-block-fails legacy fork_fault_blockfail baseband in.bin out_legacy_blockfail
 check legacy-block-fails-logged logged legacy-block-fails "Error running command : a DSP block failed.*block failure on purpose"
+# The same on one CPU with SCHED_BATCH, where a new thread does not take the CPU from the thread
+# that made it: the block's thread then nearly always first runs after the module has stopped
+# the block (the module reads its file in well under a millisecond). The fault module waits for
+# its block to fail, so each run must still end with exit code 2. Without that wait, 19 of 20
+# runs ended with 0; three runs make a lucky pass very unlikely. Linux only (taskset, chrt)
+if [ "$(uname)" = Linux ]; then
+    one_cpu=$(taskset -cp $$ | sed 's/.*: //; s/[-,].*//')
+    one_cpu_satdump() { taskset -c "$one_cpu" chrt -b 0 "$TIMEOUT" -k 5 30 "$SD_REAL" "$@"; }
+    SD=one_cpu_satdump
+    for i in 1 2 3; do
+        run 2 "legacy-block-fails-one-cpu-$i" legacy fork_fault_blockfail baseband in.bin "out_legacy_blockfail_one_cpu_$i"
+    done
+    SD=timed_satdump
+else
+    echo "note legacy-block-fails-one-cpu not run: it needs taskset and chrt (Linux)"
+fi
 # An error once everything runs (here --finish_processing given as a number, read when the run
 # ends) stops it all and is reported; it used to hang for ever, past --timeout
 run 2 live-error-after-start legacy live fork_fault_live_good out_live_error "${LIVE[@]}" --finish_processing 5

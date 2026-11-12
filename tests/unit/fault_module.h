@@ -10,17 +10,20 @@
 //   out_factor  bytes written per byte read (default 1)
 //   with_block  true to start a DSP block in process() and stop it in stop(), as demodulators do
 //   block_fails true for a DSP block (as with_block) whose work() throws at once; the module
-//               itself carries on, as a demodulator does when one of its blocks failed
+//               waits until it has failed, then carries on, as a demodulator does when one of
+//               its blocks failed
 
 #include "common/dsp/block.h"
 #include "core/exception.h"
 #include "logger.h"
 #include "pipeline/module.h"
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fork_test
@@ -143,6 +146,18 @@ namespace fork_test
 
             if (d_block) // Like a demodulator, which starts its blocks here
                 d_block->start();
+
+            // A block that fails on purpose has failed before this goes on. Its thread may first
+            // run only after the module has stopped the block (a file input takes well under a
+            // millisecond), and then work() never runs and nothing fails. 5 s at most
+            if (d_block_fails)
+            {
+                auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                while (!d_block->has_failed() && std::chrono::steady_clock::now() < give_up)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                if (!d_block->has_failed())
+                    logger->error("Fault test block did not fail within 5 s");
+            }
 
             std::ifstream in;
             std::ofstream out;
