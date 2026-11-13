@@ -57,9 +57,11 @@ void NetSource::run_thread()
             if (mode == MODE_UDP)
             {
                 int bytes;
+                worker_read_pending = true;
                 try { bytes = udp_server->recv((uint8_t *)output_stream->writeBuf, 8192 * sizeof(complex_t)); }
                 catch (const std::exception &)
                 {
+                    worker_read_pending = false;
                     if (!should_run)
                         continue;
 #ifdef _WIN32
@@ -71,13 +73,16 @@ void NetSource::run_thread()
 #endif
                     throw;
                 }
+                worker_read_pending = false;
                 if (bytes > 0)
                     output_stream->swap(bytes / sizeof(complex_t));
             }
             else
             {
                 size_t size = dsp::STREAM_BUFFER_SIZE * sizeof(complex_t);
+                worker_read_pending = true;
                 int result = nng_recv(n_sock, output_stream->writeBuf, &size, 0);
+                worker_read_pending = false;
                 if (result == 0)
                     output_stream->swap(size / sizeof(complex_t));
                 else if (result != NNG_ETIMEDOUT && result != NNG_ECLOSED)
@@ -87,6 +92,7 @@ void NetSource::run_thread()
     }
     catch (const std::exception &e) { logger->error("Network source worker failed: %s", e.what()); }
     catch (...) { logger->error("Network source worker failed: unknown exception"); }
+    worker_read_pending = false;
     should_run = false;
 }
 

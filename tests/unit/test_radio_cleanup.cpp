@@ -7,6 +7,18 @@
 
 namespace
 {
+    // Fork: wait for actual worker progress, never for an assumed scheduling delay.
+    template <typename Predicate> bool await_read(Predicate ready)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!ready())
+        {
+            if (std::chrono::steady_clock::now() >= deadline)
+                return false;
+            std::this_thread::yield();
+        }
+        return true;
+    }
     class ConverterFixture : public SDRPPServerSource
     {
     public:
@@ -19,6 +31,7 @@ namespace
             convertThread = std::thread(&ConverterFixture::convertFunction, this);
             is_started = fully_started;
         }
+        bool reading() const { return convert_read_pending.load(); }
         void stopped_input()
         {
             DSPSampleSource::start();
@@ -38,6 +51,7 @@ namespace
             // Simulate an exception after acquisition but before is_started is set.
             udp_server = std::make_shared<net::UDPServer>(0);
         }
+        bool reading() const { return worker_read_pending.load(); }
         bool owns_udp() const { return bool(udp_server); }
     };
 }
@@ -50,7 +64,7 @@ TEST_CASE("SDR++ converter stop wakes an idle input after partial and complete s
         source.stop();
         source.stop();
         source.launch(fully_started);
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        REQUIRE(await_read([&] { return source.reading(); }));
         source.stop();
         source.stop();
     }
@@ -75,7 +89,7 @@ TEST_CASE("Network source releases partial UDP acquisition and joins an idle rec
     for (int i = 0; i < 3; ++i)
     {
         source.start();
-        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        REQUIRE(await_read([&] { return source.reading(); }));
         source.stop();
         source.stop();
         CHECK_FALSE(source.owns_udp());
@@ -100,7 +114,12 @@ TEST_CASE("RTL-TCP stop cancels a silent in-process peer before joining")
     socklen_t length = sizeof(address);
     REQUIRE(getsockname(listener, reinterpret_cast<sockaddr *>(&address), &length) == 0);
     REQUIRE(listen(listener, 1) == 0);
-    RTLTCPSource source({"rtltcp", "test", "0"});
+    class TCPFixture : public RTLTCPSource
+    {
+    public:
+        TCPFixture() : RTLTCPSource({"rtltcp", "test", "0"}) {}
+        bool reading() const { return worker_read_pending.load(); }
+    } source;
     source.stop();
     source.stop();
     source.open();
@@ -111,7 +130,7 @@ TEST_CASE("RTL-TCP stop cancels a silent in-process peer before joining")
     REQUIRE(peer >= 0);
     CloseSocket close_peer{peer};
     // Leave the local connection silent: the driver's receiveData waits for samples.
-    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    REQUIRE(await_read([&] { return source.reading(); }));
     source.stop();
     source.stop();
 }

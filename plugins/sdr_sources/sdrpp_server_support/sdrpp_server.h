@@ -53,6 +53,7 @@ protected:
 
     std::atomic<bool> convertShouldRun{false}; // Fork: shared with converter.
     bool client_started = false;
+    std::atomic<bool> convert_read_pending{false}; // Fork: readiness for shutdown checks.
 
     int process(int count, const uint8_t *in, complex_t *out)
     {
@@ -85,7 +86,9 @@ protected:
     {
         while (convertShouldRun)
         {
+            convert_read_pending = true;
             int count = client_output_stream->read();
+            convert_read_pending = false;
             // Fork: a stopped reader returns -1, which is not a packet length.
             if (count < 0)
                 break;

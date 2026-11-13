@@ -40,6 +40,7 @@ protected:
 protected:
     std::atomic<bool> should_run{false}; // Fork: worker lifetime is per start/stop.
     std::thread work_thread;
+    std::atomic<bool> worker_read_pending{false}; // Fork: readiness for shutdown checks.
     void run_thread();
 
 public:

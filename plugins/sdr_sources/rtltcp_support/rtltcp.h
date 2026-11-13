@@ -32,6 +32,7 @@ protected:
 
     std::thread work_thread;
 
+    std::atomic<bool> worker_read_pending{false}; // Fork: readiness for shutdown checks.
     std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
 
     void mainThread()
@@ -40,7 +41,10 @@ protected:
         while (thread_should_run)
         {
             // Fork: cancelled/short reads contain no complete sample block.
-            if (!client.receiveData(in_buf, 8192))
+            worker_read_pending = true;
+            const bool received = client.receiveData(in_buf, 8192);
+            worker_read_pending = false;
+            if (!received)
                 break;
             for (int i = 0; i < (int)8192 / 2; i++)
                 output_stream->writeBuf[i] = complex_t((in_buf[i * 2 + 0] - 127.4f) / 128.0f, (in_buf[i * 2 + 1] - 127.4f) / 128.0f);
