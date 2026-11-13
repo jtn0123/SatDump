@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/dsp/block.h"
-#include <condition_variable>
+#include "splitter_publications.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -11,16 +11,11 @@ namespace dsp
     class SplitterBlock : public Block<complex_t, complex_t>
     {
     private:
-        // Fork: serialize control changes across publication waits. The worker never takes it.
-        std::mutex config_mutex;
         std::mutex state_mutex;
-        std::condition_variable publication_done;
-        void wait_for_publication(std::unique_lock<std::mutex> &lock, std::shared_ptr<dsp::stream<complex_t>> destination);
+        SplitterPublications publications;
         void work();
 
         bool enable_main = true;
-        // Fork: a destination removed while work() publishes must still be woken by stop().
-        std::vector<std::shared_ptr<dsp::stream<complex_t>>> publishing_outputs;
 
     private:
         struct OutputCFG

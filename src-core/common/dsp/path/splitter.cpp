@@ -1,6 +1,5 @@
 #include "splitter.h"
 #include <volk/volk.h>
-#include <algorithm>
 
 namespace dsp
 {
@@ -21,26 +20,13 @@ namespace dsp
                 o.second.output_stream->stopWriter();
             for (auto &o : vfo_outputs)
                 o.second.output_stream->stopWriter();
-            for (auto &destination : publishing_outputs)
-                destination->stopWriter();
-        });
-    }
-
-    // Fork: disabled streams keep their identity and writer state, as upstream users expect
-    // when enabling the same recording/FFT consumer again. Wait until any selected publication
-    // has finished before allowing that consumer to stop. Retired streams are woken first.
-    void SplitterBlock::wait_for_publication(std::unique_lock<std::mutex> &lock, std::shared_ptr<dsp::stream<complex_t>> destination)
-    {
-        publication_done.wait(lock, [&]()
-        {
-            return std::find(publishing_outputs.begin(), publishing_outputs.end(), destination) == publishing_outputs.end();
+            publications.stop();
         });
     }
 
     // Normal Copy
     void SplitterBlock::add_output(std::string id)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::lock_guard<std::mutex> lock(state_mutex);
         if (outputs.count(id) == 0)
             outputs.insert({id, {std::make_shared<dsp::stream<complex_t>>(), false}});
@@ -48,15 +34,13 @@ namespace dsp
 
     void SplitterBlock::del_output(std::string id)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         auto it = outputs.find(id);
         if (it != outputs.end())
         {
-            it->second.enabled = false;
-            it->second.output_stream->stopWriter();
-            wait_for_publication(lock, it->second.output_stream);
+            auto retired = it->second.output_stream;
             outputs.erase(it);
+            publications.retire(lock, retired);
         }
     }
 
@@ -69,36 +53,33 @@ namespace dsp
 
     void SplitterBlock::set_enabled(std::string id, bool enable)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         auto it = outputs.find(id);
         if (it != outputs.end())
         {
             it->second.enabled = enable;
             if (!enable)
-                wait_for_publication(lock, it->second.output_stream);
+                publications.wait(lock, it->second.output_stream);
         }
     }
 
     void SplitterBlock::reset_output(std::string id)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         auto it = outputs.find(id);
         if (it != outputs.end())
         {
             auto replacement = std::make_shared<dsp::stream<complex_t>>();
-            it->second.enabled = false;
-            it->second.output_stream->stopWriter();
-            wait_for_publication(lock, it->second.output_stream);
+            auto retired = it->second.output_stream;
             it->second.output_stream = replacement;
+            it->second.enabled = false;
+            publications.retire(lock, retired);
         }
     }
 
     // VFO
     void SplitterBlock::add_vfo(std::string id, double samplerate, double freq)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::lock_guard<std::mutex> lock(state_mutex);
         if (vfo_outputs.count(id) == 0)
             vfo_outputs.insert({id,
@@ -108,15 +89,13 @@ namespace dsp
 
     void SplitterBlock::del_vfo(std::string id)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         auto it = vfo_outputs.find(id);
         if (it != vfo_outputs.end())
         {
-            it->second.enabled = false;
-            it->second.output_stream->stopWriter();
-            wait_for_publication(lock, it->second.output_stream);
+            auto retired = it->second.output_stream;
             vfo_outputs.erase(it);
+            publications.retire(lock, retired);
         }
     }
 
@@ -129,40 +108,37 @@ namespace dsp
 
     void SplitterBlock::set_vfo_enabled(std::string id, bool enable)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         auto it = vfo_outputs.find(id);
         if (it != vfo_outputs.end())
         {
             it->second.enabled = enable;
             if (!enable)
-                wait_for_publication(lock, it->second.output_stream);
+                publications.wait(lock, it->second.output_stream);
         }
     }
 
     void SplitterBlock::reset_vfo(std::string id)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         auto it = vfo_outputs.find(id);
         if (it != vfo_outputs.end())
         {
             auto replacement = std::make_shared<dsp::stream<complex_t>>();
-            it->second.enabled = false;
-            it->second.output_stream->stopWriter();
-            wait_for_publication(lock, it->second.output_stream);
+            auto retired = it->second.output_stream;
             it->second.output_stream = replacement;
+            it->second.enabled = false;
+            publications.retire(lock, retired);
         }
     }
 
     // Main
     void SplitterBlock::set_main_enabled(bool enable)
     {
-        std::lock_guard<std::mutex> change(config_mutex);
         std::unique_lock<std::mutex> lock(state_mutex);
         enable_main = enable;
         if (!enable)
-            wait_for_publication(lock, output_stream);
+            publications.wait(lock, output_stream);
     }
 
     void SplitterBlock::work()
@@ -177,6 +153,7 @@ namespace dsp
         // Fork: retain the destinations while publishing, but release the configuration lock
         // before any swap() can wait. stop() must acquire it to wake those waits.
         std::vector<std::shared_ptr<dsp::stream<complex_t>>> destinations;
+        SplitterPublications::Batch batch;
         {
             std::lock_guard<std::mutex> lock(state_mutex);
 
@@ -213,34 +190,12 @@ namespace dsp
             for (auto &o : vfo_outputs)
                 if (o.second.enabled)
                     destinations.push_back(o.second.output_stream);
-            publishing_outputs = destinations;
+            batch = publications.select(destinations);
+            // Fork: queued publications must be the only owners outside the configuration.
+            destinations.clear();
         }
 
-        try
-        {
-            input_stream->flush();
-            for (auto &destination : destinations)
-            {
-                destination->swap(nsamples);
-                {
-                    std::lock_guard<std::mutex> lock(state_mutex);
-                    auto it = std::find(publishing_outputs.begin(), publishing_outputs.end(), destination);
-                    if (it != publishing_outputs.end())
-                        publishing_outputs.erase(it);
-                }
-                destination.reset();
-                publication_done.notify_all();
-            }
-        }
-        catch (...)
-        {
-            // Fork: release publication barriers even when the block's worker fails.
-            {
-                std::lock_guard<std::mutex> lock(state_mutex);
-                publishing_outputs.clear();
-            }
-            publication_done.notify_all();
-            throw;
-        }
+        input_stream->flush();
+        publications.publish(batch, nsamples, state_mutex);
     }
 }

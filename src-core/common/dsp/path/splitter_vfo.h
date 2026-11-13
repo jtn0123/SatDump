@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/dsp/block.h"
+#include "splitter_publications.h"
 #include <map>
 #include <string>
 #include "common/dsp/utils/freq_shift.h"
@@ -12,15 +13,20 @@ namespace dsp
     private:
         std::mutex state_mutex;
         void work();
+        SplitterPublications publications;
 
         struct VfoCFG
         {
             std::shared_ptr<dsp::stream<complex_t>> output_stream;
             bool enabled;
             std::shared_ptr<FreqShiftBlock> freq_shiter;
+            double samplerate;
+            double frequency;
+
         };
 
         std::map<std::string, VfoCFG> outputs;
+        VfoCFG make_vfo(double samplerate, double frequency);
 
         bool enable_main = true;
 
@@ -34,6 +40,7 @@ namespace dsp
 
     public:
         VFOSplitterBlock(std::shared_ptr<dsp::stream<complex_t>> input);
+        void stop() override;
 
         void stop_tmp()
         {

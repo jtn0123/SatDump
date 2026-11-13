@@ -88,6 +88,35 @@ int main_live(int argc, char *argv[])
         return 1;
     }
 
+    // Fork: validate every VFO before opening a radio, and retain this exact configuration
+    // for startup so a second file read cannot bypass validation.
+    nlohmann::json validated_multi_cfg;
+    if (!parameters.contains("client") && parameters.contains("multi_vfo"))
+    {
+        try
+        {
+            validated_multi_cfg = loadJsonFile(parameters["multi_vfo"].get<std::string>());
+            if (!validated_multi_cfg.is_object())
+                throw std::invalid_argument("the VFO configuration must be an object");
+            for (const auto &entry : validated_multi_cfg.items())
+            {
+                const auto &vfo = entry.value();
+                if (!vfo.is_object() || !vfo.contains("frequency") || !vfo["frequency"].is_number() ||
+                    !vfo.contains("pipeline") || !vfo["pipeline"].is_string() ||
+                    !vfo.contains("parameters") || !vfo["parameters"].is_object())
+                    throw std::invalid_argument("VFO " + entry.key() + " requires a numeric frequency, a pipeline ID and an object of parameters");
+                const std::string id = vfo["pipeline"].get<std::string>();
+                if (std::none_of(known_pipelines.begin(), known_pipelines.end(), [&](const auto &pipeline) { return pipeline.id == id; }))
+                    throw std::invalid_argument("VFO " + entry.key() + " names unknown pipeline " + id);
+            }
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("Invalid multi-VFO configuration: %s", e.what());
+            return 1;
+        }
+    }
+
     // Init SatDump
     satdump::tle_file_override = parameters.contains("tle_override") ? parameters["tle_override"].get<std::string>() : "";
 
@@ -254,7 +283,7 @@ int main_live(int argc, char *argv[])
             logger->info("Starting in multi VFO mode!");
             logger->critical("This is still considered WIP!");
 
-            nlohmann::json multi_cfg = loadJsonFile(parameters["multi_vfo"].get<std::string>());
+            const nlohmann::json &multi_cfg = validated_multi_cfg;
 
             // Fork: construct the pool before the radio runs, so a thread-creation failure
             // cannot strand it outside the cleanup handler. The pool outlives the pipelines.

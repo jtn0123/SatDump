@@ -184,7 +184,7 @@ add_test(NAME cli_live_start_failure
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/live_start_failure.sh ${SATDUMP_CHECK_PREFIX}
         $<TARGET_FILE:satdump-live-start-failure> $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_live_start_failure PROPERTIES LABELS cli TIMEOUT 80)
-add_executable(satdump-splitter-stop-test unit/main.cpp unit/test_splitter_stop.cpp unit/test_splitter_retirement.cpp)
+add_executable(satdump-splitter-stop-test unit/main.cpp unit/test_splitter_stop.cpp unit/test_splitter_retirement.cpp unit/test_splitter_concurrent.cpp)
 target_include_directories(satdump-splitter-stop-test PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(satdump-splitter-stop-test PRIVATE satdump_core)
 add_test(NAME unit_splitter_stop COMMAND satdump-splitter-stop-test "--test-case=splitter wakes*")
@@ -193,6 +193,14 @@ add_test(NAME unit_splitter_retirement COMMAND satdump-splitter-stop-test "--tes
 set_tests_properties(unit_splitter_retirement PROPERTIES LABELS unit TIMEOUT 120)
 add_test(NAME unit_splitter_disable COMMAND satdump-splitter-stop-test "--test-case=disable*")
 set_tests_properties(unit_splitter_disable PROPERTIES LABELS unit TIMEOUT 90)
+# Fork: retire queued outputs independently of stalled outputs earlier in the same batch.
+add_test(NAME unit_splitter_concurrent COMMAND satdump-splitter-stop-test "--test-case=concurrent splitter*")
+set_tests_properties(unit_splitter_concurrent PROPERTIES LABELS unit TIMEOUT 120)
+add_test(NAME unit_vfo_splitter_concurrent COMMAND satdump-splitter-stop-test "--test-case=concurrent frequency*")
+set_tests_properties(unit_vfo_splitter_concurrent PROPERTIES LABELS unit TIMEOUT 120)
+add_test(NAME cli_live_vfo_validation
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/live_vfo_validation.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
+set_tests_properties(cli_live_vfo_validation PROPERTIES LABELS cli TIMEOUT 180)
 add_test(NAME cli_early_signals
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/early_signals.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_early_signals PROPERTIES LABELS cli TIMEOUT 300)

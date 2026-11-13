@@ -7,61 +7,109 @@ namespace dsp
     {
     }
 
+    // Fork: use the same queued/active publication protocol as SplitterBlock. No map lock is
+    // held while a publication or a frequency-shifter thread is being joined.
+    void VFOSplitterBlock::stop()
+    {
+        stop_with_outputs([&]()
+        {
+            output_stream->stopWriter();
+            std::lock_guard<std::mutex> lock(state_mutex);
+            for (auto &output : outputs)
+                output.second.output_stream->stopWriter();
+            publications.stop();
+        });
+    }
+
+    VFOSplitterBlock::VfoCFG VFOSplitterBlock::make_vfo(double samplerate, double frequency)
+    {
+        auto stream = std::make_shared<dsp::stream<complex_t>>();
+        auto shifter = std::make_shared<FreqShiftBlock>(stream, samplerate, frequency);
+        try
+        {
+            shifter->start();
+        }
+        catch (...)
+        {
+            shifter->stop();
+            throw;
+        }
+        return {stream, false, shifter, samplerate, frequency};
+    }
+
     void VFOSplitterBlock::add_vfo(std::string id, double samplerate, double freq)
     {
-        state_mutex.lock();
+        std::lock_guard<std::mutex> lock(state_mutex);
         if (outputs.count(id) == 0)
         {
-            auto o = std::make_shared<dsp::stream<complex_t>>();
-            outputs.insert({id, {o, false, std::make_shared<FreqShiftBlock>(o, samplerate, freq)}});
-            outputs[id].freq_shiter->start();
+            auto vfo = make_vfo(samplerate, freq);
+            try
+            {
+                outputs.emplace(id, vfo);
+            }
+            catch (...)
+            {
+                vfo.freq_shiter->stop();
+                throw;
+            }
         }
-        state_mutex.unlock();
     }
 
     void VFOSplitterBlock::del_vfo(std::string id)
     {
-        state_mutex.lock();
-        if (outputs.count(id) > 0)
+        std::unique_lock<std::mutex> lock(state_mutex);
+        auto it = outputs.find(id);
+        if (it != outputs.end())
         {
-            outputs[id].freq_shiter->stop();
-            outputs.erase(id);
+            auto retired = it->second;
+            outputs.erase(it);
+            publications.retire(lock, retired.output_stream);
+            lock.unlock();
+            retired.freq_shiter->stop();
         }
-        state_mutex.unlock();
     }
 
     std::shared_ptr<dsp::stream<complex_t>> VFOSplitterBlock::get_vfo_output(std::string id)
     {
-        if (outputs.count(id) > 0)
-            return outputs[id].freq_shiter->output_stream;
-        else
-            return nullptr;
+        std::lock_guard<std::mutex> lock(state_mutex);
+        auto it = outputs.find(id);
+        return it == outputs.end() ? nullptr : it->second.freq_shiter->output_stream;
     }
 
     void VFOSplitterBlock::set_vfo_enabled(std::string id, bool enable)
     {
-        state_mutex.lock();
-        if (outputs.count(id) > 0)
-            outputs[id].enabled = enable;
-        state_mutex.unlock();
+        std::unique_lock<std::mutex> lock(state_mutex);
+        auto it = outputs.find(id);
+        if (it != outputs.end())
+        {
+            it->second.enabled = enable;
+            if (!enable)
+                publications.wait(lock, it->second.output_stream);
+        }
     }
 
     void VFOSplitterBlock::reset_vfo(std::string id)
     {
-        state_mutex.lock();
-        if (outputs.count(id) > 0)
+        std::unique_lock<std::mutex> lock(state_mutex);
+        auto it = outputs.find(id);
+        if (it != outputs.end())
         {
-            outputs[id].output_stream = std::make_shared<dsp::stream<complex_t>>();
-            outputs[id].enabled = false;
+            auto retired = it->second;
+            // Fork: the replacement input needs its own shifter; the old reset left the
+            // existing shifter reading the retired input forever.
+            it->second = make_vfo(retired.samplerate, retired.frequency);
+            publications.retire(lock, retired.output_stream);
+            lock.unlock();
+            retired.freq_shiter->stop();
         }
-        state_mutex.unlock();
     }
 
     void VFOSplitterBlock::set_main_enabled(bool enable)
     {
-        state_mutex.lock();
+        std::unique_lock<std::mutex> lock(state_mutex);
         enable_main = enable;
-        state_mutex.unlock();
+        if (!enable)
+            publications.wait(lock, output_stream);
     }
 
     void VFOSplitterBlock::work()
@@ -73,24 +121,27 @@ namespace dsp
             return;
         }
 
-        state_mutex.lock();
-
-        if (enable_main)
-            memcpy(output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
-
-        for (auto &o : outputs)
-            if (o.second.enabled)
-                memcpy(o.second.output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
+        SplitterPublications::Batch batch;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            std::vector<std::shared_ptr<dsp::stream<complex_t>>> destinations;
+            if (enable_main)
+            {
+                memcpy(output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
+                destinations.push_back(output_stream);
+            }
+            for (auto &output : outputs)
+            {
+                if (output.second.enabled)
+                {
+                    memcpy(output.second.output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
+                    destinations.push_back(output.second.output_stream);
+                }
+            }
+            batch = publications.select(destinations);
+        }
 
         input_stream->flush();
-
-        if (enable_main)
-            output_stream->swap(nsamples);
-
-        for (auto &o : outputs)
-            if (o.second.enabled)
-                o.second.output_stream->swap(nsamples);
-
-        state_mutex.unlock();
+        publications.publish(batch, nsamples, state_mutex);
     }
 }
