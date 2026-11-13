@@ -15,6 +15,7 @@
 #include "live_running_event.h"
 #endif
 #include <cinttypes>
+#include <algorithm>
 #include "core/cli/stop_signals.h"
 #include <cmath>
 #include <filesystem>
@@ -76,6 +77,16 @@ int main_live(int argc, char *argv[])
 
     // Parse flags
     nlohmann::json parameters = parse_common_flags(argc - 4, &argv[4], {{"source_id", typeid(std::string)}});
+
+    // Fork: getPipelineFromID() throws for an unknown ID rather than returning an empty
+    // optional. Reject that usage error before radio setup, instead of reporting exit 2.
+    const auto &known_pipelines = satdump::pipeline::pipelines;
+    if ((parameters.contains("client") || !parameters.contains("multi_vfo")) &&
+        std::none_of(known_pipelines.begin(), known_pipelines.end(), [&](const auto &pipeline) { return pipeline.id == downlink_pipeline; }))
+    {
+        logger->error("Pipeline %s does not exist!", downlink_pipeline.c_str());
+        return 1;
+    }
 
     // Init SatDump
     satdump::tle_file_override = parameters.contains("tle_override") ? parameters["tle_override"].get<std::string>() : "";
@@ -292,11 +303,11 @@ int main_live(int argc, char *argv[])
                 logger->error("Radio problem: could not start the radio: %s", e.what());
                 return satdump::EXIT_RADIO;
             }
-            catch (std::exception &e)
+            catch (const std::exception &)
             {
                 stop_running();
-                logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
-                return 1;
+                // Fork: a DSP startup failure is a command failure (exit 2), after cleanup.
+                throw;
             }
             catch (...)
             {
@@ -511,11 +522,11 @@ int main_live(int argc, char *argv[])
                 logger->error("Radio problem: could not start the radio: %s", e.what());
                 return satdump::EXIT_RADIO;
             }
-            catch (std::exception &e)
+            catch (const std::exception &)
             {
                 stop_running();
-                logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
-                return 1;
+                // Fork: report operational startup failures through the command's exit-2 path.
+                throw;
             }
             catch (...)
             {

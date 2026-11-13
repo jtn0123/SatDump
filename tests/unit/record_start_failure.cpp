@@ -3,6 +3,9 @@
 // This avoids production fault switches and dynamic-loader interposition in sanitizer builds.
 #include "common/dsp/fft/fft_pan.h"
 #include "common/dsp/path/splitter.h"
+#ifdef SATDUMP_TEST_LIVE_START
+#include "common/dsp/path/splitter_vfo.h"
+#endif
 #include "core/cli/stop_signals.h"
 #include "init.h"
 #include "logger.h"
@@ -38,10 +41,29 @@ namespace dsp
             SplitterBlock::start();
         }
     };
+#ifdef SATDUMP_TEST_LIVE_START
+    class FailingVFOSplitterBlock : public VFOSplitterBlock
+    {
+    public:
+        using VFOSplitterBlock::VFOSplitterBlock;
+        void start() override
+        {
+            should_run = true;
+            logger->warn("Injected VFO splitter thread-start failure");
+            throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+        }
+    };
+#endif
 }
 #define FFTPanBlock FailingFFTPanBlock
 #define SplitterBlock ObservedSplitterBlock
+#ifdef SATDUMP_TEST_LIVE_START
+#define VFOSplitterBlock FailingVFOSplitterBlock
+#include "../../src-cli/legacy/live.cpp"
+#undef VFOSplitterBlock
+#else
 #include "../../src-cli/legacy/record.cpp"
+#endif
 #undef SplitterBlock
 #undef FFTPanBlock
 
@@ -59,11 +81,15 @@ int main(int argc, char **argv)
     int result = 0;
     try
     {
+#ifdef SATDUMP_TEST_LIVE_START
+        result = main_live(argc, argv);
+#else
         result = main_record(argc, argv);
+#endif
     }
     catch (const std::system_error &e)
     {
-        logger->error("Expected FFT start error: %s", e.what());
+        logger->error("Error running command : %s", e.what());
         result = splitter_started ? 4 : 2;
     }
     catch (const std::exception &e)

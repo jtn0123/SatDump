@@ -175,11 +175,24 @@ add_test(NAME cli_record_start_failure
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/record_start_failure.sh ${SATDUMP_CHECK_PREFIX}
         $<TARGET_FILE:satdump-record-start-failure> $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_record_start_failure PROPERTIES LABELS cli TIMEOUT 40)
-add_executable(satdump-splitter-stop-test unit/main.cpp unit/test_splitter_stop.cpp)
+# Fork: the same injected FFT failure in live, plus failure of its multi-VFO splitter start.
+add_executable(satdump-live-start-failure unit/record_start_failure.cpp ${PROJECT_SOURCE_DIR}/src-cli/legacy/webserver.cpp)
+target_include_directories(satdump-live-start-failure PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(satdump-live-start-failure PRIVATE satdump_core)
+target_compile_definitions(satdump-live-start-failure PRIVATE SATDUMP_TEST_LIVE_START=1 SATDUMP_TEST_INSTALL_LIBDIR="${CMAKE_INSTALL_LIBDIR}")
+add_test(NAME cli_live_start_failure
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/live_start_failure.sh ${SATDUMP_CHECK_PREFIX}
+        $<TARGET_FILE:satdump-live-start-failure> $<TARGET_FILE:fork_probe_source_test_plugin>)
+set_tests_properties(cli_live_start_failure PROPERTIES LABELS cli TIMEOUT 80)
+add_executable(satdump-splitter-stop-test unit/main.cpp unit/test_splitter_stop.cpp unit/test_splitter_retirement.cpp)
 target_include_directories(satdump-splitter-stop-test PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(satdump-splitter-stop-test PRIVATE satdump_core)
-add_test(NAME unit_splitter_stop COMMAND satdump-splitter-stop-test)
+add_test(NAME unit_splitter_stop COMMAND satdump-splitter-stop-test "--test-case=splitter wakes*")
 set_tests_properties(unit_splitter_stop PROPERTIES LABELS unit TIMEOUT 60)
+add_test(NAME unit_splitter_retirement COMMAND satdump-splitter-stop-test "--test-case=retiring*")
+set_tests_properties(unit_splitter_retirement PROPERTIES LABELS unit TIMEOUT 120)
+add_test(NAME unit_splitter_disable COMMAND satdump-splitter-stop-test "--test-case=disable*")
+set_tests_properties(unit_splitter_disable PROPERTIES LABELS unit TIMEOUT 90)
 add_test(NAME cli_early_signals
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/early_signals.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_early_signals PROPERTIES LABELS cli TIMEOUT 300)

@@ -223,8 +223,10 @@ check live-http-number-logged logged live-http-number "Cannot start the web serv
 check live-http-number-blocks-stopped not_logged live-http-number "BLOCK SHOULD BE STOPPED"
 run 1 live-http-no-value legacy live fork_fault_live_good out_live_http "${LIVE[@]}" --http_server
 check live-http-no-value-logged logged live-http-no-value "Cannot start the web server on true: "
-# A pipeline that cannot start stops the FFT blocks it started (they were destroyed running)
-run 1 live-cannot-start-fft legacy live fork_fault_live_badinit out_live_fft "${LIVE[@]}" --fft_enable
+# Fork: after the radio starts, a pipeline startup failure stops its FFT blocks and uses the
+# command-failure path (exit 2), rather than the usage-error code pinned here previously.
+run 2 live-cannot-start-fft legacy live fork_fault_live_badinit out_live_fft "${LIVE[@]}" --fft_enable
+check live-cannot-start-fft-error-logged logged live-cannot-start-fft "Error running command"
 check live-cannot-start-fft-blocks-stopped not_logged live-cannot-start-fft "BLOCK SHOULD BE STOPPED"
 
 # Multi VFO: a VFO that cannot start stops the ones already started, then the command ends

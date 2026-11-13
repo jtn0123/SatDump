@@ -19,7 +19,7 @@ def run(name, args, want=0, sig=None, ready_size=None, env=None):
             try:
                 if sig:
                     path, size = ready_size
-                    deadline = time.monotonic() + 20
+                    deadline = time.monotonic() + 45
                     while not (path.exists() and path.stat().st_size >= size):
                         if p.poll() is not None or time.monotonic() >= deadline:
                             raise RuntimeError('recording did not reach the required size')
@@ -57,7 +57,7 @@ for kind in ('record', 'live'):
         args += ['metop_ahrpt']
     args += [str(root / ('partial-' + kind)), *radio, '--probe_fill_before_start', '--fft_enable',
              '--fft_size', 'invalid', '--baseband_format', 'cf32']
-    run('joining-source-' + kind, args, 2 if kind == 'record' else 1, env=env)
+    run('joining-source-' + kind, args, 2, env=env)
     if not filled.exists():
         failures.append('source-not-filled-' + kind)
         print('FAIL source-not-filled-' + kind, flush=True)
@@ -69,10 +69,13 @@ for decimation in (1, 2, 4):
     for fft in (False, True):
         name = f'finite-D{decimation}-fft{int(fft)}'
         path = root / name
-        args = ['legacy', 'record', str(path), *radio, '--baseband_format', 'cf32', '--decimation', str(decimation), '--timeout', '2']
+        args = ['legacy', 'record', str(path), *radio, '--baseband_format', 'cf32', '--decimation', str(decimation), '--probe_start_delay_ms', '2500', '--timeout', '60']
         if fft:
             args += ['--fft_enable']
-        if run(name, args):
+        # Fork: processing may take longer than a short pass timeout on a shared machine.
+        # Wait for all expected bytes, then stop, independently of wall-clock throughput.
+        output = pathlib.Path(str(path) + '.cf32')
+        if run(name, args, sig=signal.SIGTERM, ready_size=(output, N // decimation * 8)):
             def samples():
                 data = pathlib.Path(str(path) + '.cf32').read_bytes()
                 assert len(data) == N // decimation * 8, f'{len(data)} bytes, expected {N // decimation * 8}'
@@ -94,16 +97,20 @@ for decimation in (1, 2, 4):
         assert results[decimation, False] == results[decimation, True], 'FFT changed recorded samples'
     validate(f'finite-D{decimation}-fft-identical', same)
 
-def wav_check(path, decimation):
+def wav_check(path, decimation, complete):
     data = path.read_bytes()
     assert data[:4] == b'RIFF' and data[8:12] == b'WAVE' and data[36:40] == b'data'
     riff_size, = struct.unpack_from('<I', data, 4)
     fmt, channels, rate, byte_rate, align, bits = struct.unpack_from('<HHIIHH', data, 20)
     payload, = struct.unpack_from('<I', data, 40)
     assert (fmt, channels, rate, byte_rate, align, bits) == (1, 2, 6000000 // decimation, 24000000 // decimation, 4, 16)
-    assert payload == len(data) - 44 == N // decimation * 4, (payload, len(data))
+    assert payload == len(data) - 44, (payload, len(data))
+    assert payload % align == 0 and payload <= N // decimation * 4, payload
+    if complete:
+        assert payload == N // decimation * 4, payload
     assert riff_size == len(data) - 8, (riff_size, len(data))
-    assert any(data[44:]), 'empty WAV payload'
+    if payload:
+        assert any(data[44:]), 'empty WAV payload'
 
 # Fork: both timeout and signals must finalize WAV after the last payload write. Chained module
 # commands restore default handlers; the following record must reinstall them for both signals.
@@ -112,9 +119,14 @@ for prefix in ([], ['module']):
         name = f'wav-{len(prefix)}-{sig.name if sig else "timeout"}'
         path = root / name
         wav = pathlib.Path(str(path) + '.wav')
-        args = [*prefix, 'legacy', 'record', str(path), *radio, '--baseband_format', 'wav', '--decimation', '2', '--fft_enable', '--timeout', '30' if sig else '2']
+        args = [*prefix, 'legacy', 'record', str(path), *radio, '--baseband_format', 'wav', '--decimation', '2', '--fft_enable', '--timeout', '60' if sig else '2']
         if run(name, args, sig=sig, ready_size=(wav, 44 + N // 2 * 4)):
-            validate(name + '-header', lambda: wav_check(wav, 2))
+            validate(name + '-header', lambda: wav_check(wav, 2, sig is not None))
+# Fork: a timeout before the delayed source sends any samples still yields a consistent WAV.
+path = root / 'wav-delayed-timeout'
+if run('wav-delayed-timeout', ['legacy', 'record', str(path), *radio, '--baseband_format', 'wav',
+                             '--decimation', '2', '--probe_start_delay_ms', '3000', '--timeout', '2']):
+    validate('wav-delayed-timeout-header', lambda: wav_check(pathlib.Path(str(path) + '.wav'), 2, False))
 sys.exit(bool(failures))
 PY
 exit $FAILED

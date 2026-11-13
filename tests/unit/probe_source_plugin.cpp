@@ -47,6 +47,8 @@ namespace
         {
             try
             {
+                // Fork: deterministic load simulation for completion-driven recording tests.
+                std::this_thread::sleep_for(std::chrono::milliseconds(d_settings.value("probe_start_delay_ms", 0)));
                 constexpr int chunk = 4096;
                 const int blocks = d_settings.value("probe_blocks", 16);
                 for (int block = 0; running && block < blocks; block++)
