@@ -3,6 +3,10 @@
 #include "core/exception.h"
 #include "logger.h"
 #include "pipeline/module.h"
+#ifdef SATDUMP_TEST_CLIENT_STARTED
+#include "core/plugin.h"
+#include "live_running_event.h"
+#endif
 
 namespace satdump
 {
@@ -211,6 +215,11 @@ namespace satdump
             if (satdump::cli::stop_requested())
                 return;
             start_modules(tp);
+#ifdef SATDUMP_TEST_CLIENT_STARTED
+            // Fork: test handlers synchronize on task completion, before returning to the CLI.
+            if (satdump::eventBus)
+                satdump::eventBus->fire_event(fork_test::ClientStartedEvent{*this, module_futs});
+#endif
         }
 
         // Fork: stop() never throws (a module that had failed made it throw half-way, leaving the

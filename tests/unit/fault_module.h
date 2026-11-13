@@ -22,6 +22,7 @@
 #include "live_running_event.h"
 #include "logger.h"
 #include "pipeline/module.h"
+#include "pipeline/live_pipeline.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -150,6 +151,19 @@ namespace fork_test
                 std::raise(SIGTERM);
                 logger->info("Injected stop during client module init");
             }
+            // Fork: future readiness follows module_failed(), not just process() throwing.
+            if (d_parameters.value("stop_after_client_failure", false))
+                satdump::eventBus->register_handler<ClientStartedEvent>([](ClientStartedEvent event)
+                {
+                    if (event.tasks.empty())
+                        throw satdump_exception("client startup hook saw no tasks");
+                    event.tasks.back().wait();
+                    if (!event.pipeline.has_failed())
+                        throw satdump_exception("client task finished without recording its failure");
+                    logger->info("Verified client module failure recorded before stop");
+                    std::raise(SIGTERM);
+                    logger->info("Injected stop before start_client returned");
+                });
             if (d_preserve_input && (d_out_factor != 1 || input_data_type == satdump::pipeline::DATA_DSP_STREAM))
                 throw satdump_exception("preserve_input needs byte input and out_factor 1");
             if (d_fail_init)

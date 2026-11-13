@@ -154,20 +154,29 @@ int main_live(int argc, char *argv[])
         std::unique_ptr<satdump::pipeline::LivePipeline> live_pipeline = std::make_unique<satdump::pipeline::LivePipeline>(pipeline.value(), parameters, output_file);
 
         // Attempt to start the source and pipeline
+        bool cancelled = false;
         try
         {
             // Fork: client mode has no radio; cancel before opening its network source too.
             if (satdump::cli::stop_requested())
                 return 0;
             live_pipeline->start_client(live_thread_pool);
-            // Fork: start_client may have cancelled after module initialisation.
-            if (satdump::cli::stop_requested())
-                return 0;
+            // Fork: cancellation may follow launched modules; preserve any recorded failure.
+            cancelled = satdump::cli::stop_requested();
         }
         catch (std::exception &e)
         {
             logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
             return 1;
+        }
+
+        // Fork: keep failure reporting outside the startup catch, which maps errors to exit 1.
+        // stop() also handles cancellation during init, when no module was launched.
+        if (cancelled)
+        {
+            live_pipeline->stop();
+            throw_if_failed({{"", live_pipeline.get()}});
+            return 0;
         }
 
         // Fork: an error once the pipeline runs stops it (and the webserver) before it is reported

@@ -125,6 +125,9 @@ set_tests_properties(cli_unreadable_folders PROPERTIES LABELS cli SKIP_RETURN_CO
 # everything runs. Normal builds have neither this event nor its call site.
 target_compile_definitions(satdump PRIVATE SATDUMP_TEST_LIVE_RUNNING)
 target_include_directories(satdump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
+# Fork: a client startup hook waits for a recorded module failure before injecting a stop.
+target_compile_definitions(satdump_core PRIVATE SATDUMP_TEST_CLIENT_STARTED)
+target_include_directories(satdump_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
 add_library(fork_fault_test_plugin SHARED unit/fault_plugin.cpp)
 target_include_directories(fork_fault_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(fork_fault_test_plugin PRIVATE satdump_core)

@@ -55,6 +55,26 @@ check "client-init-exit-$got" test "$got" = 0
 check client-init-stop-injected grep -q 'Injected stop during client module init' "$WORK/client-init.log"
 check client-init-no-source-start bash -c '! grep -E "Opening TCP socket|Start processing" "$1"' _ "$WORK/client-init.log"
 
+# Fork: a module has failed before SIGTERM, while start_client is still on the stack.
+# The module's completed task future supplies the ordering; no startup timing assumption.
+python3 -I - "$WORK/client/pipelines.json" <<'PYFAIL'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+config = json.loads(path.read_text())
+params = config['fork_client_stop']['work']['bytes']['parameters']
+params.update(stop_in_init=False, fail_after=0, stop_after_client_failure=True)
+path.write_text(json.dumps(config))
+PYFAIL
+(cd "$WORK/client" && timeout -k 2 15 "$SD" legacy live fork_client_stop "$WORK/client-failure-stop-out" \
+    --client --server_address 127.0.0.1 --server_port 1 --timeout 1) > "$WORK/client-failure-stop.log" 2>&1
+got=$?
+check "client-failure-stop-exit-$got" test "$got" = 2
+check client-failure-recorded-before-stop grep -q 'Verified client module failure recorded before stop' "$WORK/client-failure-stop.log"
+check client-failure-stop-injected grep -q 'Injected stop before start_client returned' "$WORK/client-failure-stop.log"
+check client-failure-command-error grep -q 'Error running command.*Live pipeline failed' "$WORK/client-failure-stop.log"
+check client-failure-not-startup-error bash -c '! grep -q "Fatal error running pipeline/device" "$1"' _ "$WORK/client-failure-stop.log"
+[ "$got" = 2 ] || cat "$WORK/client-failure-stop.log"
+
 # Fork: source discovery delivers a real stop after autotrack entry but before its constructor opens.
 export SATDUMP_TEST_PROBE_STOP_ON_LIST=1
 cat > autotrack.json <<JSON
