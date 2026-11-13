@@ -132,6 +132,14 @@ add_test(NAME cli_thread_faults
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/thread_faults.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_fault_test_plugin> $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_thread_faults PROPERTIES LABELS cli)
 
+# Fork: a plugin with the previous ABI is built only for rejection testing, never installed.
+add_library(fork_old_abi_test_plugin SHARED unit/old_abi_plugin.cpp)
+target_include_directories(fork_old_abi_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(fork_old_abi_test_plugin PRIVATE satdump_core)
+add_test(NAME cli_plugin_abi
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/plugin_abi.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_old_abi_test_plugin>)
+set_tests_properties(cli_plugin_abi PROPERTIES LABELS cli)
+
 # Fork: orbit elements and Earth orientation data read from local files (file://), the TLE
 # lines written for stored elements, and pass prediction with the station height in metres
 # (unit); SatDump run the way the Controller runs it, with no network (in a network namespace

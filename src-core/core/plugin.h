@@ -7,7 +7,8 @@
 #include "utils/event_bus.h"
 #include "utils/task_scheduler.h"
 
-#define PLUGIN_ABI_VERSION 1
+// Fork: DSP lifecycle hooks changed the block vtables; ABI-1 plugins must be rebuilt.
+#define PLUGIN_ABI_VERSION 2
 
 #ifdef _MSC_VER
 #define PLUGIN_DLL __declspec(dllexport)

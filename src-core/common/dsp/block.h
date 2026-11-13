@@ -86,6 +86,8 @@ namespace dsp
         // (a data race). Neither start() nor stop() calls the other or itself while holding it,
         // and the block's own thread never takes it.
         std::mutex d_start_stop_mtx;
+        // Fork: a friend gives tests non-virtual access to the lifecycle mutex.
+        friend struct BlockLifecycleTestAccess;
 
         std::atomic<bool> d_failed{false};
         std::mutex d_failure_mtx;

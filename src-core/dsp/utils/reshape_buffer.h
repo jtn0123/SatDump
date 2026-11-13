@@ -6,6 +6,7 @@
 #include "common/dsp/filter/firdes.h"
 #include "dsp/block.h"
 #include <atomic>
+#include <vector>
 #include <volk/volk.h>
 #include <volk/volk_alloc.hh>
 
@@ -20,8 +21,10 @@ namespace satdump
             int buffer_size = 1024;
             dsp::RingBuffer<T> ring_buf{100};
 
-            // Fork: written by stop() and read by the work2 thread, so atomic
-            std::atomic<bool> work2shouldrun{false};
+            // Fork: only the output worker produces output, including EOF. Stage a chunk
+            // before allocating an output buffer so a discarded tail owns no stream buffer.
+            std::vector<T> output_chunk;
+            std::atomic<bool> propagate_eof{false};
             std::thread work2Thread;
 
             bool work();
@@ -38,7 +41,12 @@ namespace satdump
 
         public:
 
-            void init() { ring_buf.reset(); }
+            void init() override
+            {
+                ring_buf.reset();
+                propagate_eof = false;
+                output_chunk.resize(buffer_size);
+            }
 
             nlohmann::ordered_json get_cfg_list()
             {

@@ -229,6 +229,7 @@ namespace dsp
         {
             _stopReader = false;
             _stopWriter = false;
+            _writerFinished = false;
             writec = 0;
             readc = 0;
             readable = 0;
@@ -244,7 +245,9 @@ namespace dsp
                 toRead = std::min<int>(waitUntilReadable(), len - dataRead);
                 if (toRead < 0)
                 {
-                    return -1;
+                    // Fork: finishing a writer drains its last samples, including a short
+                    // final read. An explicit stop still cancels the read with -1.
+                    return _writerFinished && !_stopReader ? dataRead : -1;
                 };
 
                 if ((toRead + readc) > size)
@@ -340,12 +343,13 @@ namespace dsp
             }
             std::unique_lock<std::mutex> lck(_readable_mtx);
             canReadVar.wait(lck, [=]()
-                            { return ((this->getReadable(false) > 0) || this->getReadStop()); });
+                            { return ((this->getReadable(false) > 0) || this->getReadStop() || _writerFinished); });
             if (_stopReader)
             {
                 return -1;
             }
-            return getReadable(false);
+            int available = getReadable(false);
+            return available > 0 ? available : -1; // Fork: finished and fully drained.
         }
 
         int getReadable(bool lock = true)
@@ -461,6 +465,18 @@ namespace dsp
             canWriteVar.notify_all();
         }
 
+        // Fork: the sole writer calls this after its last write. Readers drain the queue;
+        // read() then returns a short count (or 0) instead of waiting for data that cannot come.
+        void finishWriter()
+        {
+            {
+                std::lock_guard<std::mutex> lck(_readable_mtx);
+                _writerFinished = true;
+            }
+            canReadVar.notify_all();
+        }
+        bool writerFinished() const { return _writerFinished; }
+
         bool getReadStop() { return _stopReader; }
         bool getWriteStop() { return _stopWriter; }
         void clearReadStop() { _stopReader = false; }
@@ -475,6 +491,7 @@ namespace dsp
         int readable;
         int writable;
         int maxLatency;
+        std::atomic<bool> _writerFinished{false}; // Fork: graceful EOF, distinct from cancellation.
         std::atomic<bool> _stopReader; // Fork: atomic, as they are also read without the lock
         std::atomic<bool> _stopWriter;
         std::mutex _readable_mtx;

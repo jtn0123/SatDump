@@ -3,6 +3,7 @@
 #include "dsp/utils/reshape_buffer.h"
 #include "dsp/legacy/module_wrapper.h"
 #include "doctest.h"
+#include "block_lifecycle_test_access.h"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -62,6 +63,7 @@ namespace
         }
     public:
         ReshapeFixture() { outputs[0].fifo = std::make_shared<DSPStream>(4); }
+        std::mutex &lifecycle_mutex() { return BlockLifecycleTestAccess::mutex(*this); }
         void stop(bool stop_now = true, bool force = false) override { ReshapeBufferBlock<float>::stop(stop_now, force); }
     };
 
@@ -92,6 +94,7 @@ namespace
             return work_should_exit;
         }
     public:
+        std::mutex &lifecycle_mutex() { return BlockLifecycleTestAccess::mutex(*this); }
         ModuleFixture()
         {
             module_id = "extra_worker_test";
@@ -103,6 +106,7 @@ namespace
     class S2Fixture : public dvbs2::S2PLSyncBlock
     {
     public:
+        std::mutex &lifecycle_mutex() { return dsp::BlockLifecycleTestAccess::mutex(*this); }
         S2Fixture() : S2PLSyncBlock(std::make_shared<dsp::stream<complex_t>>(512), 1, false)
         {
             output_stream = std::make_shared<dsp::stream<complex_t>>(512);
@@ -168,86 +172,45 @@ namespace
         CHECK(block.starts == block.joins);
     }
 
-    template <typename T> void overlap()
+    template <typename T> void hooks_hold_mutex()
     {
         Probe<T> block;
-        std::atomic<bool> held{false}, stopping{false}, returned{false};
-        bool slipped = false;
-        block.on_start = [&]
+        std::atomic<bool> held{false}, release{false};
+        auto hold = [&]
         {
             held = true;
-            if (!within([&] { return stopping.load(); }))
-                throw std::runtime_error("stopper was not scheduled");
-            // Fork: this is a negative assertion; the timeout only widens the old race.
-            auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-            while (!returned && std::chrono::steady_clock::now() < end)
-                std::this_thread::yield();
-            slipped = returned;
+            if (!within([&] { return release.load(); }))
+                std::_Exit(1);
         };
-        std::exception_ptr start_error, stop_error;
-        std::thread starter([&]
+        auto check = [&](const std::function<void()> &operation)
         {
-            try { block.start(); }
-            catch (...) { start_error = std::current_exception(); }
-        });
-        CHECK(within([&] { return held.load(); }));
-        std::thread stopper([&]
-        {
-            stopping = true;
-            try { block.stop(); }
-            catch (...) { stop_error = std::current_exception(); }
-            returned = true;
-        });
-        starter.join();
-        stopper.join();
-        CHECK_FALSE(start_error);
-        CHECK_FALSE(stop_error);
-        CHECK_FALSE(slipped);
+            held = false;
+            release = false;
+            std::exception_ptr error;
+            std::thread worker([&]
+            {
+                try { operation(); }
+                catch (...) { error = std::current_exception(); }
+            });
+            CHECK(within([&] { return held.load(); }));
+            // Fork: actually attempt the lock on this thread while the hook is held.
+            // The worker cannot release its hook until this assertion has run.
+            {
+                std::unique_lock<std::mutex> attempt(block.lifecycle_mutex(), std::try_to_lock);
+                CHECK_FALSE(attempt.owns_lock());
+            }
+            release = true;
+            worker.join();
+            CHECK_FALSE(error);
+        };
+        block.on_start = hold;
+        check([&] { block.start(); });
+        block.on_start = nullptr;
+        block.on_stop = hold;
+        check([&] { block.stop(); });
+        block.on_stop = nullptr;
         CHECK(block.starts == 1);
         CHECK(block.joins == 1);
-        block.stop();
-    }
-
-    template <typename T> void stop_overlap()
-    {
-        Probe<T> block;
-        block.start();
-        std::atomic<bool> held{false}, starting{false}, returned{false};
-        bool slipped = false;
-        block.on_stop = [&]
-        {
-            held = true;
-            if (!within([&] { return starting.load(); }))
-                std::_Exit(1);
-            auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-            while (!returned && std::chrono::steady_clock::now() < end)
-                std::this_thread::yield();
-            slipped = returned;
-        };
-        std::exception_ptr start_error, stop_error;
-        std::thread stopper([&]
-        {
-            try { block.stop(); }
-            catch (...) { stop_error = std::current_exception(); }
-        });
-        CHECK(within([&] { return held.load(); }));
-        std::thread starter([&]
-        {
-            starting = true;
-            try { block.start(); }
-            catch (...) { start_error = std::current_exception(); }
-            returned = true;
-        });
-        stopper.join();
-        starter.join();
-        CHECK_FALSE(start_error);
-        CHECK_FALSE(stop_error);
-        CHECK_FALSE(slipped);
-        CHECK(block.starts == 2);
-        CHECK(block.joins == 1);
-        block.on_stop = nullptr;
-        block.stop();
-        CHECK(block.starts == block.joins);
     }
 
     template <typename T> void stress()
@@ -300,20 +263,20 @@ namespace
     }
 }
 
-TEST_CASE("extra DSP workers: DVB-S2 lifecycle, overlap and two-thread stress")
+TEST_CASE("extra DSP workers: DVB-S2 lifecycle and two-thread stress")
 {
-    bounded([] { lifecycle<S2Fixture>(); overlap<S2Fixture>(); stop_overlap<S2Fixture>(); stress<S2Fixture>(); });
+    bounded([] { lifecycle<S2Fixture>(); stress<S2Fixture>(); });
 }
 
-TEST_CASE("extra DSP workers: reshape lifecycle, overlap and two-thread stress")
+TEST_CASE("extra DSP workers: reshape lifecycle and two-thread stress")
 {
-    bounded([] { lifecycle<ReshapeFixture>(); overlap<ReshapeFixture>(); stop_overlap<ReshapeFixture>(); stress<ReshapeFixture>(); });
+    bounded([] { lifecycle<ReshapeFixture>(); stress<ReshapeFixture>(); });
 }
 
-TEST_CASE("extra DSP workers: module wrapper lifecycle, overlap and two-thread stress")
+TEST_CASE("extra DSP workers: module wrapper lifecycle and two-thread stress")
 {
     register_module();
-    bounded([] { lifecycle<ModuleFixture>(); overlap<ModuleFixture>(); stop_overlap<ModuleFixture>(); stress<ModuleFixture>(); });
+    bounded([] { lifecycle<ModuleFixture>(); stress<ModuleFixture>(); });
     CHECK(WaitingModule::running == 0);
 }
 
@@ -339,7 +302,7 @@ TEST_CASE("extra DSP workers: DVB-S2 restart still passes complete frames")
     });
 }
 
-TEST_CASE("extra DSP workers: real reshape transfers samples after restart")
+TEST_CASE("extra DSP workers: reshape drains queued chunks before EOF and restart")
 {
     bounded([]
     {
@@ -348,24 +311,65 @@ TEST_CASE("extra DSP workers: real reshape transfers samples after restart")
         auto input = std::make_shared<DSPStream>(4);
         auto output = block.get_output(0, 4).fifo;
         block.set_input({"in", DSP_SAMPLE_TYPE_F32, input}, 0);
-        for (int run = 0; run < 3; ++run)
+        const int lengths[] = {99, 64, 64, 31, 0, 95};
+        for (int run = 0; run < 6; ++run)
         {
+            const int chunk_size = run == 1 ? 16 : 32;
+            if (run != 1) // Fork: run 1 uses the size requested during run 0.
+                block.set_cfg("buffer_size", chunk_size);
+            // Fork: hold every output allocation until the input worker has consumed EOF.
+            // This proves it can finish without publishing output, even under backpressure.
+            std::vector<DSPBuffer> held;
+            for (int i = 0; i < 4; ++i)
+                held.push_back(output->alloc(0));
             block.start();
-            auto samples = input->newBufferSamples(32, sizeof(float));
-            samples.size = 32;
-            for (int i = 0; i < 32; ++i)
-                samples.getSamples<float>()[i] = run + 1;
-            input->wait_enqueue(samples);
-            auto got = output->wait_dequeue();
-            CHECK(got.size == 32);
-            CHECK(got.getSamples<float>()[0] == run + 1);
-            output->free(got);
-            input->wait_enqueue(input->newBufferTerminator());
-            got = output->wait_dequeue();
-            CHECK(got.isTerminator());
-            output->free(got);
+            int count = lengths[run];
+            if (count > 0)
+            {
+                auto samples = input->newBufferSamples(count, sizeof(float));
+                samples.size = count;
+                for (int i = 0; i < count; ++i)
+                    samples.getSamples<float>()[i] = run * 1000 + i;
+                input->wait_enqueue(samples);
+            }
+            bool propagate = run != 5;
+            input->wait_enqueue(input->newBufferTerminator(propagate));
+            CHECK(within([&] { return BlockLifecycleTestAccess::main_done(block); }));
+            // Fork: a size requested mid-run applies on restart, keeping the staging bounds
+            // and output chunk size fixed for this run.
+            if (run == 0)
+                block.set_cfg("buffer_size", 16);
+            for (auto &buffer : held)
+                output->free(buffer);
+            int received = 0;
+            if (!propagate)
+                block.stop(); // Fork: all complete output is now queued; no EOF is forwarded.
+            while (true)
+            {
+                DSPBuffer got;
+                if (propagate)
+                    got = output->wait_dequeue();
+                else if (!output->try_dequeue(got))
+                    break;
+                bool ended = got.isTerminator();
+                if (!propagate)
+                    CHECK_FALSE(ended);
+                if (!ended)
+                {
+                    CHECK(got.size == static_cast<uint32_t>(chunk_size));
+                    for (uint32_t i = 0; i < got.size; ++i)
+                        CHECK(got.getSamples<float>()[i] == run * 1000 + received + i);
+                    received += got.size;
+                }
+                output->free(got);
+                if (ended)
+                    break;
+            }
             block.stop();
             block.stop();
+            CHECK(received == (count / chunk_size) * chunk_size);
+            DSPBuffer leftover;
+            CHECK_FALSE(output->try_dequeue(leftover));
         }
     });
 }
@@ -396,7 +400,7 @@ TEST_CASE("extra DSP workers: real module wrapper ends and restarts")
     });
 }
 
-TEST_CASE("extra DSP workers: DVB-S2 start waits for the second worker join")
+TEST_CASE("extra DSP workers: DVB-S2 second worker join holds the lifecycle mutex")
 {
     // Fork: hold the actual second worker, not just the base worker or lifecycle hook.
     class JoinGatedS2 : public S2Fixture
@@ -418,37 +422,34 @@ TEST_CASE("extra DSP workers: DVB-S2 start waits for the second worker join")
         Probe<JoinGatedS2> block;
         block.start();
         CHECK(within([&] { return block.entered.load(); }));
-        std::atomic<bool> stopping{false}, starting{false}, returned{false};
+        std::atomic<bool> stopping{false};
         block.on_stop = [&] { stopping = true; };
-        std::exception_ptr stop_error, start_error;
+        std::exception_ptr stop_error;
         std::thread stopper([&]
         {
             try { block.stop(); }
             catch (...) { stop_error = std::current_exception(); }
         });
         CHECK(within([&] { return stopping.load(); }));
-        std::thread starter([&]
         {
-            starting = true;
-            try { block.start(); }
-            catch (...) { start_error = std::current_exception(); }
-            returned = true;
-        });
-        CHECK(within([&] { return starting.load(); }));
-        auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-        while (!returned && std::chrono::steady_clock::now() < end)
-            std::this_thread::yield();
-        bool slipped = returned;
+            std::unique_lock<std::mutex> attempt(block.lifecycle_mutex(), std::try_to_lock);
+            CHECK_FALSE(attempt.owns_lock());
+        }
+        CHECK(block.active == 1);
         block.release = true;
         stopper.join();
-        starter.join();
-        CHECK_FALSE(start_error);
         CHECK_FALSE(stop_error);
-        CHECK_FALSE(slipped);
+        block.start();
         block.on_stop = nullptr;
         block.stop();
         CHECK(block.active == 0);
         CHECK(block.starts == 2);
         CHECK(block.joins == 2);
     });
+}
+
+TEST_CASE_TEMPLATE("extra DSP workers: lifecycle hooks hold the mutex", T, S2Fixture, ReshapeFixture, ModuleFixture)
+{
+    register_module();
+    bounded([] { hooks_hold_mutex<T>(); });
 }
