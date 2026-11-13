@@ -40,6 +40,21 @@ for mode in single multi client record; do
     # Client has no radio: its network source and modules must not be started either.
     check "$mode-no-source-start" bash -c '! grep -E "Opening TCP socket|Start processing|Fork probe radio started" "$1"' _ "$WORK/$mode.log"
 done
+# Fork: use the real CLI and a valid client pipeline; init() requests the stop itself.
+python3 -I - "$WORK/client/pipelines.json" <<'PYINIT'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+config = json.loads(path.read_text())
+config['fork_client_stop']['work']['bytes']['parameters']['stop_in_init'] = True
+path.write_text(json.dumps(config))
+PYINIT
+(cd "$WORK/client" && timeout -k 2 15 "$SD" legacy live fork_client_stop "$WORK/client-init-out" \
+    --client --server_address 127.0.0.1 --server_port 1 --timeout 1) > "$WORK/client-init.log" 2>&1
+got=$?
+check "client-init-exit-$got" test "$got" = 0
+check client-init-stop-injected grep -q 'Injected stop during client module init' "$WORK/client-init.log"
+check client-init-no-source-start bash -c '! grep -E "Opening TCP socket|Start processing" "$1"' _ "$WORK/client-init.log"
+
 # Fork: source discovery delivers a real stop after autotrack entry but before its constructor opens.
 export SATDUMP_TEST_PROBE_STOP_ON_LIST=1
 cat > autotrack.json <<JSON

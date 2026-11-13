@@ -160,6 +160,9 @@ int main_live(int argc, char *argv[])
             if (satdump::cli::stop_requested())
                 return 0;
             live_pipeline->start_client(live_thread_pool);
+            // Fork: start_client may have cancelled after module initialisation.
+            if (satdump::cli::stop_requested())
+                return 0;
         }
         catch (std::exception &e)
         {

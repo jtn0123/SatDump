@@ -1,4 +1,5 @@
 #pragma once
+#include <csignal>
 
 // Fork test support: a pipeline module that fails on purpose. Used by the unit tests in
 // test_thread_faults.cpp and, through fault_plugin.cpp, by tests/cli/thread_faults.sh.
@@ -143,6 +144,12 @@ namespace fork_test
 
         void init() override
         {
+            // Fork: deterministic cancellation after client setup began, before tasks launch.
+            if (d_parameters.value("stop_in_init", false))
+            {
+                std::raise(SIGTERM);
+                logger->info("Injected stop during client module init");
+            }
             if (d_preserve_input && (d_out_factor != 1 || input_data_type == satdump::pipeline::DATA_DSP_STREAM))
                 throw satdump_exception("preserve_input needs byte input and out_factor 1");
             if (d_fail_init)

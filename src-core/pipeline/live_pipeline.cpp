@@ -1,4 +1,5 @@
 #include "live_pipeline.h"
+#include "core/cli/stop_signals.h"
 #include "core/exception.h"
 #include "logger.h"
 #include "pipeline/module.h"
@@ -205,6 +206,10 @@ namespace satdump
                 modules[num]->init();
             }
 
+            // Fork: CLI cancellation can arrive in any module's init(). Launch none of them
+            // when it did; GUI users never install the CLI stop handlers.
+            if (satdump::cli::stop_requested())
+                return;
             start_modules(tp);
         }
 

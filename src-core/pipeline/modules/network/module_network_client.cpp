@@ -1,4 +1,5 @@
 #include "module_network_client.h"
+#include "core/cli/stop_signals.h"
 #include "common/net/udp.h"
 #include "common/utils.h"
 #include "core/exception.h"
@@ -52,6 +53,10 @@ namespace satdump
 
             void NetworkClientModule::process()
             {
+                // Fork: stop may precede this task, including during client module init().
+                auto stopping = [this] { return !input_active.load() || satdump::cli::stop_requested(); };
+                if (stopping())
+                    return;
                 if (mode == "default")
                 {
                     nng_socket sock;
@@ -60,6 +65,8 @@ namespace satdump
 
                     // Fork: only this worker owns the socket. Closing it here also closes its
                     // dialer, on normal stop and on every error, without racing stop().
+                    if (stopping())
+                        return;
                     int rv = nng_sub0_open_raw(&sock);
                     if (rv != 0)
                         throw satdump_exception(std::string("Cannot open network client: ") + nng_strerror(rv));
@@ -80,8 +87,13 @@ namespace satdump
                         // Fork: bound each queued message to the largest accepted packet, before dialing.
                         (rv = nng_socket_set_size(sock, NNG_OPT_RECVMAXSZ, static_cast<size_t>(pkt_size))) != 0 ||
                         (rv = nng_socket_set_ms(sock, NNG_OPT_RECVTIMEO, 100)) != 0 ||
-                        (rv = nng_dialer_create(&dialer, sock, url.c_str())) != 0 ||
-                        (rv = nng_dialer_start(dialer, NNG_FLAG_NONBLOCK)) != 0)
+                        (rv = nng_dialer_create(&dialer, sock, url.c_str())) != 0)
+                        throw satdump_exception(std::string("Cannot start network client: ") + nng_strerror(rv));
+
+                    // Fork: configuration may have raced a stop; do not initiate a connection.
+                    if (stopping())
+                        return;
+                    if ((rv = nng_dialer_start(dialer, NNG_FLAG_NONBLOCK)) != 0)
                         throw satdump_exception(std::string("Cannot start network client: ") + nng_strerror(rv));
 
                     while (input_active.load())
