@@ -69,7 +69,11 @@ namespace satdump
                     // Fork: connection setup must not wait for a server's handshake, and a
                     // receive must periodically check the existing atomic input_active flag.
                     // Otherwise stopping the pipeline could wait forever in either call.
-                    if ((rv = nng_socket_set_ms(sock, NNG_OPT_RECVTIMEO, 100)) != 0 ||
+                    // Fork: the raw subscriber defaults to one queued message. A short burst
+                    // can arrive on the I/O threads before this worker is scheduled again,
+                    // dropping valid packets even with no downstream backpressure.
+                    if ((rv = nng_socket_set_int(sock, NNG_OPT_RECVBUF, 64)) != 0 ||
+                        (rv = nng_socket_set_ms(sock, NNG_OPT_RECVTIMEO, 100)) != 0 ||
                         (rv = nng_dialer_create(&dialer, sock, url.c_str())) != 0 ||
                         (rv = nng_dialer_start(dialer, NNG_FLAG_NONBLOCK)) != 0)
                         throw satdump_exception(std::string("Cannot start network client: ") + nng_strerror(rv));
