@@ -249,7 +249,7 @@ namespace satdump
             set_bw();
         }
 
-        void LimeSDRDevBlock::stop(bool stop_now, bool force)
+        void LimeSDRDevBlock::stop(bool stop_now, bool) // Fork: force is intentionally unused.
         {
             if (is_started)
             {

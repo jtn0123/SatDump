@@ -54,7 +54,8 @@ namespace satdump
                         logger->error("LimeSDR TX Timeout!");
                     else if (status <= 0)
                         logger->error("LimeSDR TX Error! %d", status);
-                    else if (status != iblk.size)
+                    // Fork: the preceding branches reject zero and negative status values.
+                    else if (static_cast<uint32_t>(status) != iblk.size)
                         logger->error("LimeSDR Stream dropped!");
 
                     inputs[ch].fifo->free(iblk);

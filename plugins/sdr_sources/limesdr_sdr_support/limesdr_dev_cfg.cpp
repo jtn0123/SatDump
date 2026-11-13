@@ -5,6 +5,7 @@
 #include <lime/LimeSuite.h>
 #include <logger.h>
 #include <string>
+#include <cstddef>
 
 namespace satdump
 {
@@ -354,28 +355,29 @@ namespace satdump
 
         double LimeSDRDevBlock::getStreamSamplerate(int id, bool output)
         {
-            if (output ? (id >= inputs.size()) : (id >= outputs.size()))
+            // Fork: reject negative IDs before comparing with unsigned vector sizes.
+            if (id < 0 || static_cast<std::size_t>(id) >= (output ? inputs.size() : outputs.size()))
                 throw satdump_exception("Stream ID must be <= channel count in direction!");
             return samplerate;
         }
 
         void LimeSDRDevBlock::setStreamSamplerate(int id, bool output, double samplerate)
         {
-            if (output ? (id >= inputs.size()) : (id >= outputs.size()))
+            if (id < 0 || static_cast<std::size_t>(id) >= (output ? inputs.size() : outputs.size()))
                 throw satdump_exception("Stream ID must be <= channel count in direction!");
             set_cfg("samplerate", samplerate);
         }
 
         double LimeSDRDevBlock::getStreamFrequency(int id, bool output)
         {
-            if (output ? (id >= inputs.size()) : (id >= outputs.size()))
+            if (id < 0 || static_cast<std::size_t>(id) >= (output ? inputs.size() : outputs.size()))
                 throw satdump_exception("Stream ID must be <= channel count in direction!");
             return output ? tx_frequency : rx_frequency;
         }
 
         void LimeSDRDevBlock::setStreamFrequency(int id, bool output, double frequency)
         {
-            if (output ? (id >= inputs.size()) : (id >= outputs.size()))
+            if (id < 0 || static_cast<std::size_t>(id) >= (output ? inputs.size() : outputs.size()))
                 throw satdump_exception("Stream ID must be <= channel count in direction!");
             if (output)
                 set_cfg("tx_frequency", frequency);

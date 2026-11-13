@@ -1,5 +1,6 @@
 #include "soapysdr_sdr.h"
 #include <cinttypes>
+#include <cstddef>
 
 // void SoapySdrSource::_rx_callback(unsigned char *buf, uint32_t len, void *ctx)
 //{
@@ -24,22 +25,23 @@ void SoapySdrSource::set_params()
     else if (bandwidth_widget.get_list().size() > 1)
         soapy_dev->setBandwidth(SOAPY_SDR_RX, channel_id, samplerate_widget.get_value());
 
+    // Fork: container indices use an unsigned size type throughout this driver.
     // Bool options
-    for (int optid = 0; optid < list_options_bool.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_bool.size(); optid++)
     {
         soapy_dev->writeSetting(list_options_bool_ids[optid], list_options_bool_vals[optid] ? "true" : "false");
         logger->debug("Set SoapySDR %s setting to %s", list_options_bool_ids[optid].c_str(), list_options_bool_vals[optid] ? "true" : "false");
     }
 
     // String options
-    for (int optid = 0; optid < list_options_strings.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_strings.size(); optid++)
     {
         soapy_dev->writeSetting(list_options_strings_ids[optid], list_options_strings_options[optid][list_options_strings_values[optid]]);
         logger->debug("Set SoapySDR %s setting to %s", list_options_strings_ids[optid].c_str(), list_options_strings_options[optid][list_options_strings_values[optid]].c_str());
     }
 
     // Gains
-    for (int gainid = 0; gainid < gain_list.size(); gainid++)
+    for (std::size_t gainid = 0; gainid < gain_list.size(); gainid++)
     {
         soapy_dev->setGain(SOAPY_SDR_RX, channel_id, gain_list[gainid], gain_list_vals[gainid]);
         logger->debug("Set SoapySDR %s Gain to %f", gain_list[gainid].c_str(), gain_list_vals[gainid]);
@@ -51,13 +53,13 @@ void SoapySdrSource::set_settings(nlohmann::json settings)
     d_settings = settings;
 
     antenna_id = getValueOrDefault(d_settings["antenna_id"], antenna_id);
-    for (int gainid = 0; gainid < gain_list.size(); gainid++)
+    for (std::size_t gainid = 0; gainid < gain_list.size(); gainid++)
         gain_list_vals[gainid] = getValueOrDefault(d_settings["gain_" + gain_list[gainid]], gain_list_vals[gainid]);
     if (bandwidth_widget.get_list().size() > 1)
         bandwidth_widget.set_value(getValueOrDefault(d_settings["manual_bw_value"], samplerate_widget.get_value()));
-    for (int optid = 0; optid < list_options_bool.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_bool.size(); optid++)
         list_options_bool_vals[optid] = getValueOrDefault(d_settings[list_options_bool_ids[optid]], list_options_bool_vals[optid]);
-    for (int optid = 0; optid < list_options_strings.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_strings.size(); optid++)
         list_options_strings_values[optid] = getValueOrDefault(d_settings[list_options_strings_ids[optid]], list_options_strings_values[optid]);
 
     if (is_started)
@@ -69,13 +71,13 @@ void SoapySdrSource::set_settings(nlohmann::json settings)
 nlohmann::json SoapySdrSource::get_settings()
 {
     d_settings["antenna_id"] = antenna_id;
-    for (int gainid = 0; gainid < gain_list.size(); gainid++)
+    for (std::size_t gainid = 0; gainid < gain_list.size(); gainid++)
         d_settings["gain_" + gain_list[gainid]] = gain_list_vals[gainid];
     if (bandwidth_widget.get_list().size() > 1)
         d_settings["manual_bw_value"] = bandwidth_widget.get_value();
-    for (int optid = 0; optid < list_options_bool.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_bool.size(); optid++)
         d_settings[list_options_bool_ids[optid]] = list_options_bool_vals[optid];
-    for (int optid = 0; optid < list_options_strings.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_strings.size(); optid++)
         d_settings[list_options_strings_ids[optid]] = list_options_strings_values[optid];
 
     return d_settings;
@@ -239,7 +241,7 @@ void SoapySdrSource::drawControlUI()
     if (bw_update)
         set_params();
 
-    for (int gainid = 0; gainid < gain_list.size(); gainid++)
+    for (std::size_t gainid = 0; gainid < gain_list.size(); gainid++)
     {
         std::string name = gain_list[gainid] + " Gain";
         if (RImGui::SteppedSliderFloat(name.c_str(),
@@ -250,14 +252,14 @@ void SoapySdrSource::drawControlUI()
             set_params();
     }
 
-    for (int optid = 0; optid < list_options_bool.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_bool.size(); optid++)
     {
         std::string name = list_options_bool[optid];
         if (RImGui::Checkbox(name.c_str(), &list_options_bool_vals[optid]))
             set_params();
     }
 
-    for (int optid = 0; optid < list_options_strings.size(); optid++)
+    for (std::size_t optid = 0; optid < list_options_strings.size(); optid++)
     {
         std::string name = list_options_strings[optid];
         if (RImGui::Combo(name.c_str(), &list_options_strings_values[optid], list_options_strings_options_txt[optid].c_str()))

@@ -119,8 +119,9 @@ namespace satdump
             }
             info.serial[BLADERF_SERIAL_LENGTH - 1] = '\0';
 
-            int r = 0;
-            if (r = bladerf_open_with_devinfo(&bladerf_dev_obj, &info))
+            // Fork: keep the open result separate from its error check.
+            const int r = bladerf_open_with_devinfo(&bladerf_dev_obj, &info);
+            if (r != 0)
                 throw satdump_exception("Could not open BladeRF '" + std::string(info.serial) + "' device! " + std::string(bladerf_strerror(r)));
             is_open = true;
 
@@ -225,7 +226,7 @@ namespace satdump
             is_started = true;
         }
 
-        void BladeRFDevBlock::stop(bool stop_now, bool force)
+        void BladeRFDevBlock::stop(bool stop_now, bool) // Fork: force is intentionally unused.
         {
             if (is_started) // TODOREWORK Split wait & stop?
             {
@@ -293,9 +294,7 @@ namespace satdump
                     continue;
                 }
 
-                // Get channel count
-                int rx_channel_cnt = bladerf_get_channel_count(bladerf_dev_obj, BLADERF_RX);
-                int tx_channel_cnt = bladerf_get_channel_count(bladerf_dev_obj, BLADERF_TX);
+                // Fork: omit unused channel-count queries.
 
                 // Get the board version
                 int bladerf_model;
