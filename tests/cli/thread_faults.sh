@@ -123,6 +123,14 @@ for freq in 101000000 99000000; do
 }
 JSON
 done
+# Fork: an enabled VFO never consumes input until stop(); the probe publishes enough
+# samples to fill the shifter and splitter before the second VFO is rejected.
+cat > vfo_backpressure.json <<'JSON'
+{
+    "v1": { "frequency": 100000000, "pipeline": "fork_fault_live_good", "parameters": { "hold_until_stop": true } },
+    "v2": { "frequency": 101000000, "pipeline": "fork_fault_live_good", "parameters": {} }
+}
+JSON
 head -c $((64 * 4096)) /dev/zero > in.bin
 head -c $((100000 * 8)) /dev/zero > in.cf32
 
@@ -255,5 +263,13 @@ for freq in 101000000 99000000; do
     check "$name-blocks-stopped" not_logged "$name" "BLOCK SHOULD BE STOPPED"
     check "$name-no-late-block" not_logged "$name" "destroyed while running"
 done
+
+run 1 live-vfo-backpressure legacy live fork_fault_live_good out_vfo_backpressure "${PROBE[@]}" --produce_samples --multi_vfo vfo_backpressure.json
+check live-vfo-backpressure-established logged live-vfo-backpressure "Fork probe VFO backpressure ready"
+check live-vfo-backpressure-reported logged live-vfo-backpressure "Frequency shift for VFO v2 is outside of samplerate range"
+check live-vfo-backpressure-consumer-stopped logged live-vfo-backpressure "Fault test held consumer stopped"
+check live-vfo-backpressure-radio-stopped logged live-vfo-backpressure "Fork probe radio stopped"
+check live-vfo-backpressure-blocks-stopped not_logged live-vfo-backpressure "BLOCK SHOULD BE STOPPED"
+check live-vfo-backpressure-no-late-block not_logged live-vfo-backpressure "destroyed while running"
 
 exit $FAILED

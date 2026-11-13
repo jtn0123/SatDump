@@ -24,6 +24,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <condition_variable>
+#include <mutex>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -88,6 +90,12 @@ namespace fork_test
         int d_out_factor = 1;
         bool d_with_block = false;
         bool d_block_fails = false;
+        // Fork: a held consumer and a byte-preserving writer for CLI regressions.
+        bool d_hold_until_stop = false;
+        bool d_preserve_input = false;
+        bool d_stopped = false;
+        std::mutex d_stop_mutex;
+        std::condition_variable d_stop_cv;
         // Fork: shared with the event handler, so it never holds a dangling module pointer.
         bool d_fail_running = false;
         std::shared_ptr<std::atomic<bool>> d_running_ready = std::make_shared<std::atomic<bool>>(false);
@@ -112,6 +120,8 @@ namespace fork_test
         FaultModule(std::string id, std::string input_file, std::string output_file_hint, nlohmann::json parameters)
             : ProcessingModule(input_file, output_file_hint, parameters), d_id(id)
         {
+            d_hold_until_stop = parameters.value("hold_until_stop", false);
+            d_preserve_input = parameters.value("preserve_input", false);
             if (parameters.contains("fail_after"))
                 d_fail_after = parameters["fail_after"].get<int>();
             if (parameters.contains("fail_running"))
@@ -133,6 +143,8 @@ namespace fork_test
 
         void init() override
         {
+            if (d_preserve_input && (d_out_factor != 1 || input_data_type == satdump::pipeline::DATA_DSP_STREAM))
+                throw satdump_exception("preserve_input needs byte input and out_factor 1");
             if (d_fail_init)
                 throw satdump_exception("init failure on purpose");
             if (d_fail_running)
@@ -159,6 +171,12 @@ namespace fork_test
         // Stops the block, as a demodulator's stop() does
         void stop() override
         {
+            // Fork: stop also releases a deliberately stalled reader, including an early stop.
+            {
+                std::lock_guard<std::mutex> lock(d_stop_mutex);
+                d_stopped = true;
+            }
+            d_stop_cv.notify_all();
             if (d_block)
                 d_block->stop();
             // Fork: proves stop() ran, rather than merely reaching the process exit code.
@@ -177,6 +195,15 @@ namespace fork_test
             // this atomic, never the block or the module's other state.
             if (d_fail_running)
                 d_running_ready->store(true);
+
+            if (d_hold_until_stop)
+            {
+                logger->info("Fault test consumer held until stop");
+                std::unique_lock<std::mutex> lock(d_stop_mutex);
+                d_stop_cv.wait(lock, [this] { return d_stopped; });
+                logger->info("Fault test held consumer stopped");
+                return;
+            }
 
             // A block that fails on purpose has failed before this goes on. Its thread may first
             // run only after the module has stopped the block (a file input takes well under a
@@ -235,9 +262,17 @@ namespace fork_test
                 chunks++;
                 bytes_in += got;
 
-                obuf.assign((size_t)got * d_out_factor, (uint8_t)chunks);
+                if (d_preserve_input)
+                    obuf.assign(buf.begin(), buf.begin() + got);
+                else
+                    obuf.assign((size_t)got * d_out_factor, (uint8_t)chunks);
                 if (output_data_type == satdump::pipeline::DATA_FILE)
+                {
                     out.write((char *)obuf.data(), obuf.size());
+                    // Fork: let the test observe complete writes before requesting a stop.
+                    if (d_preserve_input)
+                        out.flush();
+                }
                 else
                     output_fifo->write(obuf.data(), obuf.size());
                 bytes_out += obuf.size();

@@ -5,6 +5,11 @@
 // without adding a fault flag to the installed command's normal interface.
 namespace fork_test
 {
+    // Fork: emitted after a VFO is enabled, before the next VFO is checked.
+    struct VfoStartedEvent
+    {
+    };
+
     struct LiveRunningEvent
     {
     };

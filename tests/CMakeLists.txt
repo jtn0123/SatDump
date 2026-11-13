@@ -142,8 +142,11 @@ set_tests_properties(cli_offline PROPERTIES LABELS cli SKIP_RETURN_CODE 77)
 add_library(fork_probe_source_test_plugin SHARED unit/probe_source_plugin.cpp)
 target_include_directories(fork_probe_source_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(fork_probe_source_test_plugin PRIVATE satdump_core)
+# Fork: use a real NNG peer for exact payload and malformed-size checks; never installed.
+add_executable(fork_client_publisher unit/client_publisher.cpp)
+target_link_libraries(fork_client_publisher PRIVATE satdump_core)
 add_test(NAME cli_supervision
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/supervision.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin> $<TARGET_FILE:fork_fault_test_plugin>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/supervision.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin> $<TARGET_FILE:fork_fault_test_plugin> $<TARGET_FILE:fork_client_publisher>)
 set_tests_properties(cli_supervision PROPERTIES LABELS cli)
 
 if(Python3_FOUND)

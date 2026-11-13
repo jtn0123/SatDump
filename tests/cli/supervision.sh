@@ -13,7 +13,7 @@
 # The radio is the file source playing a short made-up MetOp signal (cli/ahrpt_baseband.py) in a
 # loop, in real time, or the test-only radio driver of tests/unit/probe_source_plugin.cpp, its
 # file given as $2.
-# Usage: supervision.sh <install prefix> <probe radio test plugin> <fault test plugin>
+# Usage: supervision.sh <install prefix> <probe radio test plugin> <fault test plugin> <publisher>
 TESTS=$(cd "$(dirname "$0")/.." && pwd)
 . "$TESTS/cli/common.sh"
 PLUGIN=${2:?usage: $0 <install prefix> <probe radio test plugin>}
@@ -58,6 +58,8 @@ running() {
     stat=${stat##*) }
     [ "${stat%% *}" != Z ]
 }
+# Fork: an exited child can remain in /proc briefly before Bash reaps it.
+not_running() { ! running "$1"; }
 # wait_exit <pid> <name> <SIGTERM time from now_ms>: after a SIGTERM, the exit code must be 0
 # within 10 s, the grace period FORK.md gives a station program before it sends SIGKILL. A run
 # still there 30 s after this is called is killed
@@ -207,7 +209,7 @@ cat > pipelines.json <<'JSON'
         "live": { "pkt_size": 1024, "default": [1], "server": [1], "client": [1] },
         "work": {
             "baseband": {},
-            "bytes": { "module": "fork_fault_b", "parameters": {} }
+            "bytes": { "module": "fork_fault_b", "parameters": { "preserve_input": true } }
         }
     }
 }
@@ -257,19 +259,76 @@ for peer in silent idle; do
     check "$name-logged" logged "$name" "Signal Received. Stopping."
 done
 
-# Fork: client startup must also stop promptly on the same web server errors as radio mode.
-# The silent listener also occupies an HTTP port, avoiding a free-port race.
-for addr in "127.0.0.1:$CLIENT_PORT" 8080; do
-    start=$(date +%s)
-    name=client-http-$addr
-    timeout -k 5 10 "$SD" "${CLIENT[@]}" --server_port "$CLIENT_PORT" --http_server "$addr" > "$WORK/$name.log" 2>&1
-    got=$?
+# Fork: startup gets its own 60-second allowance. The 10-second stop deadline begins
+# only when the web-server failure is observed; slow initialization must not consume it.
+http_failure() {
+    local name=$1
+    shift
+    "$@" > "$WORK/$name.log" 2>&1 &
+    client_pid=$!
+    local startup_end=$((SECONDS + 60))
+    while ! logged "$name" "Cannot start the web server" && running "$client_pid" && [ $SECONDS -lt $startup_end ]; do
+        sleep 0.1
+    done
+    check "$name-reported" logged "$name" "Cannot start the web server"
+    local stop_at=$(now_ms)
+    while running "$client_pid" && [ $(($(now_ms) - stop_at)) -lt 10000 ]; do
+        sleep 0.1
+    done
+    check "$name-quick" not_running "$client_pid"
+    if running "$client_pid"; then
+        kill -KILL "$client_pid" 2>/dev/null
+    fi
+    wait "$client_pid"
+    local got=$?
+    client_pid=
     check "$name-exit-1" [ "$got" = 1 ]
-    check "$name-quick" [ $(($(date +%s) - start)) -lt 10 ]
-    check "$name-reported" logged "$name" "Cannot start the web server on $addr: "
+}
+
+# Fork: the silent peer also occupies an HTTP port, avoiding a free-port race.
+for addr in "127.0.0.1:$CLIENT_PORT" 8080; do
+    http_failure "client-http-$addr" "$SD" "${CLIENT[@]}" --server_port "$CLIENT_PORT" --http_server "$addr"
 done
+# Fork: a deliberate startup delay longer than the stop deadline catches a watchdog
+# accidentally wrapped around the entire command. exec keeps the supervised PID unchanged.
+cat > "$WORK/delayed-client" <<'SH'
+#!/bin/bash
+sleep 12
+exec "$@"
+SH
+chmod +x "$WORK/delayed-client"
+http_failure client-http-slow-start "$WORK/delayed-client" "$SD" "${CLIENT[@]}" --server_port "$CLIENT_PORT" --http_server 8080
 kill "$client_holder" 2>/dev/null
 wait "$client_holder" 2>/dev/null
+client_holder=
+
+# Fork: real messages must arrive byte for byte and in order. A publisher stays connected
+# through the final valid sentinel, so neither startup sleeps nor disconnects end this run.
+mkdir "$WORK/payload"
+"${4:?usage: $0 <install prefix> <probe radio test plugin> <fault test plugin> <publisher>}" "$WORK/payload" > "$WORK/publisher.out" 2> "$WORK/publisher.err" &
+client_holder=$!
+for _ in $(seq 1 600); do [ -s "$WORK/publisher.out" ] && break; sleep 0.1; done
+read -r PAYLOAD_PORT < "$WORK/publisher.out"
+"$SD" "${CLIENT[@]}" --server_port "$PAYLOAD_PORT" > "$WORK/client-payload.log" 2>&1 &
+client_pid=$!
+payload_file="$WORK/client-output/fork_client_stop.out"
+# Fork: three complete 4096-byte consumer writes, containing only valid 1024-byte packets.
+for _ in $(seq 1 600); do
+    [ -f "$payload_file" ] && [ "$(wc -c < "$payload_file")" -ge 12288 ] && break
+    running "$client_pid" || break
+    sleep 0.1
+done
+check client-publisher-sent grep -q sent "$WORK/publisher.out"
+check client-payload-arrived test -s "$payload_file"
+sigterm_at=$(now_ms)
+kill -TERM "$client_pid" 2>/dev/null
+wait_exit "$client_pid" client-payload "$sigterm_at"
+client_pid=
+check client-payload-exact-and-ordered cmp "$WORK/payload/expected.bin" "$payload_file"
+check client-publisher-no-error test ! -s "$WORK/publisher.err"
+touch "$WORK/payload/release"
+wait "$client_holder"
+check client-publisher-exit [ "$?" = 0 ]
 client_holder=
 
 exit $FAILED

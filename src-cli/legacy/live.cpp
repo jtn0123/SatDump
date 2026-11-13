@@ -281,17 +281,19 @@ int main_live(int argc, char *argv[])
             std::map<std::string, std::shared_ptr<satdump::pipeline::LivePipeline>> all_pipelines;
             bool webserver_started = false;
 
-            // Fork: stops the radio, the splitter and the pipelines started so far. Used when the run
+            // Fork: stops the pipelines, radio and splitter started so far. Used when the run
             // ends and on any error once the radio runs (a VFO that cannot start, a bad setting): it
             // used to leave them running, and the program then crashed or waited for ever
             auto stop_running = [&]()
             {
+                // Fork: release the shifters' output writers first. The splitter may be
+                // blocked sending to a held consumer, backing up the radio callback too.
+                for (auto &e : all_pipelines)
+                    e.second->stop();
                 if (radio_started)
                     source_ptr->stop();
                 radio_started = false;
                 splitter_vfo->stop();
-                for (auto &e : all_pipelines)
-                    e.second->stop();
                 // Fork: and the frequency shifter add_vfo() started for each VFO, also one whose
                 // pipeline did not start (del_vfo() does nothing for a VFO never added). Only the
                 // normal end of the run did this; on an error they were destroyed with the
@@ -340,6 +342,10 @@ int main_live(int argc, char *argv[])
                     all_pipelines.emplace(cfg.key(), live_pipeline);
                     // Fork: the VFO name (from the settings) is a %s argument; it was part of the format
                     logger->info("Added VFO for %s at %f", cfg.key().c_str(), final_shift);
+#ifdef SATDUMP_TEST_LIVE_RUNNING
+                    // Fork: test sources can establish backpressure before the next VFO.
+                    satdump::eventBus->fire_event(fork_test::VfoStartedEvent{});
+#endif
                 }
 
                 // If requested, boot up webserver

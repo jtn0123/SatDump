@@ -1,5 +1,6 @@
-// Fork test support: a radio driver for tests/cli/supervision.sh only, never installed. Its type is
-// "fork_probe", with one radio that sends no samples. It lets the test watch how a live run starts:
+// Fork: a radio driver for CLI tests only, never installed. Its type is "fork_probe".
+// It sends no samples by default; produce_samples feeds five batches after a VFO starts.
+// It lets the test watch how a live run starts:
 //   - each time it is asked for its radios it adds a line to the file SATDUMP_TEST_PROBE_LISTED
 //     names. A run for another radio type must not ask it: drivers are asked the same way, and
 //     some of them search the network for radios when asked (UHD, PlutoSDR, SoapySDR)
@@ -10,6 +11,8 @@
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "core/plugin.h"
 #include "logger.h"
+#include "live_running_event.h"
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -29,6 +32,14 @@ namespace
     {
         bool started = false;
         uint64_t samplerate = 0;
+        // Fork: optional samples make VFO backpressure reproducible without a real radio.
+        struct Samples
+        {
+            std::atomic<bool> go{false}, stop{false}, failed{false};
+            std::atomic<int> produced{0};
+        };
+        std::shared_ptr<Samples> samples;
+        std::thread producer;
 
     public:
         explicit ProbeSource(dsp::SourceDescriptor source) : dsp::DSPSampleSource(source) {}
@@ -38,6 +49,7 @@ namespace
         {
             if (started)
                 logger->error("Fork probe radio destroyed while running");
+            stop();
         }
 
         void open() override
@@ -53,13 +65,64 @@ namespace
             dsp::DSPSampleSource::start();
             started = true;
             logger->info("Fork probe radio started");
+            if (!d_settings.value("produce_samples", false))
+                return;
+            samples = std::make_shared<Samples>();
+            auto state = samples;
+            auto output = output_stream;
+            // Fork: no source samples precede the first enabled VFO. Five published batches
+            // mean the splitter has reached the held branch's full buffer, even on one CPU.
+            satdump::eventBus->register_handler<fork_test::VfoStartedEvent>([state](fork_test::VfoStartedEvent)
+            {
+                state->go = true;
+                auto end = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+                while (state->produced < 5 && !state->failed && std::chrono::steady_clock::now() < end)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                if (state->produced < 5)
+                    throw satdump_exception("probe did not establish VFO backpressure");
+                logger->info("Fork probe VFO backpressure ready");
+            });
+            producer = std::thread([state, output]
+            {
+                try
+                {
+                    while (!state->go && !state->stop)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    for (int batch = 0; batch < 5 && !state->stop; batch++)
+                    {
+                        for (int i = 0; i < 64; i++)
+                            output->writeBuf[i] = complex_t(1, 0);
+                        if (!output->swap(64))
+                            break;
+                        state->produced++;
+                    }
+                }
+                catch (const std::exception &e)
+                {
+                    state->failed = true;
+                    logger->error("Fork probe producer failed: %s", e.what());
+                }
+                catch (...)
+                {
+                    state->failed = true;
+                    logger->error("Fork probe producer failed with unknown error");
+                }
+            });
         }
 
         void stop() override
         {
             if (started)
             {
-                output_stream->flush();
+                if (samples)
+                {
+                    samples->stop = true;
+                    output_stream->stopWriter();
+                    if (producer.joinable())
+                        producer.join();
+                }
+                else
+                    output_stream->flush();
                 logger->info("Fork probe radio stopped");
             }
             started = false;
