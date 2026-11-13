@@ -1,8 +1,8 @@
 #!/bin/bash
 # Fork: the Debian package settings a build folder is configured with (its CPackConfig.cmake),
 # checked without building a package: 1. the version scheme, 2. the settings, 3. that making
-# the package stops at once when dpkg-shlibdeps or file is missing. tests/package/check_deb.sh
-# checks a built package.
+# the package stops at once when dpkg-shlibdeps, file, objcopy or readelf is missing.
+# tests/package/check_deb.sh checks a built package.
 #
 #   tests/package/deb_settings.sh <build dir> <source dir> <install prefix> [cmake]
 #
@@ -77,6 +77,8 @@ want CPACK_GENERATOR DEB
 want CPACK_PACKAGING_INSTALL_PREFIX /usr
 want CPACK_DEBIAN_PACKAGE_NAME satdump-fork
 want CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON
+# Stripped programs, libraries and plugins, with their debug information in satdump-fork-dbgsym
+want CPACK_DEBIAN_DEBUGINFO_PACKAGE ON
 want CPACK_DEBIAN_PACKAGE_RELEASE 1
 want CPACK_DEBIAN_FILE_NAME DEB-DEFAULT
 
@@ -138,10 +140,11 @@ else
 fi
 
 # 3. Making the package stops at once, naming the Debian packages to install, when a program
-# dpkg-shlibdeps needs is missing (cmake/fork/cpack_deb_tools.cmake). Without the check, CPack
-# made a package with an empty Depends (no dpkg-shlibdeps), or stopped after the whole install
-# (no file). This runs cpack's first step (query.cmake) with PATH holding only stand-ins for
-# the programs named.
+# that dpkg-shlibdeps or the debug-symbols split needs is missing
+# (cmake/fork/cpack_deb_tools.cmake). Without the check, CPack made a package with an empty
+# Depends (no dpkg-shlibdeps), or stopped after the whole install (no file, objcopy or
+# readelf). This runs cpack's first step (query.cmake) with PATH holding only stand-ins for the
+# programs named.
 # cpack_start <package type> <programs on PATH...>: sets rc and out (CMake wraps its messages;
 # out has them on one line). A name ending in :noexec is a file that is there but cannot be run.
 cpack_start() {
@@ -158,25 +161,29 @@ cpack_start() {
     out=$(tr -s '[:space:]' ' ' <<< "$out")
     rm -rf "$bin"
 }
-cpack_start DEB dpkg-shlibdeps file
-[ $rc = 0 ] && ok "DEB with dpkg-shlibdeps and file: goes ahead" ||
-    fail "DEB with dpkg-shlibdeps and file: stopped (exit $rc): $out"
+cpack_start DEB dpkg-shlibdeps file objcopy readelf
+[ $rc = 0 ] && ok "DEB with dpkg-shlibdeps, file, objcopy and readelf: goes ahead" ||
+    fail "DEB with dpkg-shlibdeps, file, objcopy and readelf: stopped (exit $rc): $out"
 # stops <label> <text the message must hold> <programs on PATH...>
 stops() {
     local label=$1 text=$2
     shift 2
     cpack_start DEB "$@"
-    if [ $rc != 0 ] && grep -qF -- "$text" <<< "$out" && grep -qF "sudo apt install dpkg-dev file" <<< "$out"; then
+    if [ $rc != 0 ] && grep -qF -- "$text" <<< "$out" && grep -qF "sudo apt install dpkg-dev file binutils" <<< "$out"; then
         ok "DEB $label: stops at once and names $text"
     else
         fail "DEB $label: did not stop naming $text (exit $rc): $out"
     fi
 }
-stops "without dpkg-shlibdeps" "dpkg-shlibdeps (package dpkg-dev)" file
-stops "without file" "file (package file)" dpkg-shlibdeps
-stops "with a dpkg-shlibdeps that cannot be run" "dpkg-shlibdeps (package dpkg-dev)" dpkg-shlibdeps:noexec file
+stops "without dpkg-shlibdeps" "dpkg-shlibdeps (package dpkg-dev)" file objcopy readelf
+stops "without file" "file (package file)" dpkg-shlibdeps objcopy readelf
+stops "with a dpkg-shlibdeps that cannot be run" "dpkg-shlibdeps (package dpkg-dev)" dpkg-shlibdeps:noexec file objcopy readelf
+stops "without objcopy" "objcopy (package binutils)" dpkg-shlibdeps file readelf
+stops "without readelf" "readelf (package binutils)" dpkg-shlibdeps file objcopy
+stops "with an objcopy that cannot be run" "objcopy (package binutils)" dpkg-shlibdeps file objcopy:noexec readelf
+stops "with a readelf that cannot be run" "readelf (package binutils)" dpkg-shlibdeps file objcopy readelf:noexec
 cpack_start TGZ
-[ $rc = 0 ] && ok "TGZ with neither: goes ahead (other package types are not affected)" ||
-    fail "TGZ with neither: stopped (exit $rc): $out"
+[ $rc = 0 ] && ok "TGZ with none of them: goes ahead (other package types are not affected)" ||
+    fail "TGZ with none of them: stopped (exit $rc): $out"
 
 exit $FAILED

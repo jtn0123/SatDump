@@ -10,11 +10,15 @@
 #   <recording>        a MetOp AHRPT baseband recording, cs16 at 10 Msps (PIPELINE, SAMPLERATE
 #                      and FORMAT in the environment choose another kind), for example 10 s of a pass
 #
+# The debug-symbols package scripts/build-deb.sh makes with it is taken from the same folder
+# (satdump-fork-dbgsym_<version>_<arch>.ddeb; DBGSYM=<file> names another).
+#
 # It checks, in order:
 #   1. dpkg-deb --info: the name is satdump-fork, the version is valid, the architecture is
 #      arm64 (ARCH=... for another), Depends was generated (it has libc6) and names no -dev
 #      package and none of SatDump's own libraries, and it provides, conflicts with and
-#      replaces satdump
+#      replaces satdump. The .deb is at most MAX_MIB MiB (default 110; stripped it is about
+#      93 MiB, unstripped it was 330 MiB)
 #   2. dpkg-deb --contents: satdump, libsatdump_core.so, the plugins (MetOp/NOAA and Meteor
 #      among them), every file of resources/ in this source tree (the themes too) and
 #      satdump_cfg.json (default theme Soft OLED); no build-folder paths
@@ -23,16 +27,26 @@
 #      without it (the programs find them next to themselves); SatDump's own libraries always
 #      come from the package; and every system library they link against directly is in a
 #      package that Depends names
-#   4. apt-get install --simulate (no root needed): the package's dependencies resolve on this
-#      system, alone and together with packages.runner (as the Dockerfile installs it)
-#   5. the unpacked satdump, run with no LD_LIBRARY_PATH from another folder, loads its plugins
+#   4. every program, library and plugin is stripped (no .debug_* sections, no .symtab) and has
+#      a GNU build-id. The debug-symbols package is satdump-fork-dbgsym,
+#      of the same version and architecture, needs exactly this version of satdump-fork, lists
+#      those build-ids (Build-Ids) and holds one /usr/lib/debug/.build-id/xx/yyyy.debug
+#      file for each (xx the first two hex digits of the build-id, yyyy the rest) and nothing
+#      else; each of those files has that build-id, a symbol table and debug information
+#      (.debug_info, .debug_line). If gdb is installed, it must find satdump's line numbers
+#      through that folder
+#   5. apt-get install --simulate (no root needed): the package's dependencies resolve on this
+#      system, alone, together with packages.runner (as the Dockerfile installs it), and with
+#      its debug-symbols package
+#   6. the unpacked satdump, run with no LD_LIBRARY_PATH from another folder, loads its plugins
 #      from the package and decodes the recording into the same products as the baseline
 #      install: the same files, byte for byte (the .cadu files, the raw frames, are left out)
 #
 # Exit code 0 when every check passed, 1 otherwise. Needs dpkg-deb, apt-get, ldd and sha256sum
 # (all in a normal Debian install), readelf (binutils) and room in TMPDIR for the unpacked
-# package and the two runs' products (about 1 GB for a 10-second recording). KEEP=1 keeps the
-# temporary folder (logs, products).
+# packages and the two runs' products (about 2 GB for a 10-second recording; the unpacked
+# debug symbols are removed after part 4). gdb is optional. KEEP=1 keeps the temporary folder
+# (logs, products, debug symbols).
 set -uo pipefail
 usage="usage: $0 <satdump-fork_*.deb> <baseline prefix> <recording>"
 DEB=$(realpath "${1:?$usage}") || exit 1
@@ -46,6 +60,7 @@ PIPELINE=${PIPELINE:-metop_ahrpt}
 SAMPLERATE=${SAMPLERATE:-10e6}
 FORMAT=${FORMAT:-cs16}
 ARCH=${ARCH:-arm64}
+MAX_MIB=${MAX_MIB:-110}
 
 WORK=$(mktemp -d)
 trap '[ -n "${KEEP:-}" ] && echo "kept $WORK" || rm -rf "$WORK"' EXIT
@@ -84,6 +99,13 @@ bad=$(names Depends | grep -E -- '-dev$|^libsatdump|_support$' || true)
 for f in Provides Conflicts Replaces; do
     names "$f" | grep -qx satdump && ok "$f: satdump" || fail "$f does not name satdump: '$(field "$f")'"
 done
+# Stripped, the package is a fraction of its unstripped size (330 MiB)
+size=$(stat -c %s "$DEB")
+mib=$(((size + 1048575) / 1048576))
+[ "$size" -le $((MAX_MIB * 1048576)) ] && ok "size $mib MiB ($size bytes), at most $MAX_MIB MiB" ||
+    fail "size $mib MiB ($size bytes), more than $MAX_MIB MiB: are its files stripped?"
+# The debug-symbols package, next to the .deb (as CPack names it) unless DBGSYM names it
+DBGSYM=${DBGSYM:-$(dirname "$DEB")/$(field Package)-dbgsym_${version#*:}_$(field Architecture).ddeb}
 
 section "2. Package contents"
 # The path of each entry (dpkg-deb lists: mode owner size date time path [-> target])
@@ -184,7 +206,81 @@ else
     fail "readelf (package binutils) is needed to compare the linked libraries with Depends"
 fi
 
-section "4. apt-get install --simulate"
+section "4. Stripped ELF files and matching debug symbols"
+# Do not rely on file(1)'s stripped label: inspect sections and the actual build-id note.
+build_id() { readelf -n "$1" 2>/dev/null | sed -n 's/.*Build ID: //p'; }
+elfs=0
+: > "$WORK/build-ids"
+while IFS= read -r -d '' f; do
+    head -c 4 "$f" | grep -q $'\x7fELF' || continue
+    elfs=$((elfs + 1))
+    sections=$(readelf -SW "$f") || { fail "cannot read ELF sections: ${f#"$ROOT"}"; continue; }
+    if grep -qE '[[:space:]]\.(z?debug_[^[:space:]]*|symtab)[[:space:]]' <<< "$sections"; then
+        fail "unstripped ELF (debug sections or .symtab): ${f#"$ROOT"}"
+    fi
+    id=$(build_id "$f")
+    if [[ $id =~ ^[0-9a-f]{40}$ ]]; then
+        echo "$id" >> "$WORK/build-ids"
+    else
+        fail "missing GNU SHA-1 build-id: ${f#"$ROOT"}"
+    fi
+done < <(find "$ROOT" -type f -print0)
+[ "$elfs" -gt 0 ] && ok "inspected stripping and GNU build-ids of $elfs ELF files" || fail "no ELF files"
+sort -u "$WORK/build-ids" -o "$WORK/build-ids"
+
+if [ ! -f "$DBGSYM" ]; then
+    fail "no debug-symbols package: $DBGSYM"
+else
+    dbgfield() { dpkg-deb --field "$DBGSYM" "$1"; }
+    [ "$(dbgfield Package)" = satdump-fork-dbgsym ] && ok "name satdump-fork-dbgsym" || fail "wrong debug package name"
+    [ "$(dbgfield Version)" = "$version" ] && [ "$(dbgfield Architecture)" = "$(field Architecture)" ] &&
+        ok "debug package version and architecture match" || fail "debug package version or architecture differs"
+    [ "$(dbgfield Depends)" = "satdump-fork (= $version)" ] && ok "debug package needs this exact main version" ||
+        fail "debug package Depends: $(dbgfield Depends)"
+    dbgfield Build-Ids | tr ' ' '\n' | sed '/^$/d' | sort -u > "$WORK/debug-build-ids"
+    cmp -s "$WORK/build-ids" "$WORK/debug-build-ids" && ok "Build-Ids matches every main ELF" ||
+        fail "debug package Build-Ids differs from main ELF build-ids"
+    DEBUG="$WORK/debug"
+    if dpkg-deb -x "$DBGSYM" "$DEBUG"; then
+        : > "$WORK/expected-debug-files"
+        matched=0
+        while IFS= read -r id; do
+            rel="usr/lib/debug/.build-id/${id:0:2}/${id:2}.debug"
+            echo "$rel" >> "$WORK/expected-debug-files"
+            f="$DEBUG/$rel"
+            if [ ! -f "$f" ]; then
+                fail "no debug file for build-id $id"
+                continue
+            fi
+            [ "$(build_id "$f")" = "$id" ] || fail "debug ELF build-id differs: $rel"
+            sections=$(readelf -SW "$f")
+            for section_name in .debug_info .debug_line .symtab; do
+                grep -qF " $section_name " <<< "$sections" || fail "$rel lacks $section_name"
+            done
+            matched=$((matched + 1))
+        done < "$WORK/build-ids"
+        (cd "$DEBUG" && find . -type f -printf '%P\n' | sort) > "$WORK/debug-files"
+        sort -o "$WORK/expected-debug-files" "$WORK/expected-debug-files"
+        cmp -s "$WORK/expected-debug-files" "$WORK/debug-files" && ok "$matched debug files at matching build-id paths" ||
+            fail "debug package files differ from the expected build-id paths"
+        if command -v gdb > /dev/null; then
+            # Disable init files and downloads; symbols must come from the unpacked package.
+            if DEBUGINFOD_URLS= gdb -nx -batch -iex 'set auto-load off' -ex 'set debuginfod enabled off' \
+                -ex "set debug-file-directory $DEBUG/usr/lib/debug" -ex "file $ROOT/usr/bin/satdump" \
+                -ex 'info line main' > "$WORK/gdb.log" 2>&1 && grep -qE '^Line [0-9]+ of ' "$WORK/gdb.log"; then
+                ok "gdb resolves main to a source line through the packaged build-id symbols"
+            else
+                fail "gdb could not resolve main using the debug package"
+                cat "$WORK/gdb.log" | indent
+            fi
+        fi
+        [ -n "${KEEP:-}" ] || rm -rf "$DEBUG"
+    else
+        fail "cannot unpack debug-symbols package"
+    fi
+fi
+
+section "5. apt-get install --simulate"
 # simulate <label> <packages...>
 simulate() {
     local label=$1
@@ -200,9 +296,10 @@ simulate() {
     fi
 }
 simulate "the package" "$DEB"
+[ ! -f "$DBGSYM" ] || simulate "the package with debug symbols" "$DEB" "$DBGSYM"
 [ -f "$SRC/packages.runner" ] && simulate "the package with packages.runner" $(cat "$SRC/packages.runner") "$DEB"
 
-section "5. Products of the unpacked package and of $BASE"
+section "6. Products of the unpacked package and of $BASE"
 # new_home <label>: an empty HOME for one run, in which SatDump never downloads orbit or
 # Earth-rotation data (as in tests/cli/common.sh), and an empty folder to run in
 new_home() {

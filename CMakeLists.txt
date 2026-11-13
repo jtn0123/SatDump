@@ -125,6 +125,11 @@ if(UNIX)
 
     if(ENABLE_CRASHDUMP)
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
+        # Fork: include the bundled C libraries in Linux debug-symbols packages too.
+        # Keep Release optimisation flags unchanged; -g only adds debug information.
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -g")
+        endif()
     endif()
 
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -189,6 +194,14 @@ if(MSVC)
     include_directories(windows/deps/output/include)
     link_directories(windows/deps/output/lib)
     link_directories(windows/deps/output/bin)
+endif()
+
+# Fork: give every Linux program and shared library a stable GNU build-id, including
+# plugins, so CPack can put separate debug symbols where debuggers find them by that id.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    foreach(_satdump_linker EXE SHARED MODULE)
+        string(APPEND CMAKE_${_satdump_linker}_LINKER_FLAGS " -Wl,--build-id=sha1")
+    endforeach()
 endif()
 
 # Fork: CPU tuning for both C and C++. Outside CI the default tunes for the build machine.
@@ -466,10 +479,22 @@ if((NOT ANDROID) AND ENABLE_INSTALL)
         set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS
             "${_satdump_deb_root}/${CMAKE_INSTALL_LIBDIR}"
             "${_satdump_deb_root}/${CMAKE_INSTALL_LIBDIR}/satdump/plugins")
-        # Fork: dpkg-shlibdeps and the file program (which CPack uses to find the programs and
-        # libraries to pass it) are checked before anything is installed, and making the
-        # package stops with the Debian packages to install. Without dpkg-shlibdeps CPack made
-        # a package with an empty Depends; without file it stopped only after the whole install.
+        # Fork: the programs, libraries and plugins are stripped, and their debug information
+        # goes into a second package, satdump-fork-dbgsym (satdump-fork-dbgsym_<version>_<arch>.ddeb,
+        # which needs this exact version), one usr/lib/debug/.build-id/<xx>/<rest>.debug file
+        # each: where gdb and debuginfod-style tools look for a file's debug information by its
+        # GNU build-id (the linker gives every file one). Unstripped, the package was about 330 MiB.
+        # CPack splits each file with objcopy (--only-keep-debug, then --strip-unneeded, which
+        # keeps the symbols the dynamic loader and dlopen use) and reads the build-id with
+        # readelf, both from binutils. The build type stays Release (-O3) with -g (see
+        # ENABLE_CRASHDUMP above): RelWithDebInfo would compile with -O2 and change the
+        # version tag the programs show.
+        set(CPACK_DEBIAN_DEBUGINFO_PACKAGE ON)
+        # Fork: dpkg-shlibdeps, the file program (which CPack uses to find the programs and
+        # libraries to pass it), objcopy and readelf are checked before anything is installed,
+        # and making the package stops with the Debian packages to install. Without
+        # dpkg-shlibdeps CPack made a package with an empty Depends; without the others it
+        # stopped only after the whole install.
         set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/fork/cpack_deb_tools.cmake")
         # Nothing is needed by hand: SatDump runs no other program it cannot do without, and
         # its data is in the package. Recommended: ca-certificates, for downloads over HTTPS
