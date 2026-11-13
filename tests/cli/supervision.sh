@@ -313,8 +313,10 @@ read -r PAYLOAD_PORT < "$WORK/publisher.out"
 client_pid=$!
 payload_file="$WORK/client-output/fork_client_stop.out"
 # Fork: three complete 4096-byte consumer writes, containing only valid 1024-byte packets.
+# The publisher may print "sent" after the client has written everything, so wait for both.
 for _ in $(seq 1 600); do
-    [ -f "$payload_file" ] && [ "$(wc -c < "$payload_file")" -ge 12288 ] && break
+    [ -f "$payload_file" ] && [ "$(wc -c < "$payload_file")" -ge 12288 ] \
+        && grep -qx sent "$WORK/publisher.out" && break
     running "$client_pid" || break
     sleep 0.1
 done
