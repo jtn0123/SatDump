@@ -7,6 +7,10 @@
 //   - opening its radio adds a line to the file SATDUMP_TEST_PROBE_OPENING names, then waits
 //     (60 s at most) for the file SATDUMP_TEST_PROBE_RELEASE names to exist, so the test can send
 //     a signal while SatDump is still starting
+//   - releasing the radio (its destructor, at the very end of a legacy live run) adds a line to
+//     the file SATDUMP_TEST_PROBE_DESTROYED names, then waits (60 s at most) for the file
+//     SATDUMP_TEST_PROBE_DESTROY_RELEASE names to exist, so the test can look at the run while
+//     it is held just before it exits
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "core/plugin.h"
@@ -87,6 +91,11 @@ namespace
             if (output_stream)
                 output_stream->stopWriter();
             stop();
+            // Fork: hold the end of the run, so a test sees what shutdown did before the exit.
+            mark("SATDUMP_TEST_PROBE_DESTROYED");
+            const char *release = std::getenv("SATDUMP_TEST_PROBE_DESTROY_RELEASE");
+            for (int i = 0; release != nullptr && i < 600 && !std::filesystem::exists(release); i++)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
         void open() override

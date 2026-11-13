@@ -118,23 +118,11 @@ check still-running kill -0 "$pid"
 
 sigterm_at=$(now_ms)
 kill -TERM "$pid"
-# The server must stop answering while the program still runs (it closes the port itself). Once
-# the program has exited the system closes the port anyway, so that would prove nothing. Bash
-# can wait for a background program as soon as it exits, and its /proc/<pid> is then gone, so a
-# missing /proc/<pid> proves nothing either. A refused connection counts only when the program
-# is seen running after it: then it was running when the port refused. Tried for 30 s at most
-server_closed=0
-poll_end=$((SECONDS + 30))
-while [ $SECONDS -lt $poll_end ] && running "$pid"; do
-    if ! (exec 3<> "/dev/tcp/127.0.0.1/$PORT") 2> /dev/null; then
-        running "$pid" && server_closed=1
-        break
-    fi
-done
+# (That its web server closes the port before it exits is checked in 6, with the probe radio
+# holding the end of the run: a check here would race the end of the program.)
 wait_exit "$pid" sigterm "$sigterm_at"
 check sigterm-logged logged sigterm "Signal Received. Stopping."
 check cadu-whole-frames whole_frames "$WORK/live-1/metop_ahrpt.cadu"
-check server-closed-before-exit [ "$server_closed" = 1 ]
 
 # 2. The port is taken: exit code 1 at once, with the reason
 PORT=$(free_port)
@@ -196,6 +184,35 @@ sleep 0.5
 touch "$SATDUMP_TEST_PROBE_RELEASE"
 wait_exit "$pid" early-sigterm "$sigterm_at"
 check early-sigterm-logged logged early-sigterm "Signal Received. Stopping."
+
+# 6. The web server stops answering while the program still runs: it closes the port itself (once
+# the program has exited the system closes it anyway, which would prove nothing). The probe radio
+# is released at the very end of the run, after the web server has stopped, and holds there until
+# the test lets it go, so the run is still there while the port is tried
+PORT=$(free_port)
+export SATDUMP_TEST_PROBE_DESTROYED="$WORK/probe/destroyed" SATDUMP_TEST_PROBE_DESTROY_RELEASE="$WORK/probe/destroy-release"
+"$SD" "${PROBE[@]}" --http_server "127.0.0.1:$PORT" > "$WORK/server-close.log" 2>&1 &
+pid=$!
+answered=0
+for _ in $(seq 1 300); do
+    if fetch "$PORT" /api "$WORK/api-probe.json" && [ -s "$WORK/api-probe.json" ]; then
+        answered=1
+        break
+    fi
+    sleep 0.1
+done
+check server-close-api-answers [ "$answered" = 1 ]
+sigterm_at=$(now_ms)
+kill -TERM "$pid"
+for _ in $(seq 1 300); do [ -e "$SATDUMP_TEST_PROBE_DESTROYED" ] && break; sleep 0.1; done
+check server-close-radio-released test -e "$SATDUMP_TEST_PROBE_DESTROYED"
+server_closed=0
+(exec 3<> "/dev/tcp/127.0.0.1/$PORT") 2> /dev/null || server_closed=1
+check server-closed-before-exit [ "$server_closed" = 1 ]
+check server-close-still-running running "$pid"
+touch "$SATDUMP_TEST_PROBE_DESTROY_RELEASE"
+wait_exit "$pid" server-close "$sigterm_at"
+unset SATDUMP_TEST_PROBE_DESTROYED SATDUMP_TEST_PROBE_DESTROY_RELEASE
 
 # Fork: the network client must stop even when the server accepts TCP but never answers
 # (not even the NNG handshake). A test pipeline uses the existing fault module as its reader.
