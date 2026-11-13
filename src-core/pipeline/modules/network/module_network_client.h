@@ -19,7 +19,7 @@ namespace satdump
 
                 std::ofstream data_out;
 
-                int pkt_size;
+                int pkt_size = 8192; // Fork: UDP default; explicit pkt_size still takes precedence.
                 std::string address;
                 int port;
 

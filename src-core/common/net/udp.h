@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdexcept>
+#include <cerrno>
 #include <string.h>
 
 #if defined(_WIN32)
@@ -127,14 +128,15 @@ namespace net
 
         void enableTimeout()
         {
-            struct timeval read_timeout;
-            read_timeout.tv_sec = 0;
-            read_timeout.tv_usec = 1e4;
+            // Fork: Windows expects milliseconds, POSIX a timeval. Check failure so a
+            // supposedly cancellable receiver can never silently fall back to an endless wait.
 #if defined(_WIN32)
-            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&read_timeout, sizeof read_timeout);
+            DWORD timeout = 100;
 #else
-            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof read_timeout);
+            struct timeval timeout = {0, 100000};
 #endif
+            if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) != 0)
+                throw std::runtime_error("Couldn't set UDP receive timeout!");
         }
 
         int send(uint8_t *data, int len)
@@ -156,10 +158,16 @@ namespace net
             int r = recvfrom(sock, (char *)data, len, 0, (struct sockaddr *)&sock_addr, &slen);
             if (r == -1)
             {
+                // Fork: a timeout or interrupted wait contains no data; callers retry and
+                // check their stop flag. Real socket errors retain their existing exception.
 #if defined(_WIN32)
-                if (WSAGetLastError() != WSAEINTR)
+                const int error = WSAGetLastError();
+                if (error == WSAETIMEDOUT || error == WSAEWOULDBLOCK || error == WSAEINTR)
+#else
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
 #endif
-                    throw std::runtime_error("Error receiving from UDP socket!");
+                    return 0;
+                throw std::runtime_error("Error receiving from UDP socket!");
             }
             return r;
         }

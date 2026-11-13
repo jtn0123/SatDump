@@ -19,11 +19,15 @@ namespace satdump
                 if (parameters.contains("client_mode"))
                     mode = parameters["client_mode"].get<std::string>();
 
+                // Fork: UDP uses the same bounded receive buffer as NNG (it was uninitialised).
+                if (parameters.contains("pkt_size"))
+                    pkt_size = parameters["pkt_size"].get<int>();
+                if (pkt_size <= 0 || pkt_size > 64 * 1024 * 1024)
+                    throw satdump_exception("Network client pkt_size must be between 1 and 64 MiB");
+
                 if (mode == "default")
                 {
-                    if (parameters.count("pkt_size") > 0)
-                        pkt_size = parameters["pkt_size"].get<int>();
-                    else
+                    if (!parameters.contains("pkt_size"))
                         throw satdump_exception("pkt_size parameter must be present!");
 
                     if (parameters.count("server_address") > 0)
@@ -37,7 +41,7 @@ namespace satdump
                 else
                     throw satdump_exception("server_port parameter must be present!");
 
-                buffer = new uint8_t[pkt_size * 10];
+                buffer = new uint8_t[pkt_size]; // Fork: recv never accepts more than one packet.
             }
 
             std::vector<ModuleDataType> NetworkClientModule::getInputTypes() { return {DATA_FILE, DATA_STREAM}; }
@@ -73,6 +77,8 @@ namespace satdump
                     // can arrive on the I/O threads before this worker is scheduled again,
                     // dropping valid packets even with no downstream backpressure.
                     if ((rv = nng_socket_set_int(sock, NNG_OPT_RECVBUF, 64)) != 0 ||
+                        // Fork: bound each queued message to the largest accepted packet, before dialing.
+                        (rv = nng_socket_set_size(sock, NNG_OPT_RECVMAXSZ, static_cast<size_t>(pkt_size))) != 0 ||
                         (rv = nng_socket_set_ms(sock, NNG_OPT_RECVTIMEO, 100)) != 0 ||
                         (rv = nng_dialer_create(&dialer, sock, url.c_str())) != 0 ||
                         (rv = nng_dialer_start(dialer, NNG_FLAG_NONBLOCK)) != 0)
@@ -99,11 +105,13 @@ namespace satdump
                 else if (mode == "udp_listen")
                 {
                     net::UDPServer udp_server(port);
+                    udp_server.enableTimeout(); // Fork: periodically recheck input_active on silence.
 
                     while (input_active.load())
                     {
                         int lpkt_size = udp_server.recv(buffer, pkt_size);
-                        output_fifo->write(buffer, lpkt_size);
+                        if (lpkt_size > 0 && input_active.load())
+                            output_fifo->write(buffer, lpkt_size);
                     }
                 }
             }

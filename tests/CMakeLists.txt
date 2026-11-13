@@ -295,6 +295,11 @@ target_link_libraries(satdump-vfo-start-test PRIVATE satdump_core)
 add_test(NAME unit_vfo_start_failure COMMAND satdump-vfo-start-test)
 set_tests_properties(unit_vfo_start_failure PROPERTIES LABELS unit TIMEOUT 20)
 
+add_executable(satdump-network-shutdown-test unit/main.cpp unit/test_network_shutdown.cpp)
+target_include_directories(satdump-network-shutdown-test PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(satdump-network-shutdown-test PRIVATE satdump_core)
+add_test(NAME unit_network_shutdown COMMAND satdump-network-shutdown-test)
+set_tests_properties(unit_network_shutdown PROPERTIES LABELS unit TIMEOUT 15)
 # Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
 # exit code 86, memory leaks included (the few kept on purpose are listed in
 # sanitizers/lsan.supp). Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports

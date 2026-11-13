@@ -22,7 +22,7 @@ namespace
 
     void connected(nng_pipe, nng_pipe_ev, void *state)
     {
-        static_cast<std::atomic<bool> *>(state)->store(true);
+        static_cast<std::atomic<int> *>(state)->fetch_add(1);
     }
 }
 
@@ -33,7 +33,7 @@ int main(int argc, char **argv)
         if (argc != 2)
             throw std::runtime_error("publisher needs a work folder");
         const std::filesystem::path work(argv[1]);
-        std::atomic<bool> ready{false};
+        std::atomic<int> ready{0};
         nng_socket socket;
         check(nng_pub0_open(&socket));
         struct Close
@@ -75,8 +75,26 @@ int main(int argc, char **argv)
                 send(std::vector<unsigned char>(1023, 's'));
             if (index == 8)
             {
-                send(std::vector<unsigned char>(1025, 'o'));
-                send(std::vector<unsigned char>(16384, 'L'));
+                // Fork: RECVMAXSZ closes a pipe on an oversized message. First observe the
+                // preceding valid data, then require reconnection after EACH bad message so
+                // the sentinel cannot be lost on the retired pipe. Keep both malformed cases.
+                const auto output = work.parent_path() / "client-output/fork_client_stop.out";
+                deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+                while ((!std::filesystem::exists(output) || std::filesystem::file_size(output) < 8192) &&
+                       std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                if (!std::filesystem::exists(output) || std::filesystem::file_size(output) != 8192)
+                    throw std::runtime_error("valid data before oversized packet was lost");
+                for (size_t length : {size_t(1025), size_t(16384)})
+                {
+                    const int connections = ready.load();
+                    send(std::vector<unsigned char>(length, 'o'));
+                    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+                    while (ready <= connections && std::chrono::steady_clock::now() < deadline)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    if (ready <= connections)
+                        throw std::runtime_error("oversized packet did not reject the pipe and reconnect");
+                }
             }
             send(packets[index]);
         }
