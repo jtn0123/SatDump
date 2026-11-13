@@ -179,6 +179,24 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 | Start-up | A `plugins` folder in the current folder that cannot be read is skipped with a warning (the installed plugins load), and a file in it that cannot be checked is skipped. A `resources` folder there, or a `pipelines` folder in it, that cannot be read ends like an empty `resources` folder ("Couldn't load pipelines ... (Permission denied)", exit 1) instead of an unhandled error. In a `pipelines` folder that can be listed but not searched, the entries that cannot be checked are skipped with one warning, and a pipeline include that cannot be checked is reported like a missing one | 2026-11-12 |
 | Tests | `cli_unreadable_folders` runs SatDump from a current folder with mode 000 (version, start-up log, a short live run with output), from a deleted folder, with HOME in an unreadable folder, with unreadable or list-only `plugins`, `resources` and `pipelines` folders and an include through an unsearchable folder, and checks that portable mode still works. As root it runs SatDump as user nobody (`setpriv`, `runuser`) or without capabilities (`unshare -U`); when it cannot, it is skipped (77) with a NOT EXERCISED note, a failure instead with `SATDUMP_REQUIRE_UNREADABLE=1` (set in CI) | 2026-11-12 |
 | CI | `actions/checkout` v7, `actions/cache` v6, `actions/upload-artifact` v7 (Node 24; the v4 ones ran on the deprecated Node 20) | 2026-11-12 |
+| CLI | `legacy live --client`: a silent or missing server no longer blocks the stop. The client connects without waiting for a handshake, checks its stop flag every 100 ms while it waits for data, checks every socket call and the size of every message, releases its socket on every way out, and queues up to 64 messages to reduce drops during short bursts | 2026-11-12 |
+| Bug fix | Multi-VFO `legacy live`: a VFO whose frequency shift is outside the sample rate stops the radio, the splitter and the VFOs already started, then exits 1 (it called `exit(1)` with them still running) | 2026-11-12 |
+| Bug fix | Multi-VFO `legacy live`: the VFO pipelines stop before the radio and the splitter, so a consumer that has stopped reading cannot block the stop | 2026-11-12 |
+| Bug fix | `legacy record` stops every block it started (resampler, splitter, FFT, file sink) on every way out, including `--decimation` above 1 | 2026-11-12 |
+| Bug fix | `legacy record` and `legacy live` wake a radio callback blocked on a full output before they stop the radio, and still stop a radio whose start() failed after it had started its callback | 2026-11-12 |
+| Bug fix | `legacy record` with `--decimation` D: the FFT shows the decimated stream (same centre, span sample rate / D). FFT consumers start before the splitter feeding them | 2026-11-12 |
+| Bug fix | Splitter and VFO splitter (legacy DSP): stop() wakes every output before joining, and their waits no longer hold the settings lock. Deleting or resetting an output cancels the sends queued for it and waits only for a send already in progress, so several stalled outputs can be deleted at once. Disabling an output waits for a send in progress but keeps the output for re-enabling. The other outputs keep flowing throughout | 2026-11-12 |
+| CLI | SIGTERM and SIGINT are caught from the start of `satdump`'s main function and remembered. A stop that arrives before a legacy command opens the radio ends it with exit 0 without opening the radio; `live`, `record` and `autotrack` reinstall their handlers after other commands without losing a stop already asked for | 2026-11-12 |
+| CLI | `legacy live`: an FFT or VFO that cannot start stops what had started, then exits 2. An unknown pipeline, also one named in the `--multi_vfo` file, or a VFO entry missing a setting or with one of the wrong type, exits 1 before the radio is opened. Radio problems stay exit 3 | 2026-11-12 |
+| Packaging | The .deb is stripped: about 92 MB instead of 330 MB, with the same -O3 optimisation. The debug symbols are in a separate, optional `satdump-fork-dbgsym_*.ddeb`, at the GNU build-id paths gdb looks in. Package builds map the source and build folders to `/usr/src/satdump-fork`, so no builder path is embedded | 2026-11-12 |
+| Build | `scripts/build-deb.sh` builds Release with debug symbols, checks that objcopy and readelf (binutils) are installed, and prints the paths of both packages | 2026-11-12 |
+| Tests | Live and record: silent and idle network clients (exact payloads checked), out-of-range VFOs, single-VFO errors while the radio, FFT and pipeline run, radio starts that fail part-way, sources whose stop must wake a blocked writer, FFT and VFO start failures, splitter outputs that are never read, deleted and re-enabled splitter outputs (numbered samples), deleting stalled splitter outputs concurrently in both orders, invalid `--multi_vfo` files, exact decimated recordings, signals before and between commands, and finished WAV headers | 2026-11-12 |
+| Tests | `check_deb.sh` also checks that the .deb is stripped and at most 110 MiB, that the .ddeb holds the symbols of every program and library, that, when gdb is installed, it finds `main`'s source line through the .ddeb, and that neither package contains a builder path (`check_paths.sh`) | 2026-11-12 |
+| Bug fix | DVB-S2 PL sync, the reshape buffer and the module wrapper start their extra worker threads under the block's start/stop lock and join them in step with start() and stop(), refuse a second start() while running, and clean up after a start that fails part-way | 2026-11-12 |
+| Bug fix | Reshape buffer: one output thread sends the complete chunks and then the end-of-stream, and drops an incomplete last chunk (as upstream); a size of 0 or less is refused; a size change while running applies from the next chunk | 2026-11-12 |
+| Plugins | Plugin ABI version 2 (`PLUGIN_ABI_VERSION`), because the DSP block layouts changed: a plugin built for version 1 is refused before its loader() or init() runs. Its static initialisers still run when it is loaded, before the check | 2026-11-12 |
+| GUI | Airspy and HydraSDR: the "Manual" gain button shows as selected and sets gain mode 2 (it checked mode 22); both radios use one helper for the selected state and the value set | 2026-11-12 |
+| Tests | DSP: start/stop lock ownership checked directly, joins with a held worker, size 0, 1 and live shrink and growth, a forced allocation error in the reshape thread, end-of-stream queued across a restart, a version-1 plugin refused, and checks on both radios' gain buttons | 2026-11-12 |
 | Look | Optional soft skin (`src-core/imgui/imgui_soft.h`), switched on by a theme's `"Soft"` block | 2026-11-11 |
 | Look | 13 soft themes, the Inter font, and their generator (`tools/theme_gen`) | 2026-11-11 |
 | Look | Default theme "Soft OLED"; a missing theme no longer overwrites the saved choice with "Dark" | 2026-11-11 |
@@ -205,7 +223,7 @@ Every change is a separate commit on `pi` (`git log upstream/master..pi`). Summa
 |---|---|
 | 0 | Finished (a pass with no usable data also finishes, with empty products) |
 | 1 | Usage error: unknown option, missing argument, unknown pipeline, input file not found |
-| 2 | The command ran and failed (the log line `Error running command` says why), including when a module or DSP block failed during the run, so the output is incomplete |
+| 2 | The command ran and failed (the log line `Error running command` says why), including when a module or DSP block failed during the run, so the output is incomplete, and when a DSP block (an FFT or a VFO) of `legacy live` could not start |
 | 3 | Radio problem: the radio is not connected, its driver is missing, or it could not be opened, set up or started (`legacy record` and `legacy live`) |
 
 A crash ends the way the system reports crashes: by its signal (a shell shows 128 + the
@@ -336,12 +354,14 @@ the port is taken, or the value is not `host:port` (including a number such as `
 flag given no value), the run exits 1 at once and logs a line that begins
 "Cannot start the web server on <value>:" and gives the reason.
 
-Stopping: SIGTERM or SIGINT is caught from the start of `legacy live`, including while the
-radio opens; the run then exits 0 once start-up has finished, and the `.cadu` keeps its whole
-frames. Measured stops take 0.04 to 0.1 s. The first moments after the program starts (about
-0.05 s, before `legacy live` begins) are not covered, and a signal there ends the program by
-the signal (status 143). Treat exit 0 or the signal after your own SIGTERM as a normal stop,
-and send SIGKILL after a grace period (10 s is ample). `cli_supervision` fails a stop that
+Stopping: SIGTERM and SIGINT are caught from the start of `satdump`'s main function and
+remembered. A stop that arrives before `legacy live` opens the radio ends the run with exit 0
+without opening it. After that, a stop does not interrupt a driver call: start-up finishes,
+then the normal shutdown stops everything and the run exits 0, and the `.cadu` keeps its
+whole frames. A start-up or processing failure keeps its own exit code (table above). Measured
+stops take 0.04 to 0.1 s. A signal while the program is still loading, before its main
+function runs, ends it by the signal (status 143). Treat exit 0 or the signal after your own
+SIGTERM as a normal stop, and send SIGKILL after a grace period (10 s is ample). `cli_supervision` fails a stop that
 takes more than 10 s after SIGTERM, and checks that `/api` stops answering while the program is
 still running.
 
@@ -367,6 +387,16 @@ cmake -C cmake/fork/pi.cmake -DSATDUMP_TESTS=ON -S . -B build -G Ninja
 tests/gate.sh build            # build, warning check, install into an emptied build/check-prefix, all tests
 cmake --install build --prefix ~/satdump    # a relocatable install
 ```
+
+Debian package (arm64 Debian 13; needs binutils):
+
+```bash
+scripts/build-deb.sh           # prints the .deb to install and the optional -dbgsym .ddeb
+tests/package/check_deb.sh build-deb/satdump-fork_*.deb <baseline prefix> <recording>
+```
+
+The .deb is stripped. Install the .ddeb next to it only to debug with gdb. `check_deb.sh`
+finds the .ddeb in the same folder (`DBGSYM=<file>` names another one).
 
 `tests/gate.sh` fails on any test failure and on any **new** compiler warning. When
 warnings are fixed, `tests/gate.sh build --update` lowers the baseline in
@@ -534,24 +564,12 @@ apply them the same way.
 - The Meteor LRPT decoder does not yet use the frame counter to notice lost frames (the
   MetOp decoder does): a packet that spans a lost frame can still be finished with bytes from
   a later one. It stays off until it has been checked on a real Meteor recording.
-- A SIGTERM in the first moments after `satdump` starts (about 0.05 s, before `legacy live`
-  begins) ends the program by the signal (status 143), not with exit 0.
+- A SIGTERM while `satdump` is still loading (before its main function runs and installs the
+  handlers: program loading, shared libraries, static initialisation) ends the program by the
+  signal (status 143), not with exit 0.
 - `sdr_probe` and the GUI ask every radio driver, including those that search the network.
 - A partly damaged IERS bulletin stores its readable entries (each date is stored on its own,
   as upstream does and an existing test pins).
-- Airspy GUI: the "Manual" gain button checks `gain_type == 22`, so it never shows as selected
-  (the GUI only; the command line is not affected).
-- `legacy live --client` whose server does not answer cannot be stopped: the network client
-  module waits in `nng_recv`, so the pipeline's stop never returns, after a SIGTERM or after a
-  web server that cannot start. For the same reason client mode has no command-line test; it
-  shares the `--http_server` check with the tested modes.
-- Multi-VFO: a VFO whose frequency shift is outside the sample rate ends the program with
-  `exit(1)` while the radio, the splitter and the VFOs already started are still running.
-- `legacy record` with `--decimation` above 1 never stops its resampler block.
-- DVB-S2 `S2PLSyncBlock` starts and joins its second thread outside the block's start/stop
-  lock, so a start() and a stop() on two threads can still race on that thread.
-- Single (not multi-VFO) `legacy live`: the stop on an error while the radio and the pipeline
-  run has no test; nothing known throws there now (multi-VFO's is tested).
 
 ## Staying current
 
