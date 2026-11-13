@@ -7,6 +7,10 @@
 
 int main_autotrack(int argc, char *argv[])
 {
+    // Fork: a preceding generic command may have restored default handlers. Reinstall without
+    // clearing a stop remembered during startup or between commands.
+    satdump::cli::catch_stop_signals();
+
     // Fork: a request remembered during CLI startup must not engage a radio.
     if (satdump::cli::stop_requested())
     {

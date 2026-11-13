@@ -8,6 +8,23 @@ namespace dsp
     {
     }
 
+    // Fork: stop() also releases an unread FFT or VFO output before joining the worker. This
+    // works when consumers stop first, or never started, without requiring them to keep reading.
+    void SplitterBlock::stop()
+    {
+        stop_with_outputs([&]()
+        {
+            output_stream->stopWriter();
+            std::lock_guard<std::mutex> lock(state_mutex);
+            for (auto &o : outputs)
+                o.second.output_stream->stopWriter();
+            for (auto &o : vfo_outputs)
+                o.second.output_stream->stopWriter();
+            for (auto &destination : publishing_outputs)
+                destination->stopWriter();
+        });
+    }
+
     // Normal Copy
     void SplitterBlock::add_output(std::string id)
     {
@@ -115,46 +132,50 @@ namespace dsp
             return;
         }
 
-        state_mutex.lock();
-
-        // Main
-        if (enable_main)
-            memcpy(output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
-
-        // Copy outputs
-        for (auto &o : outputs)
-            if (o.second.enabled)
-                memcpy(o.second.output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
-
-        // VFO Outputs
-        for (auto &o : vfo_outputs)
+        // Fork: retain the destinations while publishing, but release the configuration lock
+        // before any swap() can wait. stop() must acquire it to wake those waits.
+        std::vector<std::shared_ptr<dsp::stream<complex_t>>> destinations;
         {
-            if (o.second.enabled)
-            {
-                if (o.second.freq == 0)
+            std::lock_guard<std::mutex> lock(state_mutex);
+
+            // Main
+            if (enable_main)
+                memcpy(output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
+
+            // Copy outputs
+            for (auto &o : outputs)
+                if (o.second.enabled)
                     memcpy(o.second.output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
-                else
+
+            // VFO Outputs
+            for (auto &o : vfo_outputs)
+            {
+                if (o.second.enabled)
+                {
+                    if (o.second.freq == 0)
+                        memcpy(o.second.output_stream->writeBuf, input_stream->readBuf, nsamples * sizeof(complex_t));
+                    else
 #if VOLK_VERSION >= 030100
-                    volk_32fc_s32fc_x2_rotator2_32fc((lv_32fc_t *)o.second.output_stream->writeBuf, (lv_32fc_t *)input_stream->readBuf, (lv_32fc_t *)&o.second.phase_delta, (lv_32fc_t *)&o.second.phase, nsamples);
+                        volk_32fc_s32fc_x2_rotator2_32fc((lv_32fc_t *)o.second.output_stream->writeBuf, (lv_32fc_t *)input_stream->readBuf, (lv_32fc_t *)&o.second.phase_delta, (lv_32fc_t *)&o.second.phase, nsamples);
 #else
-                    volk_32fc_s32fc_x2_rotator_32fc((lv_32fc_t *)o.second.output_stream->writeBuf, (lv_32fc_t *)input_stream->readBuf, o.second.phase_delta, (lv_32fc_t *)&o.second.phase, nsamples);
+                        volk_32fc_s32fc_x2_rotator_32fc((lv_32fc_t *)o.second.output_stream->writeBuf, (lv_32fc_t *)input_stream->readBuf, o.second.phase_delta, (lv_32fc_t *)&o.second.phase, nsamples);
 #endif
+                }
             }
+
+            if (enable_main)
+                destinations.push_back(output_stream);
+            for (auto &o : outputs)
+                if (o.second.enabled)
+                    destinations.push_back(o.second.output_stream);
+            for (auto &o : vfo_outputs)
+                if (o.second.enabled)
+                    destinations.push_back(o.second.output_stream);
+            publishing_outputs = destinations;
         }
 
         input_stream->flush();
-
-        if (enable_main)
-            output_stream->swap(nsamples);
-
-        for (auto &o : outputs)
-            if (o.second.enabled)
-                o.second.output_stream->swap(nsamples);
-
-        for (auto &o : vfo_outputs)
-            if (o.second.enabled)
-                o.second.output_stream->swap(nsamples);
-
-        state_mutex.unlock();
+        for (auto &destination : destinations)
+            destination->swap(nsamples);
     }
 }

@@ -48,6 +48,10 @@ static void throw_if_failed(std::map<std::string, satdump::pipeline::LivePipelin
 
 int main_live(int argc, char *argv[])
 {
+    // Fork: a preceding generic command may have restored default handlers. Reinstall without
+    // clearing a stop remembered during startup or between commands.
+    satdump::cli::catch_stop_signals();
+
     // Fork: preserve a stop received during CLI startup, before opening any radio.
     if (satdump::cli::stop_requested())
     {
@@ -261,7 +265,7 @@ int main_live(int argc, char *argv[])
             catch (std::exception &e)
             {
                 if (radio_started) // Fork: the radio is not left running
-                    source_ptr->stop();
+                    satdump::stop_radio(source_ptr);
                 logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
                 return 1;
             }
@@ -282,7 +286,7 @@ int main_live(int argc, char *argv[])
                 for (auto &e : all_pipelines)
                     e.second->stop();
                 if (radio_started)
-                    source_ptr->stop();
+                    satdump::stop_radio(source_ptr);
                 radio_started = false;
                 splitter_vfo->stop();
                 // Fork: and the frequency shifter add_vfo() started for each VFO, also one whose
@@ -445,7 +449,7 @@ int main_live(int argc, char *argv[])
             auto stop_running = [&]()
             {
                 if (radio_started)
-                    source_ptr->stop();
+                    satdump::stop_radio(source_ptr);
                 radio_started = false;
                 if (splitter)
                     splitter->stop();
@@ -476,8 +480,9 @@ int main_live(int argc, char *argv[])
                     fft->set_fft_settings(fft_size, samplerate, fft_rate);
                     if (parameters.contains("fft_avgn"))
                         fft->avg_num = parameters["fft_avgn"].get<float>();
-                    splitter->start();
+                    // Fork: the FFT must be ready before the splitter publishes to it.
                     fft->start();
+                    splitter->start();
 
                     webserver::handle_callback = [&live_pipeline, &fft, fft_size, &live_pipeline_stats]()
                     {

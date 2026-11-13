@@ -15,6 +15,10 @@
 
 int main_record(int argc, char *argv[])
 {
+    // Fork: a preceding generic command may have restored default handlers. Reinstall without
+    // clearing a stop remembered during startup or between commands.
+    satdump::cli::catch_stop_signals();
+
     // Fork: a stop during CLI startup cancels the pass before any radio is opened.
     if (satdump::cli::stop_requested())
     {
@@ -161,7 +165,7 @@ int main_record(int argc, char *argv[])
             stop("web server", [&]() { webserver::stop(); });
         webserver_started = false;
         if (source_start_attempted)
-            stop("radio", [&]() { source_ptr->stop(); });
+            stop("radio", [&]() { satdump::stop_radio(source_ptr); });
         source_start_attempted = false;
         if (decim)
             stop("resampler", [&]() { decim->stop(); });
@@ -220,8 +224,9 @@ int main_record(int argc, char *argv[])
             fft->set_fft_settings(fft_size, samplerate / decimation, fft_rate);
             if (parameters.contains("fft_avgn"))
                 fft->avg_num = parameters["fft_avgn"].get<float>();
-            splitter->start();
+            // Fork: start the FFT consumer before the splitter can publish into its stream.
             fft->start();
+            splitter->start();
         }
 
         // Setup file sink

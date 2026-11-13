@@ -27,4 +27,14 @@ namespace satdump
             throw RadioError(e.what());
         }
     }
+
+    // Fork: a radio stop may join a receive callback blocked on a full output. Wake that writer
+    // before joining it, also when setup failed before any downstream reader was started.
+    template <typename Source>
+    void stop_radio(Source &source)
+    {
+        if (source->output_stream)
+            source->output_stream->stopWriter();
+        source->stop();
+    }
 } // namespace satdump

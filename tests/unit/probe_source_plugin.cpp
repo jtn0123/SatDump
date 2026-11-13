@@ -40,6 +40,37 @@ namespace
         };
         std::shared_ptr<Samples> samples;
         std::thread producer;
+        std::atomic<bool> running{false};
+        std::atomic<int> attempted{0};
+
+        void produce()
+        {
+            try
+            {
+                constexpr int chunk = 4096;
+                const int blocks = d_settings.value("probe_blocks", 16);
+                for (int block = 0; running && block < blocks; block++)
+                {
+                    for (int i = 0; i < chunk; i++)
+                    {
+                        const int n = block * chunk + i;
+                        output_stream->writeBuf[i] = complex_t(float(n % 64 - 32) / 64, n % 2 ? -0.5f : 0.5f);
+                    }
+                    attempted = block + 1;
+                    if (!output_stream->swap(chunk))
+                        break;
+                }
+                mark("SATDUMP_TEST_PROBE_PRODUCED");
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Probe producer failed: %s", e.what());
+            }
+            catch (...)
+            {
+                logger->error("Probe producer failed: unknown exception");
+            }
+        }
 
     public:
         explicit ProbeSource(dsp::SourceDescriptor source) : dsp::DSPSampleSource(source) {}
@@ -49,6 +80,9 @@ namespace
         {
             if (started)
                 logger->error("Fork probe radio destroyed while running");
+            // Fork: recovery for a test setup failure; wake any writer before the final stop.
+            if (output_stream)
+                output_stream->stopWriter();
             stop();
         }
 
@@ -62,9 +96,27 @@ namespace
 
         void start() override
         {
+            // Fork: the two test producers share one output stream and must never run together.
+            if (d_settings.value("produce_samples", false) && d_settings.value("probe_stream", false))
+                throw std::runtime_error("probe producer modes are mutually exclusive");
             dsp::DSPSampleSource::start();
             started = true;
             logger->info("Fork probe radio started");
+            if (d_settings.value("probe_stream", false))
+            {
+                running = true;
+                producer = std::thread(&ProbeSource::produce, this);
+                if (d_settings.value("probe_fill_before_start", false))
+                {
+                    // Fork: buffer one is full and swap two is pending before setup continues.
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+                    while (attempted < 2 && std::chrono::steady_clock::now() < deadline)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    if (attempted < 2)
+                        throw std::runtime_error("probe did not fill its output");
+                    mark("SATDUMP_TEST_PROBE_FILLED");
+                }
+            }
             if (!d_settings.value("produce_samples", false))
                 return;
             samples = std::make_shared<Samples>();
@@ -112,19 +164,19 @@ namespace
 
         void stop() override
         {
-            if (started)
+            running = false;
+            if (samples)
+                samples->stop = true;
+            // Fork: wake whichever producer ran before joining its thread.
+            if (producer.joinable())
             {
-                if (samples)
-                {
-                    samples->stop = true;
-                    output_stream->stopWriter();
-                    if (producer.joinable())
-                        producer.join();
-                }
-                else
-                    output_stream->flush();
-                logger->info("Fork probe radio stopped");
+                output_stream->stopWriter();
+                producer.join();
             }
+            else if (started)
+                output_stream->flush();
+            if (started)
+                logger->info("Fork probe radio stopped");
             started = false;
         }
 

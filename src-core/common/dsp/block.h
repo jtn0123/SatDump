@@ -133,6 +133,21 @@ namespace dsp
 #endif
         }
 
+    protected:
+        // Fork: extra-output blocks use the same start/stop lock while waking all writers and
+        // joining. A template keeps this allocation-free without changing the block's vtable.
+        template <typename StopOutputs>
+        void stop_with_outputs(StopOutputs stop_outputs)
+        {
+            std::lock_guard<std::mutex> start_stop(d_start_stop_mtx);
+            should_run = false;
+            if (d_got_input && input_stream)
+                input_stream->stopReader();
+            stop_outputs();
+            if (d_thread.joinable())
+                d_thread.join();
+        }
+
     public:
         std::shared_ptr<dsp::stream<IN_T>> input_stream;
         std::shared_ptr<dsp::stream<OUT_T>> output_stream;
@@ -174,18 +189,11 @@ namespace dsp
         }
         virtual void stop()
         {
-            std::lock_guard<std::mutex> start_stop(d_start_stop_mtx); // Fork: see d_start_stop_mtx
-
-            should_run = false;
-
-            if (d_got_input)
-                if (input_stream)
-                    input_stream->stopReader();
-            if (output_stream)
-                output_stream->stopWriter();
-
-            if (d_thread.joinable())
-                d_thread.join();
+            stop_with_outputs([&]()
+            {
+                if (output_stream)
+                    output_stream->stopWriter();
+            });
         }
 
         // Fork: true if work() failed (threw) since the last start(); the error was logged

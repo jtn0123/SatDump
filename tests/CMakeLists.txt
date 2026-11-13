@@ -152,6 +152,23 @@ set_tests_properties(cli_supervision PROPERTIES LABELS cli)
 # Fork: record cleanup and stop requests received before command startup.
 add_test(NAME cli_record_shutdown COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/record_shutdown.sh ${SATDUMP_CHECK_PREFIX})
 set_tests_properties(cli_record_shutdown PROPERTIES LABELS cli TIMEOUT 240)
+add_test(NAME cli_record_review
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/record_review.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
+set_tests_properties(cli_record_review PROPERTIES LABELS cli TIMEOUT 300)
+# Fork: fault injection uses the actual record command with test-only block start overrides.
+add_executable(satdump-record-start-failure unit/record_start_failure.cpp ${PROJECT_SOURCE_DIR}/src-cli/legacy/webserver.cpp)
+target_include_directories(satdump-record-start-failure PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(satdump-record-start-failure PRIVATE satdump_core)
+target_compile_definitions(satdump-record-start-failure PRIVATE SATDUMP_TEST_INSTALL_LIBDIR="${CMAKE_INSTALL_LIBDIR}")
+add_test(NAME cli_record_start_failure
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/record_start_failure.sh ${SATDUMP_CHECK_PREFIX}
+        $<TARGET_FILE:satdump-record-start-failure> $<TARGET_FILE:fork_probe_source_test_plugin>)
+set_tests_properties(cli_record_start_failure PROPERTIES LABELS cli TIMEOUT 40)
+add_executable(satdump-splitter-stop-test unit/main.cpp unit/test_splitter_stop.cpp)
+target_include_directories(satdump-splitter-stop-test PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(satdump-splitter-stop-test PRIVATE satdump_core)
+add_test(NAME unit_splitter_stop COMMAND satdump-splitter-stop-test)
+set_tests_properties(unit_splitter_stop PROPERTIES LABELS unit TIMEOUT 60)
 add_test(NAME cli_early_signals
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/early_signals.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_early_signals PROPERTIES LABELS cli TIMEOUT 300)

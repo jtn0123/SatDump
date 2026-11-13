@@ -3,6 +3,7 @@
 #include "common/dsp/block.h"
 #include <map>
 #include <string>
+#include <vector>
 
 namespace dsp
 {
@@ -13,6 +14,8 @@ namespace dsp
         void work();
 
         bool enable_main = true;
+        // Fork: a destination removed while work() publishes must still be woken by stop().
+        std::vector<std::shared_ptr<dsp::stream<complex_t>>> publishing_outputs;
 
     private:
         struct OutputCFG
@@ -55,6 +58,7 @@ namespace dsp
 
     public:
         SplitterBlock(std::shared_ptr<dsp::stream<complex_t>> input);
+        void stop() override;
 
         void stop_tmp()
         {
