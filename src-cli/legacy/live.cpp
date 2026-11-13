@@ -95,12 +95,21 @@ int main_live(int argc, char *argv[])
     {
         try
         {
-            validated_multi_cfg = loadJsonFile(parameters["multi_vfo"].get<std::string>());
-            if (!validated_multi_cfg.is_object())
-                throw std::invalid_argument("the VFO configuration must be an object");
+            const auto path = parameters["multi_vfo"].get<std::string>();
+            // Fork: the loader returns null for a missing file; distinguish it from an
+            // explicit null/empty list, which the old items() loop accepted.
+            if (!std::filesystem::exists(path))
+                throw std::invalid_argument("the VFO configuration file does not exist");
+            validated_multi_cfg = loadJsonFile(path);
+            if (!validated_multi_cfg.is_object() && !validated_multi_cfg.is_array() && !validated_multi_cfg.is_null())
+                throw std::invalid_argument("the VFO configuration must be an object, array or null");
             for (const auto &entry : validated_multi_cfg.items())
             {
-                const auto &vfo = entry.value();
+                auto &vfo = entry.value();
+                // Fork: startup historically promoted missing/null parameters to an object
+                // while injecting DSP settings. Normalize before retaining the validated config.
+                if (vfo.is_object() && (!vfo.contains("parameters") || vfo["parameters"].is_null()))
+                    vfo["parameters"] = nlohmann::json::object();
                 if (!vfo.is_object() || !vfo.contains("frequency") || !vfo["frequency"].is_number() ||
                     !vfo.contains("pipeline") || !vfo["pipeline"].is_string() ||
                     !vfo.contains("parameters") || !vfo["parameters"].is_object())
