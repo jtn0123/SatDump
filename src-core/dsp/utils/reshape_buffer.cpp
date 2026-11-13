@@ -62,25 +62,44 @@ namespace satdump
         template <typename T>
         void ReshapeBufferBlock<T>::work2()
         {
-            // Fork: init() sizes the staging chunk before workers start. Configuration changes
-            // take effect on restart, so this worker never reads beyond that allocation.
-            const int bufsize = static_cast<int>(output_chunk.size());
-            while (true)
+            std::string error;
+            try
             {
-                int read = ring_buf.read(output_chunk.data(), bufsize);
-                if (read != bufsize)
+                while (true)
                 {
-                    // Fork: upstream never published an incomplete chunk. Discard that tail;
-                    // EOF follows all complete chunks, on this one producer thread only.
-                    if (read >= 0 && propagate_eof)
-                        outputs[0].fifo->wait_enqueue(outputs[0].fifo->newBufferTerminator());
-                    return;
+                    // Fork: each chunk keeps the size chosen at its boundary. Only this
+                    // worker resizes or reads the staging vector, including live growth.
+                    const int bufsize = buffer_size.load();
+                    output_chunk.resize(bufsize);
+                    int read = ring_buf.read(output_chunk.data(), bufsize);
+                    if (read != bufsize)
+                    {
+                        // Fork: upstream never published an incomplete chunk. Discard that tail;
+                        // EOF follows all complete chunks, on this one producer thread only.
+                        if (read >= 0 && propagate_eof)
+                            outputs[0].fifo->wait_enqueue(outputs[0].fifo->newBufferTerminator());
+                        return;
+                    }
+                    DSPBuffer oblk = outputs[0].fifo->newBufferSamples(bufsize, sizeof(T));
+                    memcpy(oblk.getSamples<T>(), output_chunk.data(), bufsize * sizeof(T));
+                    oblk.size = bufsize;
+                    outputs[0].fifo->wait_enqueue(oblk);
                 }
-                DSPBuffer oblk = outputs[0].fifo->newBufferSamples(bufsize, sizeof(T));
-                memcpy(oblk.getSamples<T>(), output_chunk.data(), bufsize * sizeof(T));
-                oblk.size = bufsize;
-                outputs[0].fifo->wait_enqueue(oblk);
             }
+            catch (const std::exception &e)
+            {
+                error = e.what();
+            }
+            catch (...)
+            {
+                error = "unknown exception";
+            }
+            // Fork: allocation during live growth can fail. Cancel the ring so the main
+            // worker keeps draining input, and report failure from this sole output producer.
+            ring_buf.stopWriter();
+            ring_buf.stopReader();
+            record_failure(error);
+            end_streams({outputs[0].fifo}, {}, true);
         }
 
         template class ReshapeBufferBlock<int8_t>;

@@ -7,6 +7,7 @@ namespace satdump
     namespace gain_mode
     {
         enum Mode { SENSITIVE = 0, LINEAR = 1, MANUAL = 2 };
-        constexpr bool selected(int current, Mode mode) { return current == static_cast<int>(mode); }
+        constexpr int value(Mode mode) { return static_cast<int>(mode); }
+        constexpr bool selected(int current, Mode mode) { return current == value(mode); }
     }
 }

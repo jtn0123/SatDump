@@ -240,13 +240,7 @@ namespace satdump
              */
             void work_failed(const std::string &error)
             {
-                logger->error("DSP block %s failed: %s", d_id.c_str(), error.c_str());
-                {
-                    std::lock_guard<std::mutex> lg(blk_failure_mtx);
-                    blk_failure = error;
-                }
-                blk_failed = true;
-                ::dsp::record_block_failure(d_id, error);
+                record_failure(error);
 
                 std::vector<std::shared_ptr<DSPStream>> outs, ins;
                 for (auto &o : outputs)
@@ -257,6 +251,21 @@ namespace satdump
                         ins.push_back(i.fifo);
                 // The block after it may have stopped too, so do not wait for it forever
                 end_streams(outs, ins, true);
+            }
+
+        protected:
+            // Fork: extra workers record failures here, then end only their own streams.
+            // work_failed() also drains inputs, which must remain owned by the main worker.
+            void record_failure(const std::string &error)
+            {
+                logger->error("DSP block %s failed: %s", d_id.c_str(), error.c_str());
+                {
+                    std::lock_guard<std::mutex> lg(blk_failure_mtx);
+                    blk_failure = error;
+                }
+                blk_failed = true;
+                ::dsp::record_block_failure(d_id, error);
+
             }
 
         protected:

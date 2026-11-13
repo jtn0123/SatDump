@@ -18,7 +18,11 @@ namespace satdump
         class ReshapeBufferBlock : public Block
         {
         private:
-            int buffer_size = 1024;
+            // Fork: UI configuration and the output worker share the next chunk size.
+            std::atomic<int> buffer_size{1024};
+            static_assert(sizeof(std::atomic<int>) == sizeof(int) && alignof(std::atomic<int>) == alignof(int),
+                          "Atomic chunk size must preserve the DSP plugin layout");
+            friend struct ReshapeBufferTestAccess; // Fork: invalid-state and chunk-boundary tests.
             dsp::RingBuffer<T> ring_buf{100};
 
             // Fork: only the output worker produces output, including EOF. Stage a chunk
@@ -43,9 +47,13 @@ namespace satdump
 
             void init() override
             {
+                // Fork: validate again before any worker can start, even for restored state.
+                const int size = buffer_size.load();
+                if (size <= 0)
+                    throw satdump_exception("Reshape buffer size must be greater than zero");
                 ring_buf.reset();
                 propagate_eof = false;
-                output_chunk.resize(buffer_size);
+                output_chunk.resize(size);
             }
 
             nlohmann::ordered_json get_cfg_list()
@@ -58,7 +66,7 @@ namespace satdump
             nlohmann::json get_cfg(std::string key)
             {
                 if (key == "buffer_size")
-                    return buffer_size;
+                    return buffer_size.load();
                 else
                     throw satdump_exception(key);
             }
@@ -66,7 +74,13 @@ namespace satdump
             cfg_res_t set_cfg(std::string key, nlohmann::json v)
             {
                 if (key == "buffer_size")
-                    buffer_size = v;
+                {
+                    // Fork: reject invalid requests without changing the last valid size.
+                    const int size = v.get<int>();
+                    if (size <= 0)
+                        return RES_ERR;
+                    buffer_size = size;
+                }
                 else
                     throw satdump_exception(key);
                 return RES_OK;

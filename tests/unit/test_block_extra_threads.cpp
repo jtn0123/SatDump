@@ -315,8 +315,7 @@ TEST_CASE("extra DSP workers: reshape drains queued chunks before EOF and restar
         for (int run = 0; run < 6; ++run)
         {
             const int chunk_size = run == 1 ? 16 : 32;
-            if (run != 1) // Fork: run 1 uses the size requested during run 0.
-                block.set_cfg("buffer_size", chunk_size);
+            block.set_cfg("buffer_size", chunk_size);
             // Fork: hold every output allocation until the input worker has consumed EOF.
             // This proves it can finish without publishing output, even under backpressure.
             std::vector<DSPBuffer> held;
@@ -335,10 +334,6 @@ TEST_CASE("extra DSP workers: reshape drains queued chunks before EOF and restar
             bool propagate = run != 5;
             input->wait_enqueue(input->newBufferTerminator(propagate));
             CHECK(within([&] { return BlockLifecycleTestAccess::main_done(block); }));
-            // Fork: a size requested mid-run applies on restart, keeping the staging bounds
-            // and output chunk size fixed for this run.
-            if (run == 0)
-                block.set_cfg("buffer_size", 16);
             for (auto &buffer : held)
                 output->free(buffer);
             int received = 0;
@@ -452,4 +447,176 @@ TEST_CASE_TEMPLATE("extra DSP workers: lifecycle hooks hold the mutex", T, S2Fix
 {
     register_module();
     bounded([] { hooks_hold_mutex<T>(); });
+}
+
+TEST_CASE("extra DSP workers: reshape rejects nonpositive sizes and accepts one")
+{
+    bounded([]
+    {
+        ReshapeBufferBlock<float> block;
+        CHECK(block.set_cfg("buffer_size", 32) == Block::RES_OK);
+        for (int invalid : {0, -1, -1024})
+        {
+            CHECK(block.set_cfg("buffer_size", invalid) == Block::RES_ERR);
+            CHECK(block.get_cfg("buffer_size") == 32);
+        }
+        CHECK(block.set_cfg("buffer_size", 1) == Block::RES_OK);
+        auto input = std::make_shared<DSPStream>(4);
+        auto output = block.get_output(0, 4).fifo;
+        block.set_input({"in", DSP_SAMPLE_TYPE_F32, input}, 0);
+        block.start();
+        auto samples = input->newBufferSamples(3, sizeof(float));
+        samples.size = 3;
+        for (int i = 0; i < 3; ++i)
+            samples.getSamples<float>()[i] = i + 1;
+        input->wait_enqueue(samples);
+        input->wait_enqueue(input->newBufferTerminator());
+        for (int i = 0; i < 3; ++i)
+        {
+            auto got = output->wait_dequeue();
+            CHECK_FALSE(got.isTerminator());
+            CHECK(got.size == 1);
+            CHECK(got.getSamples<float>()[0] == i + 1);
+            output->free(got);
+        }
+        auto end = output->wait_dequeue();
+        CHECK(end.isTerminator());
+        output->free(end);
+        block.stop();
+        CHECK_FALSE(BlockLifecycleTestAccess::main_joinable(block));
+        CHECK_FALSE(ReshapeBufferTestAccess::extra_joinable(block));
+    });
+}
+
+TEST_CASE("extra DSP workers: reshape invalid startup creates no workers")
+{
+    // Fork: a sentinel catches an invalid start before a broken implementation can spin
+    // forever with zero-sized output. Valid production startup still uses the real workers.
+    class InvalidStartProbe : public ReshapeFixture
+    {
+        void start_extra() override
+        {
+            starts++;
+            throw std::runtime_error("invalid state reached worker startup");
+        }
+    public:
+        int starts = 0;
+    };
+    bounded([]
+    {
+        for (int invalid : {0, -1})
+        {
+            InvalidStartProbe block;
+            ReshapeBufferTestAccess::force_size(block, invalid);
+            CHECK_THROWS_WITH(block.start(), doctest::Contains("Reshape buffer size must be greater than zero"));
+            CHECK(block.starts == 0);
+            CHECK_FALSE(BlockLifecycleTestAccess::main_joinable(block));
+            CHECK_FALSE(ReshapeBufferTestAccess::extra_joinable(block));
+            block.stop();
+            block.stop();
+        }
+    });
+}
+
+TEST_CASE("extra DSP workers: reshape live shrink and growth respect chunk boundaries")
+{
+    bounded([]
+    {
+        for (const auto &sizes : {std::pair<int, int>{32, 16}, {16, 64}})
+        {
+            const int old_size = sizes.first, new_size = sizes.second;
+            CAPTURE(old_size);
+            CAPTURE(new_size);
+            ReshapeBufferBlock<float> block;
+            CHECK(block.set_cfg("buffer_size", old_size) == Block::RES_OK);
+            auto input = std::make_shared<DSPStream>(4);
+            auto output = block.get_output(0, 4).fifo;
+            block.set_input({"in", DSP_SAMPLE_TYPE_F32, input}, 0);
+            std::vector<DSPBuffer> held;
+            for (int i = 0; i < 4; ++i)
+                held.push_back(output->alloc(0));
+            auto send = [&](int offset, int count)
+            {
+                auto samples = input->newBufferSamples(count, sizeof(float));
+                samples.size = count;
+                for (int i = 0; i < count; ++i)
+                    samples.getSamples<float>()[i] = offset + i;
+                input->wait_enqueue(samples);
+            };
+            block.start();
+            send(0, old_size + 1);
+            // Fork: exactly one sample remains only after the worker staged its first old-size
+            // chunk. Holding all output allocations keeps it at that boundary until release.
+            CHECK(within([&] { return ReshapeBufferTestAccess::readable(block) == 1; }));
+            CHECK(block.set_cfg("buffer_size", new_size) == Block::RES_OK);
+            CHECK(block.get_cfg("buffer_size") == new_size);
+            send(old_size + 1, 2 * new_size - 1);
+            input->wait_enqueue(input->newBufferTerminator());
+            for (auto &buffer : held)
+                output->free(buffer);
+            std::vector<uint32_t> chunks;
+            int received = 0;
+            while (true)
+            {
+                auto got = output->wait_dequeue();
+                bool ended = got.isTerminator();
+                if (!ended)
+                {
+                    chunks.push_back(got.size);
+                    for (uint32_t i = 0; i < got.size; ++i)
+                        CHECK(got.getSamples<float>()[i] == received + i);
+                    received += got.size;
+                }
+                output->free(got);
+                if (ended)
+                    break;
+            }
+            block.stop();
+            const std::vector<uint32_t> expected{static_cast<uint32_t>(old_size), static_cast<uint32_t>(new_size), static_cast<uint32_t>(new_size)};
+            CHECK(chunks == expected);
+            CHECK(received == old_size + 2 * new_size);
+            CHECK(ReshapeBufferTestAccess::staging_size(block) >= static_cast<size_t>(new_size));
+            DSPBuffer leftover;
+            CHECK_FALSE(output->try_dequeue(leftover));
+        }
+    });
+}
+
+TEST_CASE("extra DSP workers: reshape staging allocation failure is contained")
+{
+    bounded([]
+    {
+        ReshapeBufferBlock<float> block;
+        block.set_cfg("buffer_size", 32);
+        auto input = std::make_shared<DSPStream>(4);
+        auto output = block.get_output(0, 4).fifo;
+        block.set_input({"in", DSP_SAMPLE_TYPE_F32, input}, 0);
+        std::vector<DSPBuffer> held;
+        for (int i = 0; i < 4; ++i)
+            held.push_back(output->alloc(0));
+        block.start();
+        auto samples = input->newBufferSamples(33, sizeof(float));
+        samples.size = 33;
+        for (int i = 0; i < 33; ++i)
+            samples.getSamples<float>()[i] = i;
+        input->wait_enqueue(samples);
+        CHECK(within([&] { return ReshapeBufferTestAccess::readable(block) == 1; }));
+        // Fork: bypass the validated setter to force vector::resize to throw length_error
+        // at the next boundary, without exhausting memory or adding a production test hook.
+        ReshapeBufferTestAccess::force_size(block, -1);
+        input->wait_enqueue(input->newBufferTerminator());
+        for (auto &buffer : held)
+            output->free(buffer);
+        auto first = output->wait_dequeue();
+        CHECK(first.size == 32);
+        output->free(first);
+        auto end = output->wait_dequeue();
+        CHECK(end.isTerminator());
+        output->free(end);
+        block.stop();
+        CHECK(block.has_failed());
+        CHECK_FALSE(block.get_failure().empty());
+        CHECK_FALSE(BlockLifecycleTestAccess::main_joinable(block));
+        CHECK_FALSE(ReshapeBufferTestAccess::extra_joinable(block));
+    });
 }

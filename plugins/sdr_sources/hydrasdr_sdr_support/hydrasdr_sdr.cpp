@@ -187,17 +187,17 @@ void HydraSDRSource::drawControlUI()
     bool gain_changed = false;
     if (RImGui::RadioButton("Sensitive", satdump::gain_mode::selected(gain_type, satdump::gain_mode::SENSITIVE)))
     {
-        gain_type = satdump::gain_mode::SENSITIVE;
+        gain_type = satdump::gain_mode::value(satdump::gain_mode::SENSITIVE);
         gain_changed = true;
     }
     if (RImGui::RadioButton("Linear", satdump::gain_mode::selected(gain_type, satdump::gain_mode::LINEAR)))
     {
-        gain_type = satdump::gain_mode::LINEAR;
+        gain_type = satdump::gain_mode::value(satdump::gain_mode::LINEAR);
         gain_changed = true;
     }
     if (RImGui::RadioButton("Manual", satdump::gain_mode::selected(gain_type, satdump::gain_mode::MANUAL)))
     {
-        gain_type = satdump::gain_mode::MANUAL;
+        gain_type = satdump::gain_mode::value(satdump::gain_mode::MANUAL);
         gain_changed = true;
     }
 
