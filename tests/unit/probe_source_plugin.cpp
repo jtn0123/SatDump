@@ -117,6 +117,9 @@ namespace
                     mark("SATDUMP_TEST_PROBE_FILLED");
                 }
             }
+            // Fork: exercise cleanup when a radio has started its callback before failing.
+            if (d_settings.value("probe_fail_start", false))
+                throw std::runtime_error("probe start failure after producer startup");
             if (!d_settings.value("produce_samples", false))
                 return;
             samples = std::make_shared<Samples>();

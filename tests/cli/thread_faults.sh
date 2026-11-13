@@ -272,4 +272,18 @@ check live-vfo-backpressure-radio-stopped logged live-vfo-backpressure "Fork pro
 check live-vfo-backpressure-blocks-stopped not_logged live-vfo-backpressure "BLOCK SHOULD BE STOPPED"
 check live-vfo-backpressure-no-late-block not_logged live-vfo-backpressure "destroyed while running"
 
+# Fork: a source may launch its receive callback and then throw from start(). Both live
+# modes must wake and stop it explicitly, even before any downstream reader exists.
+for mode in single multi; do
+    vfo_args=()
+    [ "$mode" = multi ] && vfo_args=(--multi_vfo vfo_good.json)
+    name=live-radio-partial-start-$mode
+    run 3 "$name" legacy live fork_fault_live_good out_partial "${PROBE[@]}" \
+        --probe_stream --probe_fill_before_start --probe_fail_start "${vfo_args[@]}"
+    check "$name-failure" logged "$name" "probe start failure after producer startup"
+    check "$name-stopped" logged "$name" "Fork probe radio stopped"
+    check "$name-no-destructor-stop" not_logged "$name" "destroyed while running"
+    check "$name-blocks-stopped" not_logged "$name" "BLOCK SHOULD BE STOPPED"
+done
+
 exit $FAILED

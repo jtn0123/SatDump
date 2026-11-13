@@ -245,35 +245,12 @@ int main_live(int argc, char *argv[])
 
             nlohmann::json multi_cfg = loadJsonFile(parameters["multi_vfo"].get<std::string>());
 
-            std::unique_ptr<dsp::VFOSplitterBlock> splitter_vfo;
-            bool radio_started = false;
-
-            // Attempt to start the source and pipeline
-            try
-            {
-                satdump::start_radio(source_ptr);
-                radio_started = true;
-                splitter_vfo = std::make_unique<dsp::VFOSplitterBlock>(source_ptr->output_stream);
-                splitter_vfo->set_main_enabled(false);
-                splitter_vfo->start();
-            }
-            catch (satdump::RadioError &e)
-            {
-                logger->error("Radio problem: could not start the radio: %s", e.what());
-                return satdump::EXIT_RADIO;
-            }
-            catch (std::exception &e)
-            {
-                if (radio_started) // Fork: the radio is not left running
-                    satdump::stop_radio(source_ptr);
-                logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
-                return 1;
-            }
-
-            // Fork: the thread pool is made before the pipelines, so it goes after them. It went first,
-            // and waited for ever on the modules still running in it when an error left this block early
+            // Fork: construct the pool before the radio runs, so a thread-creation failure
+            // cannot strand it outside the cleanup handler. The pool outlives the pipelines.
             ctpl::thread_pool live_thread_pool(128);
+            std::unique_ptr<dsp::VFOSplitterBlock> splitter_vfo;
             std::map<std::string, std::shared_ptr<satdump::pipeline::LivePipeline>> all_pipelines;
+            bool radio_started = false;
             bool webserver_started = false;
 
             // Fork: stops the pipelines, radio and splitter started so far. Used when the run
@@ -288,14 +265,44 @@ int main_live(int argc, char *argv[])
                 if (radio_started)
                     satdump::stop_radio(source_ptr);
                 radio_started = false;
-                splitter_vfo->stop();
+                if (splitter_vfo)
+                    splitter_vfo->stop();
                 // Fork: and the frequency shifter add_vfo() started for each VFO, also one whose
                 // pipeline did not start (del_vfo() does nothing for a VFO never added). Only the
                 // normal end of the run did this; on an error they were destroyed with the
                 // splitter while still running
-                for (auto cfg : multi_cfg.items())
-                    splitter_vfo->del_vfo(cfg.key());
+                if (splitter_vfo)
+                    for (auto cfg : multi_cfg.items())
+                        splitter_vfo->del_vfo(cfg.key());
             };
+
+            // Attempt to start the source and splitter.
+            try
+            {
+                // Fork: start() may launch a receive callback before throwing; it still needs stop.
+                radio_started = true;
+                satdump::start_radio(source_ptr);
+                splitter_vfo = std::make_unique<dsp::VFOSplitterBlock>(source_ptr->output_stream);
+                splitter_vfo->set_main_enabled(false);
+                splitter_vfo->start();
+            }
+            catch (satdump::RadioError &e)
+            {
+                stop_running();
+                logger->error("Radio problem: could not start the radio: %s", e.what());
+                return satdump::EXIT_RADIO;
+            }
+            catch (std::exception &e)
+            {
+                stop_running();
+                logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
+                return 1;
+            }
+            catch (...)
+            {
+                stop_running();
+                throw;
+            }
 
             try
             {
@@ -461,8 +468,9 @@ int main_live(int argc, char *argv[])
             // Attempt to start the source and pipeline
             try
             {
-                satdump::start_radio(source_ptr);
+                // Fork: start() may launch a receive callback before throwing; it still needs stop.
                 radio_started = true;
+                satdump::start_radio(source_ptr);
 
                 std::shared_ptr<dsp::stream<complex_t>> final_stream = source_ptr->output_stream;
 
@@ -499,6 +507,7 @@ int main_live(int argc, char *argv[])
             }
             catch (satdump::RadioError &e)
             {
+                stop_running();
                 logger->error("Radio problem: could not start the radio: %s", e.what());
                 return satdump::EXIT_RADIO;
             }
@@ -507,6 +516,11 @@ int main_live(int argc, char *argv[])
                 stop_running();
                 logger->error("Fatal error running pipeline/device : " + std::string(e.what()));
                 return 1;
+            }
+            catch (...)
+            {
+                stop_running();
+                throw;
             }
 
             try
