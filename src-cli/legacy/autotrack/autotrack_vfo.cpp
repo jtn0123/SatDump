@@ -5,7 +5,7 @@
 
 void AutoTrackApp::add_vfo_live(std::string id, std::string name, double freq, satdump::pipeline::Pipeline vpipeline, nlohmann::json vpipeline_params)
 {
-    vfos_mtx.lock();
+    std::lock_guard<std::mutex> vfos_mtx_guard(vfos_mtx); // Fork: release on exceptions.
 
     try
     {
@@ -41,12 +41,11 @@ void AutoTrackApp::add_vfo_live(std::string id, std::string name, double freq, s
         logger->error("Error adding VFO : %s", e.what());
     }
 
-    vfos_mtx.unlock();
 }
 
 void AutoTrackApp::add_vfo_reco(std::string id, std::string name, double freq, dsp::BasebandType type, int decimation)
 {
-    vfos_mtx.lock();
+    std::lock_guard<std::mutex> vfos_mtx_guard(vfos_mtx); // Fork: release on exceptions.
 
     try
     {
@@ -80,12 +79,11 @@ void AutoTrackApp::add_vfo_reco(std::string id, std::string name, double freq, d
         logger->error("Error adding VFO : %s", e.what());
     }
 
-    vfos_mtx.unlock();
 }
 
 void AutoTrackApp::del_vfo(std::string id)
 {
-    vfos_mtx.lock();
+    std::lock_guard<std::mutex> vfos_mtx_guard(vfos_mtx); // Fork: release on exceptions.
     auto it = std::find_if(vfo_list.begin(), vfo_list.end(), [&id](VFOInfo &c) { return c.id == id; });
     if (it != vfo_list.end())
     {
@@ -138,5 +136,4 @@ void AutoTrackApp::del_vfo(std::string id)
     if (vfo_list.size() == 0)
         if (fft)
             fft_plot->vfo_freqs.clear();
-    vfos_mtx.unlock();
 }

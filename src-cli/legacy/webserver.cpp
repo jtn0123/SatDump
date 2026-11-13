@@ -36,35 +36,61 @@ namespace webserver
     // HTTP Handler for stats
     void http_handle(nng_aio *aio)
     {
-        request_mutex.lock();
+        // Fork: callback allocation/serialization may throw; never retain the request lock.
+        try
+        {
+            std::lock_guard<std::mutex> lock(request_mutex);
 
-        std::string jsonstr = handle_callback();
+            std::string jsonstr = handle_callback();
 
-        nng_http_res *res;
-        nng_http_res_alloc(&res);
-        nng_http_res_copy_data(res, jsonstr.c_str(), jsonstr.size());
-        nng_http_res_set_header(res, "Content-Type", "application/json; charset=utf-8");
-        nng_aio_set_output(aio, 0, res);
-        nng_aio_finish(aio, 0);
-        request_mutex.unlock();
+            nng_http_res *res;
+            nng_http_res_alloc(&res);
+            nng_http_res_copy_data(res, jsonstr.c_str(), jsonstr.size());
+            nng_http_res_set_header(res, "Content-Type", "application/json; charset=utf-8");
+            nng_aio_set_output(aio, 0, res);
+            nng_aio_finish(aio, 0);
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("Web callback failed: %s", e.what());
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
+        catch (...)
+        {
+            logger->error("Web callback failed: unknown exception");
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
     }
 
     // HTTP Handler for HTML
     void http_handle_html(nng_aio *aio)
     {
-        request_mutex.lock();
+        // Fork: callback allocation/serialization may throw; never retain the request lock.
+        try
+        {
+            std::lock_guard<std::mutex> lock(request_mutex);
 
-        std::string uri = nng_http_req_get_uri((nng_http_req *)nng_aio_get_input(aio, 0));
+            std::string uri = nng_http_req_get_uri((nng_http_req *)nng_aio_get_input(aio, 0));
 
-        std::string jsonstr = handle_callback_html(uri);
+            std::string jsonstr = handle_callback_html(uri);
 
-        nng_http_res *res;
-        nng_http_res_alloc(&res);
-        nng_http_res_copy_data(res, jsonstr.c_str(), jsonstr.size());
-        nng_http_res_set_header(res, "Content-Type", "text/html; charset=utf-8");
-        nng_aio_set_output(aio, 0, res);
-        nng_aio_finish(aio, 0);
-        request_mutex.unlock();
+            nng_http_res *res;
+            nng_http_res_alloc(&res);
+            nng_http_res_copy_data(res, jsonstr.c_str(), jsonstr.size());
+            nng_http_res_set_header(res, "Content-Type", "text/html; charset=utf-8");
+            nng_aio_set_output(aio, 0, res);
+            nng_aio_finish(aio, 0);
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("Web callback failed: %s", e.what());
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
+        catch (...)
+        {
+            logger->error("Web callback failed: unknown exception");
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
     }
 
     bool add_polarplot_handler = false;
@@ -72,49 +98,88 @@ namespace webserver
     // HTTP Handler for HTML
     void http_handle_polarplot(nng_aio *aio)
     {
-        request_mutex.lock();
+        // Fork: callback allocation/serialization may throw; never retain the request lock.
+        try
+        {
+            std::lock_guard<std::mutex> lock(request_mutex);
 
-        std::vector<uint8_t> img = handle_callback_polarplot();
+            std::vector<uint8_t> img = handle_callback_polarplot();
 
-        nng_http_res *res;
-        nng_http_res_alloc(&res);
-        nng_http_res_copy_data(res, img.data(), img.size());
-        nng_http_res_set_header(res, "Content-Type", "image/jpeg");
-        nng_aio_set_output(aio, 0, res);
-        nng_aio_finish(aio, 0);
-        request_mutex.unlock();
+            nng_http_res *res;
+            nng_http_res_alloc(&res);
+            nng_http_res_copy_data(res, img.data(), img.size());
+            nng_http_res_set_header(res, "Content-Type", "image/jpeg");
+            nng_aio_set_output(aio, 0, res);
+            nng_aio_finish(aio, 0);
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("Web callback failed: %s", e.what());
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
+        catch (...)
+        {
+            logger->error("Web callback failed: unknown exception");
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
     }
 
     // HTTP Handler for HTML
     void http_handle_fft(nng_aio *aio)
     {
-        request_mutex.lock();
+        // Fork: callback allocation/serialization may throw; never retain the request lock.
+        try
+        {
+            std::lock_guard<std::mutex> lock(request_mutex);
 
-        std::vector<uint8_t> img = handle_callback_fft();
+            std::vector<uint8_t> img = handle_callback_fft();
 
-        nng_http_res *res;
-        nng_http_res_alloc(&res);
-        nng_http_res_copy_data(res, img.data(), img.size());
-        nng_http_res_set_header(res, "Content-Type", "image/jpeg");
-        nng_aio_set_output(aio, 0, res);
-        nng_aio_finish(aio, 0);
-        request_mutex.unlock();
+            nng_http_res *res;
+            nng_http_res_alloc(&res);
+            nng_http_res_copy_data(res, img.data(), img.size());
+            nng_http_res_set_header(res, "Content-Type", "image/jpeg");
+            nng_aio_set_output(aio, 0, res);
+            nng_aio_finish(aio, 0);
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("Web callback failed: %s", e.what());
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
+        catch (...)
+        {
+            logger->error("Web callback failed: unknown exception");
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
     }
 
     // HTTP Handler for Schedule
     void http_handle_schedule(nng_aio *aio)
     {
-        request_mutex.lock();
+        // Fork: callback allocation/serialization may throw; never retain the request lock.
+        try
+        {
+            std::lock_guard<std::mutex> lock(request_mutex);
 
-        std::vector<uint8_t> img = handle_callback_schedule();
+            std::vector<uint8_t> img = handle_callback_schedule();
 
-        nng_http_res *res;
-        nng_http_res_alloc(&res);
-        nng_http_res_copy_data(res, img.data(), img.size());
-        nng_http_res_set_header(res, "Content-Type", "image/jpeg");
-        nng_aio_set_output(aio, 0, res);
-        nng_aio_finish(aio, 0);
-        request_mutex.unlock();
+            nng_http_res *res;
+            nng_http_res_alloc(&res);
+            nng_http_res_copy_data(res, img.data(), img.size());
+            nng_http_res_set_header(res, "Content-Type", "image/jpeg");
+            nng_aio_set_output(aio, 0, res);
+            nng_aio_finish(aio, 0);
+        }
+        catch (const std::exception &e)
+        {
+            logger->error("Web callback failed: %s", e.what());
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
+        catch (...)
+        {
+            logger->error("Web callback failed: unknown exception");
+            nng_aio_finish(aio, NNG_EINTERNAL);
+        }
     }
 
     // Fork: adds one handler, and frees it if the server does not take it

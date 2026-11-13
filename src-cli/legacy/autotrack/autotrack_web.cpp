@@ -16,17 +16,17 @@ void AutoTrackApp::setup_webserver()
         {
             nlohmann::json p;
 
-            live_pipeline_mtx.lock();
+            std::unique_lock<std::mutex> live_pipeline_mtx_guard(live_pipeline_mtx); // Fork: release on exceptions.
             if (live_pipeline)
             {
                 p["live_pipeline"] = live_pipeline->getModulesStats();
             }
-            live_pipeline_mtx.unlock();
+            live_pipeline_mtx_guard.unlock();
 
             p["object_tracker"] = object_tracker.getStatus();
             p["frequency"] = source_ptr->get_frequency();
 
-            vfos_mtx.lock();
+            std::unique_lock<std::mutex> vfos_mtx_guard(vfos_mtx); // Fork: release on exceptions.
             if (vfo_list.size() > 0)
             {
                 for (auto &vfo : vfo_list)
@@ -44,7 +44,7 @@ void AutoTrackApp::setup_webserver()
                     }
                 }
             }
-            vfos_mtx.unlock();
+            vfos_mtx_guard.unlock();
 
             if (is_recording)
             {
@@ -90,7 +90,7 @@ void AutoTrackApp::setup_webserver()
         {
             if (uri == "/status")
             {
-                live_pipeline_mtx.lock();
+                std::unique_lock<std::mutex> live_pipeline_mtx_guard(live_pipeline_mtx); // Fork: release on exceptions.
                 auto status = object_tracker.getStatus();
                 std::string rot_engaged;
                 std::string rot_tracking;
@@ -143,7 +143,7 @@ void AutoTrackApp::setup_webserver()
                     satdump::svformat("%.2f", (status["rot_current_req_pos"]["el"].get<double>())) + "</span> °, actual <span class=\"fakeinput\">" +
                     satdump::svformat("%.2f", (status["rot_current_pos"]["el"].get<double>())) + "</span> °</p>" + schedule + fft;
 
-                live_pipeline_mtx.unlock();
+                live_pipeline_mtx_guard.unlock();
                 return page;
             }
             else if (uri == "/")

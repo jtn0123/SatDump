@@ -44,6 +44,9 @@ THREAD_FILES = [
 ]
 
 LOCK_GUARD_FILES = [
+    "src-cli/legacy/webserver.cpp",
+    "src-cli/legacy/autotrack/autotrack_vfo.cpp",
+    "src-cli/legacy/autotrack/autotrack_web.cpp",
     "src-core/common/tracking/scheduler/scheduler.cpp",
     "src-cli/legacy/autotrack/autotrack_proc.cpp",
     "src-core/image/image_saving_thread.h",
@@ -82,7 +85,9 @@ def main():
         return 1
 
     found = 0
-    for f in sorted(set(files) | set(thread_files)):
+    # Fork: lock-only files must be scanned too, not merely counted during expansion.
+    checked_files = set(files) | set(thread_files) | set(lock_files)
+    for f in sorted(checked_files):
         text = f.read_text(encoding="utf-8", errors="replace")
         for regex, what in CHECKS:
             for m in regex.finditer(text):
@@ -97,7 +102,7 @@ def main():
             if starts and not CATCH_ALL.search(text):
                 print(f"{f.relative_to(root)}:{line_of(text, starts[0].start())}: starts a thread but catches no error that could leave it")
                 found += 1
-    print(f"{len(set(files) | set(thread_files))} files checked, {found} problems")
+    print(f"{len(checked_files)} files checked, {found} problems")
     return 1 if found else 0
 
 
