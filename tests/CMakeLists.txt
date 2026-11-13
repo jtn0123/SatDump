@@ -300,6 +300,17 @@ target_include_directories(satdump-network-shutdown-test PRIVATE third_party/doc
 target_link_libraries(satdump-network-shutdown-test PRIVATE satdump_core)
 add_test(NAME unit_network_shutdown COMMAND satdump-network-shutdown-test)
 set_tests_properties(unit_network_shutdown PROPERTIES LABELS unit TIMEOUT 15)
+foreach(kind live record)
+    add_executable(satdump-${kind}-late-stop unit/late_stop.cpp ${PROJECT_SOURCE_DIR}/src-cli/legacy/webserver.cpp)
+    target_include_directories(satdump-${kind}-late-stop PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
+    target_link_libraries(satdump-${kind}-late-stop PRIVATE satdump_core)
+    target_compile_definitions(satdump-${kind}-late-stop PRIVATE SATDUMP_TEST_INSTALL_LIBDIR="${CMAKE_INSTALL_LIBDIR}")
+endforeach()
+target_compile_definitions(satdump-live-late-stop PRIVATE SATDUMP_TEST_LIVE_STOP=1)
+add_test(NAME cli_late_stop COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/late_stop.sh ${SATDUMP_CHECK_PREFIX}
+    $<TARGET_FILE:satdump-live-late-stop> $<TARGET_FILE:satdump-record-late-stop> $<TARGET_FILE:fork_probe_source_test_plugin> $<TARGET_FILE:fork_fault_test_plugin>)
+set_tests_properties(cli_late_stop PROPERTIES LABELS cli TIMEOUT 90)
+
 # Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
 # exit code 86, memory leaks included (the few kept on purpose are listed in
 # sanitizers/lsan.supp). Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports

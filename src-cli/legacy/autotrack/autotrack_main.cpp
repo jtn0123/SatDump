@@ -42,7 +42,16 @@ int main_autotrack(int argc, char *argv[])
     if (!std::filesystem::exists(output_folder))
         std::filesystem::create_directories(output_folder);
 
-    AutoTrackApp *app = new AutoTrackApp(settings, parameters, output_folder);
+    AutoTrackApp *app;
+    try
+    {
+        app = new AutoTrackApp(settings, parameters, output_folder);
+    }
+    catch (const satdump::cli::StopBeforeSource &)
+    {
+        // Fork: cancellation during construction is a successful stop, not command failure.
+        return 0;
+    }
 
     logger->info("Setup Done!");
 

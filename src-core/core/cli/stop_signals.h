@@ -5,6 +5,8 @@ namespace satdump
 {
     namespace cli
     {
+        // Fork: construction can cancel before opening a radio without leaving a partial app.
+        struct StopBeforeSource {};
         void catch_stop_signals();
         bool stop_requested();
         // Fork: commands without a cooperative stop retain their normal signal handling.

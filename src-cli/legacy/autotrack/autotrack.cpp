@@ -1,4 +1,5 @@
 #include "autotrack.h"
+#include "core/cli/stop_signals.h"
 #include "init.h"
 #include "logger.h"
 #include "common/utils.h"
@@ -76,6 +77,9 @@ AutoTrackApp::AutoTrackApp(nlohmann::json settings, nlohmann::json parameters, s
 
     // SDR
     source_ptr = getSourceFromDescriptor(selected_src);
+    // Fork: discovery can deliver a stop after main's entry check; unwind before opening.
+    if (satdump::cli::stop_requested())
+        throw satdump::cli::StopBeforeSource{};
     source_ptr->open();
 
     set_frequency(initial_frequency);

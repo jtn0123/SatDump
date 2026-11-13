@@ -1,9 +1,10 @@
 #include "autotrack.h"
+#include "core/cli/stop_signals.h"
 #include "logger.h"
 
 void AutoTrackApp::start_device()
 {
-    if (is_started)
+    if (is_started || satdump::cli::stop_requested())
         return;
 
     set_frequency(frequency_hz);

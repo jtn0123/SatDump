@@ -147,6 +147,9 @@ int main_live(int argc, char *argv[])
         // Attempt to start the source and pipeline
         try
         {
+            // Fork: client mode has no radio; cancel before opening its network source too.
+            if (satdump::cli::stop_requested())
+                return 0;
             live_pipeline->start_client(live_thread_pool);
         }
         catch (std::exception &e)
@@ -267,6 +270,9 @@ int main_live(int argc, char *argv[])
         std::shared_ptr<dsp::DSPSampleSource> source_ptr = getSourceFromDescriptor(selected_src);
         try // Fork: a radio that cannot be opened or set up is exit code 3
         {
+            // Fork: setup and source discovery may have received a stop after command entry.
+            if (satdump::cli::stop_requested())
+                return 0;
             source_ptr->open();
             source_ptr->set_frequency(frequency);
             source_ptr->set_samplerate(samplerate);

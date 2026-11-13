@@ -15,6 +15,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -194,6 +195,9 @@ namespace
     std::vector<dsp::SourceDescriptor> listProbeSources()
     {
         mark("SATDUMP_TEST_PROBE_LISTED");
+        // Fork: deterministic late-stop hook, called only after command entry during discovery.
+        if (std::getenv("SATDUMP_TEST_PROBE_STOP_ON_LIST"))
+            std::raise(SIGTERM);
         return {{"fork_probe", "Fork probe radio (test)", "0"}};
     }
 

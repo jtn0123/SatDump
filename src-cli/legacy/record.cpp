@@ -118,6 +118,9 @@ int main_record(int argc, char *argv[])
     std::shared_ptr<dsp::DSPSampleSource> source_ptr = getSourceFromDescriptor(selected_src);
     try // Fork: a radio that cannot be opened or set up is exit code 3
     {
+        // Fork: setup and source discovery may have received a stop after command entry.
+        if (satdump::cli::stop_requested())
+            return 0;
         source_ptr->open();
         source_ptr->set_frequency(frequency);
         source_ptr->set_samplerate(samplerate);
