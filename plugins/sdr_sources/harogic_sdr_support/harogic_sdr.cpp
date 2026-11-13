@@ -120,7 +120,8 @@ void HarogicSource::start() {
 }
 
 void HarogicSource::stop() {
-    if (!is_started) return;
+    // Fork: Device_Open can succeed before configuration throws.
+    if (!dev_handle) return;
     
     thread_should_run = false;
     output_stream->stopWriter();
@@ -129,7 +130,8 @@ void HarogicSource::stop() {
     }
     
     if (dev_handle) {
-        IQS_BusTriggerStop(&dev_handle);
+        if (is_started)
+            IQS_BusTriggerStop(&dev_handle);
         Device_Close(&dev_handle);
         dev_handle = nullptr;
     }

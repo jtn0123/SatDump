@@ -108,6 +108,7 @@ void SDDCSource::start()
     output_stream = resampler->output_stream;
     resampler->start();
 
+    streaming_attempted = true;
     sddc_start_streaming(sddc_dev_obj);
 
     is_started = true;
@@ -115,16 +116,27 @@ void SDDCSource::start()
 
 void SDDCSource::stop()
 {
-    sddc_stop_streaming(sddc_dev_obj);
-    sddc_handle_events(sddc_dev_obj);
+    // Fork: wake the callback and resampler before joining internal workers.
+    if (sddc_stream)
+        sddc_stream->stopWriter();
+    if (output_stream)
+        output_stream->stopWriter();
+    if (sddc_dev_obj && streaming_attempted)
+    {
+        streaming_attempted = false;
+        sddc_stop_streaming(sddc_dev_obj);
+        sddc_handle_events(sddc_dev_obj);
+    }
     resampler->stop();
     is_started = false;
 }
 
 void SDDCSource::close()
 {
-    if (is_open)
+    if (sddc_dev_obj)
         sddc_close(sddc_dev_obj);
+    sddc_dev_obj = nullptr; // Fork: close is repeatable too.
+    is_open = false;
 }
 
 void SDDCSource::set_frequency(uint64_t frequency)

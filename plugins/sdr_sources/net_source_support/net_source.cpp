@@ -1,4 +1,5 @@
 #include "net_source.h"
+#include <cerrno>
 #include "i18n.h"
 #include "imgui/imgui_stdlib.h"
 
@@ -48,27 +49,45 @@ void NetSource::open()
 
 void NetSource::run_thread()
 {
-    while (should_run)
+    // Fork: stop joins this worker before releasing its socket or stream.
+    try
     {
-        if (is_started)
+        while (should_run)
         {
             if (mode == MODE_UDP)
             {
-                int bytes = udp_server->recv((uint8_t *)output_stream->writeBuf, 8192 * sizeof(complex_t));
-                output_stream->swap(bytes / sizeof(complex_t));
+                int bytes;
+                try { bytes = udp_server->recv((uint8_t *)output_stream->writeBuf, 8192 * sizeof(complex_t)); }
+                catch (const std::exception &)
+                {
+                    if (!should_run)
+                        continue;
+#ifdef _WIN32
+                    if (WSAGetLastError() == WSAETIMEDOUT || WSAGetLastError() == WSAEWOULDBLOCK)
+                        continue;
+#else
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        continue;
+#endif
+                    throw;
+                }
+                if (bytes > 0)
+                    output_stream->swap(bytes / sizeof(complex_t));
             }
-            else if (mode == MODE_NNGSUB)
+            else
             {
-                size_t lpkt_size;
-                nng_recv(n_sock, output_stream->writeBuf, &lpkt_size, (int)0);
-                output_stream->swap(lpkt_size / sizeof(complex_t));
+                size_t size = dsp::STREAM_BUFFER_SIZE * sizeof(complex_t);
+                int result = nng_recv(n_sock, output_stream->writeBuf, &size, 0);
+                if (result == 0)
+                    output_stream->swap(size / sizeof(complex_t));
+                else if (result != NNG_ETIMEDOUT && result != NNG_ECLOSED)
+                    throw std::runtime_error(nng_strerror(result));
             }
-        }
-        else
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+    catch (const std::exception &e) { logger->error("Network source worker failed: %s", e.what()); }
+    catch (...) { logger->error("Network source worker failed: unknown exception"); }
+    should_run = false;
 }
 
 void NetSource::start()
@@ -76,40 +95,48 @@ void NetSource::start()
     if (mode == MODE_UDP)
     {
         udp_server = std::make_shared<net::UDPServer>(port);
+        udp_server->enableTimeout(); // Fork: bound the receive wait before joining.
     }
     else if (mode == MODE_NNGSUB)
     {
         logger->info("Opening TCP socket on " + std::string("tcp://" + address + ":" + std::to_string(port)));
-        nng_sub0_open_raw(&n_sock);
-        nng_dialer_create(&n_dialer, n_sock, std::string("tcp://" + address + ":" + std::to_string(port)).c_str());
-        nng_dialer_start(n_dialer, (int)0);
+        // Fork: record each acquired handle before any following call can fail.
+        auto check = [](int result) { if (result) throw std::runtime_error(nng_strerror(result)); };
+        check(nng_sub0_open_raw(&n_sock));
+        socket_owned = true;
+        check(nng_socket_set_ms(n_sock, NNG_OPT_RECVTIMEO, 100));
+        check(nng_dialer_create(&n_dialer, n_sock, std::string("tcp://" + address + ":" + std::to_string(port)).c_str()));
+        dialer_owned = true;
+        check(nng_dialer_start(n_dialer, 0));
     }
 
     DSPSampleSource::start();
 
     set_frequency(d_frequency);
 
+    should_run = true;
+    work_thread = std::thread(&NetSource::run_thread, this);
     is_started = true;
 }
 
 void NetSource::stop()
 {
-    if (!is_started)
-        return;
-
-    is_started = false;
-
-    if (mode == MODE_UDP)
-    {
-        udp_server.reset();
-    }
-    else if (mode == MODE_NNGSUB)
-    {
+    // Fork: stop the worker before releasing resources it may still be using.
+    should_run = false;
+    if (output_stream)
+        output_stream->stopWriter();
+    if (dialer_owned)
         nng_dialer_close(n_dialer);
+    dialer_owned = false;
+    if (socket_owned)
         nng_close(n_sock);
-    }
-
-    output_stream->flush();
+    socket_owned = false;
+    if (work_thread.joinable())
+        work_thread.join();
+    udp_server.reset();
+    if (output_stream)
+        output_stream->flush();
+    is_started = false;
 }
 
 void NetSource::close() { is_open = false; }

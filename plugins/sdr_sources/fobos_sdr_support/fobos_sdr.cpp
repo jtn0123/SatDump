@@ -37,8 +37,8 @@ void FobosSource::open_sdr()
             }
         }
     }
-    else
-        throw satdump_exception("Could not open Fobos device!");
+    // Fork: no matching serial owns no device, even when other devices exist.
+    throw satdump_exception("Could not open Fobos device!");
 }
 
 void FobosSource::set_settings(nlohmann::json settings)
@@ -81,6 +81,7 @@ void FobosSource::open()
     samplerate_widget.set_list(available_samplerates, false);
 
     fobos_rx_close(fobos_dev_ovj);
+    fobos_dev_ovj = nullptr; // Fork: discovery no longer owns the device.
 }
 
 void FobosSource::start()
@@ -107,6 +108,7 @@ void FobosSource::start()
 
     size_t bufsize = /*current_samplerate*/ 50e6 / 400;
     fobos_rx_start_sync(fobos_dev_ovj, bufsize);
+    sync_started = true;
 
     if (current_samplerate < 50e6)
     {
@@ -126,21 +128,25 @@ void FobosSource::start()
 
 void FobosSource::stop()
 {
+    // Fork: release partial setup and wake the producer's actual output too.
+    thread_should_run = false;
+    if (output_stream)
+        output_stream->stopWriter();
+    if (output_stream_local)
+        output_stream_local->stopWriter();
     if (decimator)
         decimator->stop();
-
-    thread_should_run = false;
-    logger->info("Waiting for the thread...");
-    if (is_started)
-        output_stream->stopWriter();
     if (work_thread.joinable())
         work_thread.join();
-    logger->info("Thread stopped");
-    if (is_started)
+    if (fobos_dev_ovj)
     {
-        fobos_rx_stop_sync(fobos_dev_ovj);
+        if (sync_started)
+            fobos_rx_stop_sync(fobos_dev_ovj);
         fobos_rx_close(fobos_dev_ovj);
+        fobos_dev_ovj = nullptr;
     }
+    sync_started = false;
+    decimator.reset();
     is_started = false;
 }
 

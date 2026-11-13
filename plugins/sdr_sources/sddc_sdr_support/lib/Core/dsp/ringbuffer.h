@@ -134,14 +134,12 @@ public:
         std::unique_lock<std::mutex> lk(mutex);
         if (block_size != size)
         {
-            block_size = size;
-
+            int aligned_block_size = (size + ALIGN - 1) & (~(ALIGN - 1));
+            // Fork: allocation failure during startup must leave the old buffer owned.
+            auto data = new T[(max_count) * aligned_block_size];
             if (buffers[0])
                 delete[] buffers[0];
-
-            int aligned_block_size = (block_size + ALIGN - 1) & (~(ALIGN - 1));
-
-            auto data = new T[(max_count) * aligned_block_size];
+            block_size = size;
 
             for (int i = 0; i < max_count; i++)
             {

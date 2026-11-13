@@ -22,6 +22,7 @@ protected:
     SDRPlayApiInstance api;
 
     bool is_open = false, is_started = false;
+    bool device_selected = false, stream_active = false; // Fork: partial startup ownership.
     sdrplay_api_DeviceT sdrplay_dev;
     sdrplay_api_DeviceParamsT *dev_params = nullptr;
     sdrplay_api_RxChannelParamsT *channel_params = nullptr;

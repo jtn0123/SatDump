@@ -75,8 +75,8 @@ protected:
     }
 
 private:
-    ringbuffer<int16_t>* inputbuffer;    // pointer to input buffers
-    ringbuffer<float>* outputbuffer;    // pointer to ouput buffers
+    ringbuffer<int16_t>* inputbuffer = nullptr;    // pointer to input buffers
+    ringbuffer<float>* outputbuffer = nullptr;    // pointer to ouput buffers
     int bufIdx;         // index to next buffer to be processed
     r2iqThreadArg* lastThread;
 
@@ -98,7 +98,7 @@ private:
 	fftwf_plan *plan_f2t_c2c;          // fftw plan buffers Time to Freq real to complex per buffer
 	fftwf_plan plans_f2t_c2c[NDECIDX];
 
-    uint32_t processor_count;
+    uint32_t processor_count = 0;
     r2iqThreadArg* threadArgs[N_MAX_R2IQ_THREADS];
     std::mutex mutexR2iqControl;                   // r2iq control lock
     std::thread r2iq_thread[N_MAX_R2IQ_THREADS]; // thread pointers

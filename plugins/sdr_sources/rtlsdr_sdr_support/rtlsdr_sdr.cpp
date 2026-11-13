@@ -171,7 +171,7 @@ void RtlSdrSource::start()
     DSPSampleSource::start();
 
     int index = rtlsdr_get_index_by_serial(d_sdr_id.c_str());
-    if (index != -1 && rtlsdr_open(&rtlsdr_dev_obj, index) != 0)
+    if (index == -1 || rtlsdr_open(&rtlsdr_dev_obj, index) != 0)
         throw satdump_exception("Could not open RTL-SDR device!");
 
     // Set available gains
@@ -202,15 +202,24 @@ void RtlSdrSource::start()
     rtlsdr_reset_buffer(rtlsdr_dev_obj);
     display_gain = (float)gain / 10.0f;
     thread_should_run = true;
+    async_done = false;
     work_thread = std::thread(&RtlSdrSource::mainThread, this);
 }
 
 void RtlSdrSource::stop()
 {
-    if (is_started)
+    // Fork: release the device even if setup or worker creation threw.
+    if (rtlsdr_dev_obj)
     {
-        rtlsdr_cancel_async(rtlsdr_dev_obj);
+        if (output_stream)
+            output_stream->stopWriter();
         thread_should_run = false;
+        // Fork: the first cancellation may precede entry into the SDK's async read.
+        while (work_thread.joinable() && !async_done)
+        {
+            rtlsdr_cancel_async(rtlsdr_dev_obj);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         logger->info("Waiting for the thread...");
         if (is_started)
             output_stream->stopWriter();
@@ -219,6 +228,7 @@ void RtlSdrSource::stop()
         logger->info("Thread stopped");
         rtlsdr_set_bias_tee(rtlsdr_dev_obj, false);
         rtlsdr_close(rtlsdr_dev_obj);
+        rtlsdr_dev_obj = nullptr;
     }
     is_started = false;
 }

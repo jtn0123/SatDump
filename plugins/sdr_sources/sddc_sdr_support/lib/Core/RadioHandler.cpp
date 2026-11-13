@@ -182,14 +182,18 @@ bool RadioHandlerClass::Start(int srate_idx)
 	run = true;
 	count = 0;
 
+	// Fork: each stage can throw after acquiring only part of its resources.
+	producer_started = true;
 	hardware->FX3producerOn();  // FX3 start the producer
 
 	outputbuffer.setBlockSize(EXT_BLOCKLEN * 2 * sizeof(float));
 
 	// 0,1,2,3,4 => 32,16,8,4,2 MHz
 	r2iqCntrl->setDecimate(decimate);
+	converter_started = true;
 	r2iqCntrl->TurnOn();
 
+	usb_started = true;
 	fx3->StartStream(inputbuffer, QUEUE_SIZE);
 
 	submit_thread = std::thread(
@@ -206,27 +210,28 @@ bool RadioHandlerClass::Start(int srate_idx)
 
 bool RadioHandlerClass::Stop()
 {
-	std::unique_lock<std::mutex> lk(stop_mutex);
-	DbgPrintf("RadioHandlerClass::Stop %d\n", run);
-	if (run)
-	{
-		run = false; // now waits for threads
-
-		r2iqCntrl->TurnOff();
-
-		fx3->StopStream();
-
-		run = false; // now waits for threads
-
-		show_stats_thread.join(); //first to be joined
-		DbgPrintf("show_stats_thread join2\n");
-
-		submit_thread.join();
-		DbgPrintf("submit_thread join1\n");
-
-	}
-	hardware->FX3producerOff();     //FX3 stop the producer
-	return true;
+    std::unique_lock<std::mutex> lk(stop_mutex);
+    // Fork: wake queues even when a later worker was never constructed.
+    run = false;
+    if (converter_started || usb_started || submit_thread.joinable())
+    {
+        inputbuffer.Stop();
+        outputbuffer.Stop();
+    }
+    if (converter_started)
+        r2iqCntrl->TurnOff();
+    converter_started = false;
+    if (usb_started)
+        fx3->StopStream();
+    usb_started = false;
+    if (show_stats_thread.joinable())
+        show_stats_thread.join();
+    if (submit_thread.joinable())
+        submit_thread.join();
+    if (producer_started)
+        hardware->FX3producerOff();
+    producer_started = false;
+    return true;
 }
 
 

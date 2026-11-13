@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #ifdef __ANDROID__
@@ -15,7 +16,7 @@ class RtlSdrSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    rtlsdr_dev *rtlsdr_dev_obj;
+    rtlsdr_dev *rtlsdr_dev_obj = nullptr; // Fork: owned even during partial startup.
     static void _rx_callback(unsigned char *buf, uint32_t len, void *ctx);
 
     satdump::widgets::DoubleList samplerate_widget;
@@ -37,18 +38,26 @@ protected:
 
     std::thread work_thread;
 
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
+
+    std::atomic<bool> async_done{true}; // Fork: cancellation can race async startup.
 
     void mainThread()
     {
-        int buffer_size = calculate_buffer_size_from_samplerate(samplerate_widget.get_value());
-        // std::min<int>(roundf(samplerate_widget.get_value() / (250 * 512)) * 512, dsp::STREAM_BUFFER_SIZE);
-        logger->trace("RTL-SDR Buffer size %d", buffer_size);
-
-        while (thread_should_run)
+        try
         {
-            rtlsdr_read_async(rtlsdr_dev_obj, _rx_callback, &output_stream, 0, buffer_size);
+            int buffer_size = calculate_buffer_size_from_samplerate(samplerate_widget.get_value());
+            // std::min<int>(roundf(samplerate_widget.get_value() / (250 * 512)) * 512, dsp::STREAM_BUFFER_SIZE);
+            logger->trace("RTL-SDR Buffer size %d", buffer_size);
+
+            while (thread_should_run)
+            {
+                rtlsdr_read_async(rtlsdr_dev_obj, _rx_callback, &output_stream, 0, buffer_size);
+            }
         }
+        catch (const std::exception &e) { logger->error("SDR async worker failed: %s", e.what()); }
+        catch (...) { logger->error("SDR async worker failed: unknown exception"); }
+        async_done = true;
     }
 
 public:

@@ -109,6 +109,7 @@ void RTLTCPSource::start()
     if (client.connectToRTL((char *)ip_address.c_str(), port) != 1)
         throw satdump_exception("Could not connect to RTL-TCP");
 
+    connection_owned = true;
     DSPSampleSource::start(); // Do NOT reset the stream
 
     uint64_t current_samplerate = samplerate_widget.get_value();
@@ -129,19 +130,20 @@ void RTLTCPSource::start()
 
 void RTLTCPSource::stop()
 {
-    if (is_started)
+    // Fork: interrupt a silent peer's read before joining the worker.
+    thread_should_run = false;
+    if (output_stream)
+        output_stream->stopWriter();
+    if (connection_owned)
     {
-        thread_should_run = false;
-        logger->info("Waiting for the thread...");
-        if (is_started)
-            output_stream->stopWriter();
-        if (work_thread.joinable())
-            work_thread.join();
-        logger->info("Thread stopped");
-
         client.setBiasTee(false);
-        client.disconnect();
+        client.interruptReceive();
     }
+    if (work_thread.joinable())
+        work_thread.join();
+    if (connection_owned)
+        client.disconnect();
+    connection_owned = false;
     is_started = false;
 }
 

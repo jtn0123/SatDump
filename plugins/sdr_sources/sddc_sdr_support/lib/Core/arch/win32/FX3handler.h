@@ -15,6 +15,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <stdint.h>
+#include <atomic>
 #include <time.h>
 #include "config.h"
 
@@ -57,7 +58,7 @@ private:
 	CCyFX3Device* fx3dev;
 	CCyUSBEndPoint* EndPt;
 
-    std::thread *adc_samples_thread;
+    std::thread *adc_samples_thread = nullptr; // Fork: startup may fail before construction.
 
 	bool GetFx3DeviceStreamer();
 	bool Fx3IsOn;
@@ -66,7 +67,7 @@ private:
 
 	ringbuffer<int16_t> *inputbuffer;
 	int numofblock;
-	bool run;
+	std::atomic<bool> run{false}; // Fork: stop is read by the USB worker.
 	UCHAR devidx;
 };
 

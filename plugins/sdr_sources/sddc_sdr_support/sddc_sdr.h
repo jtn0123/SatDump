@@ -10,7 +10,8 @@ class SDDCSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    sddc_t *sddc_dev_obj;
+    bool streaming_attempted = false; // Fork: internal startup may throw.
+    sddc_t *sddc_dev_obj = nullptr; // Fork: stop is valid before open.
     static void _rx_callback(uint32_t data_size, const float *data, void *context);
     static complex_t ddc_phase_delta;
     static complex_t ddc_phase;

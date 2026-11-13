@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #ifdef __ANDROID__
@@ -15,7 +16,7 @@ class MiriSdrSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    mirisdr_dev *mirisdr_dev_obj;
+    mirisdr_dev *mirisdr_dev_obj = nullptr; // Fork: owned even during partial startup.
     static void _rx_callback_8(unsigned char *buf, uint32_t len, void *ctx);
     static void _rx_callback_16(unsigned char *buf, uint32_t len, void *ctx);
 
@@ -30,25 +31,33 @@ protected:
 
     std::thread work_thread;
 
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
 
     bool async_running = false;
 
+    std::atomic<bool> async_done{true}; // Fork: cancellation can race async startup.
+
     void mainThread()
     {
-        int buffer_size = calculate_buffer_size_from_samplerate(samplerate_widget.get_value());
-        // int buffer_size = std::min<int>(samplerate_widget.get_value() / 250, dsp::STREAM_BUFFER_SIZE);
-        logger->trace("MiriSDR Buffer size %d", buffer_size);
-
-        while (thread_should_run)
+        try
         {
-            logger->trace("Starting async reads...");
-            if (bit_depth == 8)
-                mirisdr_read_async(mirisdr_dev_obj, _rx_callback_8, &output_stream, 15, buffer_size);
-            else
-                mirisdr_read_async(mirisdr_dev_obj, _rx_callback_16, &output_stream, 15, buffer_size);
-            logger->trace("Stopped async reads...");
+            int buffer_size = calculate_buffer_size_from_samplerate(samplerate_widget.get_value());
+            // int buffer_size = std::min<int>(samplerate_widget.get_value() / 250, dsp::STREAM_BUFFER_SIZE);
+            logger->trace("MiriSDR Buffer size %d", buffer_size);
+
+            while (thread_should_run)
+            {
+                logger->trace("Starting async reads...");
+                if (bit_depth == 8)
+                    mirisdr_read_async(mirisdr_dev_obj, _rx_callback_8, &output_stream, 15, buffer_size);
+                else
+                    mirisdr_read_async(mirisdr_dev_obj, _rx_callback_16, &output_stream, 15, buffer_size);
+                logger->trace("Stopped async reads...");
+            }
         }
+        catch (const std::exception &e) { logger->error("SDR async worker failed: %s", e.what()); }
+        catch (...) { logger->error("SDR async worker failed: unknown exception"); }
+        async_done = true;
     }
 
 public:

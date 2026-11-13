@@ -186,7 +186,8 @@ void SDRPlaySource::open()
     sdrplay_dev.rspDuoMode = sdrplay_api_RspDuoMode_Single_Tuner;
 
     if (api.sdrplay_api_SelectDevice(&sdrplay_dev) != sdrplay_api_Success)
-        logger->critical("Could not open SDRPlay device!");
+        throw satdump_exception("Could not open SDRPlay device!");
+    device_selected = true;
     logger->info("Opened SDRPlay device!");
 
     is_open = true;
@@ -228,7 +229,8 @@ void SDRPlaySource::start()
     if (sdrplay_dev.hwVer == SDRPLAY_RSPduo_ID)
         set_duo_tuner();
     if (api.sdrplay_api_SelectDevice(&sdrplay_dev) != sdrplay_api_Success)
-        logger->critical("Could not open SDRPlay device!");
+        throw satdump_exception("Could not open SDRPlay device!");
+    device_selected = true;
     logger->info("Opened SDRPlay device!");
 
     // Prepare device
@@ -250,6 +252,8 @@ void SDRPlaySource::start()
 
     if (api.sdrplay_api_Init(sdrplay_dev.dev, &callback_funcs, &output_stream) != sdrplay_api_Success)
         throw satdump_exception("Error starting SDRPlay device!");
+
+    stream_active = true;
 
     // Initial freq
     channel_params->tunerParams.rfFreq.rfHz = d_frequency;
@@ -303,12 +307,15 @@ void SDRPlaySource::start()
 
 void SDRPlaySource::stop()
 {
-    if (is_started)
-    {
+    // Fork: release selection even when parameters or stream init failed.
+    if (output_stream)
         output_stream->stopWriter();
+    if (stream_active)
         api.sdrplay_api_Uninit(sdrplay_dev.dev);
+    stream_active = false;
+    if (device_selected)
         api.sdrplay_api_ReleaseDevice(&sdrplay_dev);
-    }
+    device_selected = false;
     is_started = false;
 }
 

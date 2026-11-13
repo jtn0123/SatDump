@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #ifdef __ANDROID__
@@ -38,14 +39,18 @@ protected:
     void set_rfinput();
     void set_bandwidth();
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     std::mutex work_thread_mtx;
 
     bool auto_reconnect = false;
+    // Fork: cancel a blocked refill before joining, without racing buffer destruction.
+    std::mutex rx_buffer_mutex;
+    iio_buffer *active_rx_buffer = nullptr;
 
     void mainThread()
     {
-        work_thread_mtx.lock();
+        // Fork: release the lock on buffer creation failure too.
+        std::unique_lock<std::mutex> lock(work_thread_mtx);
 
     restart:
         int blockSize = dsp::STREAM_BUFFER_SIZE;
@@ -81,6 +86,13 @@ protected:
             return;
         }
 
+        {
+            std::lock_guard<std::mutex> guard(rx_buffer_mutex);
+            active_rx_buffer = rxbuf;
+            if (!thread_should_run)
+                iio_buffer_cancel(rxbuf);
+        }
+
         uint32_t val = 0;
         // Reset underflow to avoid false flag
         iio_device_reg_write(dev, 0x80000088, val);
@@ -108,11 +120,16 @@ protected:
             output_stream->swap(blockSize);
         }
 
-        iio_buffer_destroy(rxbuf);
+        {
+            std::lock_guard<std::mutex> guard(rx_buffer_mutex);
+            active_rx_buffer = nullptr;
+            iio_buffer_destroy(rxbuf);
+        }
 
         if (thread_should_run && auto_reconnect && !is_usb)
         {
             iio_context_destroy(ctx);
+            ctx = nullptr; // Fork: a failed reconnect must not leave a stale owner.
             is_started = false;
             while (thread_should_run)
             {
@@ -129,7 +146,6 @@ protected:
             }
         }
 
-        work_thread_mtx.unlock();
     }
 
     void start_thread()
@@ -147,8 +163,13 @@ protected:
     void stop_thread()
     {
         thread_should_run = false;
+        {
+            std::lock_guard<std::mutex> guard(rx_buffer_mutex);
+            if (active_rx_buffer)
+                iio_buffer_cancel(active_rx_buffer);
+        }
         logger->info("Waiting for the thread...");
-        if (is_started)
+        if (output_stream)
             output_stream->stopWriter();
         if (work_thread.joinable())
             work_thread.join();

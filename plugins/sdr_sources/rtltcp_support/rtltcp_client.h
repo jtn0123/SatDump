@@ -88,13 +88,19 @@ public:
             // TODO: Log error
             return false;
         }
+#ifdef SO_NOSIGPIPE
+        int no_sigpipe = 1;
+        setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
         struct hostent* server = gethostbyname(host);
         struct sockaddr_in serv_addr;
         bzero(&serv_addr, sizeof(struct sockaddr_in));
         serv_addr.sin_family = AF_INET;
+        if (!server) { close(sockfd); return false; } // Fork: failed lookup owns a socket.
         bcopy((char*)server->h_addr, (char*)&serv_addr.sin_addr.s_addr, server->h_length);
         serv_addr.sin_port = htons(port);
         if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+            close(sockfd); // Fork: a failed connect must not leak the socket.
             // TODO: log error
             return false;
         }
@@ -105,6 +111,16 @@ public:
         printf("Connected");
 
         return true;
+    }
+
+    // Fork: cancel read without closing/reusing its descriptor until the reader joined.
+    void interruptReceive() {
+        if (!connected) return;
+#ifdef _WIN32
+        shutdown(sock, SD_RECEIVE);
+#else
+        shutdown(sockfd, SHUT_RD);
+#endif
     }
 
     void disconnect() {
@@ -135,14 +151,19 @@ public:
 #ifdef _WIN32
         long sent = send(sock, (char*)&cmd, sizeof(command_t), 0);
 #else
-        long sent = write(sockfd, &cmd, sizeof(command_t));
+        // Fork: a disconnected peer during cleanup must not terminate the process.
+#ifdef MSG_NOSIGNAL
+        long sent = send(sockfd, &cmd, sizeof(command_t), MSG_NOSIGNAL);
+#else
+        long sent = send(sockfd, &cmd, sizeof(command_t), 0);
+#endif
 #endif
         if (sent != (long)sizeof(command_t)) {
             logger->warn("RTL-TCP command %d was not sent (%ld of %d bytes)", (int)command, sent, (int)sizeof(command_t));
         }
     }
 
-    void receiveData(uint8_t* buf, size_t count) {
+    bool receiveData(uint8_t* buf, size_t count) {
         int received = 0;
         int ret = 0;
         while (received < (int)count) {
@@ -151,9 +172,10 @@ public:
 #else
             ret = read(sockfd, &buf[received], count - received);
 #endif
-            if (ret <= 0) { return; }
+            if (ret <= 0) { return false; }
             received += ret;
         }
+        return true;
     }
 
     void setFrequency(double freq) {

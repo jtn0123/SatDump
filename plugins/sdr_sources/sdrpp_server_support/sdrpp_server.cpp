@@ -39,6 +39,11 @@ void SDRPPServerSource::start()
 
     set_params();
 
+    // Fork: start can send its command before a later setup step throws.
+    client_output_stream->flush();
+    client_output_stream->clearReadStop();
+    client_output_stream->clearWriteStop();
+    client_started = true;
     client->start();
     convertShouldRun = true;
     convertThread = std::thread(&SDRPPServerSource::convertFunction, this);
@@ -50,18 +55,30 @@ void SDRPPServerSource::start()
 
 void SDRPPServerSource::stop()
 {
+    // Fork: wake both sides before joining, including during partial startup.
     convertShouldRun = false;
+    if (client_output_stream)
+    {
+        client_output_stream->stopReader();
+        client_output_stream->stopWriter();
+    }
+    if (output_stream)
+        output_stream->stopWriter();
     if (convertThread.joinable())
         convertThread.join();
-    if (is_started)
-        client->stop();
+    if (client_started)
+    {
+        client_started = false;
+        try { client->stop(); }
+        catch (const std::exception &e) { logger->error("SDR++ Server stop failed: %s", e.what()); }
+    }
     is_started = false;
 }
 
 void SDRPPServerSource::close()
 {
-    if (is_open && is_started)
-        client->close();
+    stop();
+    disconnect();
     is_open = false;
 }
 

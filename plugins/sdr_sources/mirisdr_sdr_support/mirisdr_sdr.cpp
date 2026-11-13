@@ -123,16 +123,25 @@ void MiriSdrSource::start()
     mirisdr_reset_buffer(mirisdr_dev_obj);
 
     thread_should_run = true;
+    async_done = false;
     work_thread = std::thread(&MiriSdrSource::mainThread, this);
 }
 
 void MiriSdrSource::stop()
 {
-    if (is_started)
+    // Fork: release the device even if setup or worker creation threw.
+    if (mirisdr_dev_obj)
     {
+        if (output_stream)
+            output_stream->stopWriter();
         logger->warn("Trying to cancel async...");
-        mirisdr_cancel_async(mirisdr_dev_obj);
         thread_should_run = false;
+        // Fork: the first cancellation may precede entry into the SDK's async read.
+        while (work_thread.joinable() && !async_done)
+        {
+            mirisdr_cancel_async(mirisdr_dev_obj);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         logger->info("Waiting for the thread...");
         if (is_started)
             output_stream->stopWriter();
@@ -141,6 +150,7 @@ void MiriSdrSource::stop()
         logger->info("Thread stopped");
         mirisdr_set_bias(mirisdr_dev_obj, false);
         mirisdr_close(mirisdr_dev_obj);
+        mirisdr_dev_obj = nullptr;
     }
     is_started = false;
 }

@@ -201,19 +201,19 @@ void USRPSource::start()
 
 void USRPSource::stop()
 {
+    // Fork: setup can fail before the streamer or worker exists.
     thread_should_run = false;
-    logger->info("Waiting for the thread...");
-    if (is_started)
+    if (output_stream)
         output_stream->stopWriter();
     if (work_thread.joinable())
         work_thread.join();
-    logger->info("Thread stopped");
-    if (is_started)
+    if (usrp_streamer)
     {
-        usrp_streamer->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
-        usrp_streamer.reset();
-        usrp_device.reset();
+        try { usrp_streamer->issue_stream_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS); }
+        catch (const std::exception &e) { logger->error("USRP stop failed: %s", e.what()); }
     }
+    usrp_streamer.reset();
+    usrp_device.reset();
     is_started = false;
 }
 

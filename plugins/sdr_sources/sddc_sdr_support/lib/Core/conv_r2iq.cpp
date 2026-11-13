@@ -59,9 +59,11 @@ void conv_r2iq::TurnOn()
 void conv_r2iq::TurnOff(void) {
     r2iqControlClass::TurnOff();
 
-	inputbuffer->Stop();
-	outputbuffer->Stop();
-	r2iq_thread.join();
+	// Fork: TurnOff is valid before Init and after partial thread startup.
+	if (inputbuffer) inputbuffer->Stop();
+	if (outputbuffer) outputbuffer->Stop();
+	if (r2iq_thread.joinable())
+		r2iq_thread.join();
 }
 
 void conv_r2iq::Init(float gain, ringbuffer<int16_t> *input, ringbuffer<float>* obuffers)
@@ -84,6 +86,8 @@ void conv_r2iq::Init(float gain, ringbuffer<int16_t> *input, ringbuffer<float>* 
 	#include <cpuid.h>
 	#define cpuid(info, x)  __cpuid_count(x, 0, info[0], info[1], info[2], info[3])
 	#define DETECT_AVX
+#elif defined(__aarch64__)
+    // Fork: this converter uses the portable implementation on AArch64.
 #elif defined(__arm__)
 	#define DETECT_NEON
 	#include <sys/auxv.h>

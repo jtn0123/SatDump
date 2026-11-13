@@ -151,6 +151,7 @@ void BladeRFSource::open()
 
     // Close it
     bladerf_close(bladerf_dev_obj);
+    bladerf_dev_obj = nullptr; // Fork: discovery no longer owns the device.
 }
 
 void BladeRFSource::start()
@@ -242,8 +243,11 @@ void BladeRFSource::start()
 
 void BladeRFSource::stop()
 {
-    if (is_started)
+    // Fork: release the device even if setup or worker creation threw.
+    if (bladerf_dev_obj)
     {
+        if (output_stream)
+            output_stream->stopWriter();
         thread_should_run = false;
         logger->info("Waiting for the thread...");
         if (is_started)
@@ -255,6 +259,7 @@ void BladeRFSource::stop()
         bladerf_set_bias_tee(bladerf_dev_obj, BLADERF_CHANNEL_RX(channel_id), false);
         bladerf_enable_module(bladerf_dev_obj, BLADERF_CHANNEL_RX(channel_id), false);
         bladerf_close(bladerf_dev_obj);
+        bladerf_dev_obj = nullptr;
     }
     is_started = false;
 }

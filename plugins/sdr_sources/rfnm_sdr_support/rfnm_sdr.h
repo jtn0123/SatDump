@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "librfnm/librfnm/librfnm.h"
@@ -10,7 +11,7 @@ class RFNMSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    librfnm *rfnm_dev_obj;
+    librfnm *rfnm_dev_obj = nullptr; // Fork: partial setup owns a device too.
 
     satdump::widgets::DoubleList samplerate_widget;
     satdump::widgets::DoubleList bandwidth_widget;
@@ -30,7 +31,7 @@ protected:
 
 protected:
     int buffer_size = -1;
-    librfnm_rx_buf rx_buffers[LIBRFNM_MIN_RX_BUFCNT];
+    librfnm_rx_buf rx_buffers[LIBRFNM_MIN_RX_BUFCNT]{}; // Fork: only free acquired buffers.
 
     /// Temporary correction.
     float corr_mag = 0;
@@ -38,7 +39,7 @@ protected:
     ///
 
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     complex_t v;
     void mainThread()
     {

@@ -136,11 +136,15 @@ void HackRFSource::start()
 
 void HackRFSource::stop()
 {
-    if (is_started)
+    // Fork: release the device even if setup or worker creation threw.
+    if (hackrf_dev_obj)
     {
+        if (output_stream)
+            output_stream->stopWriter();
         hackrf_set_antenna_enable(hackrf_dev_obj, false);
         hackrf_stop_rx(hackrf_dev_obj);
         hackrf_close(hackrf_dev_obj);
+        hackrf_dev_obj = nullptr;
         is_started = false;
     }
 }

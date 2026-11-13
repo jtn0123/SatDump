@@ -118,8 +118,10 @@ void PlutoSDRSource::start()
 void PlutoSDRSource::stop()
 {
     stop_thread();
-    if (is_started)
+    // Fork: a context can exist before setup reaches is_started.
+    if (ctx)
         iio_context_destroy(ctx);
+    ctx = nullptr;
     is_started = false;
 }
 
@@ -238,12 +240,14 @@ void PlutoSDRSource::sdr_startup()
     if (phy == NULL)
     {
         iio_context_destroy(ctx);
+        ctx = nullptr; // Fork: context ownership ends here.
         throw satdump_exception("Could not connect to PlutoSDR PHY!");
     }
     dev = iio_context_find_device(ctx, "cf-ad9361-lpc");
     if (dev == NULL)
     {
         iio_context_destroy(ctx);
+        ctx = nullptr; // Fork: context ownership ends here.
         throw satdump_exception("Could not connect to PlutoSDR device!");
     }
 

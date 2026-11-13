@@ -125,6 +125,7 @@ void AirspySource::open()
     samplerate_widget.set_list(available_samplerates, false);
 
     airspy_close(airspy_dev_obj);
+    airspy_dev_obj = nullptr; // Fork: discovery no longer owns the device.
 }
 
 void AirspySource::start()
@@ -153,11 +154,15 @@ void AirspySource::start()
 
 void AirspySource::stop()
 {
-    if (is_started)
+    // Fork: release the device even if setup or worker creation threw.
+    if (airspy_dev_obj)
     {
+        if (output_stream)
+            output_stream->stopWriter();
         airspy_set_rf_bias(airspy_dev_obj, false);
         airspy_stop_rx(airspy_dev_obj);
         airspy_close(airspy_dev_obj);
+        airspy_dev_obj = nullptr;
     }
     is_started = false;
 }

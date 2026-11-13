@@ -4,6 +4,7 @@
 #include "license.txt" 
 
 #include "config.h"
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -92,13 +93,15 @@ private:
     void AbortXferLoop(int qidx);
     void CaculateStats();
     void OnDataPacket();
-    r2iqControlClass* r2iqCntrl;
+    r2iqControlClass* r2iqCntrl = nullptr;
 
     std::function<void (const float *, uint32_t)> Callback;
     void (*DbgPrintFX3)(const char* fmt, ...);
     bool (*GetConsoleIn)(char* buf, int maxlen);
 
-    bool run;
+    // Fork: stage ownership survives a failed Start; stop flags cross threads.
+    std::atomic<bool> run{false};
+    bool producer_started = false, converter_started = false, usb_started = false;
     unsigned long count;    // absolute index
 
     bool pga;
@@ -124,7 +127,7 @@ private:
     float	mBps;
     float	mSpsIF;
 
-    fx3class *fx3;
+    fx3class *fx3 = nullptr;
     uint32_t adcrate;
 
     std::mutex fc_mutex;

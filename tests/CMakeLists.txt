@@ -317,6 +317,31 @@ target_link_libraries(satdump-web-callback-test PRIVATE satdump_core)
 add_test(NAME unit_web_callback_failure COMMAND satdump-web-callback-test)
 set_tests_properties(unit_web_callback_failure PROPERTIES LABELS unit TIMEOUT 15)
 
+# Fork: test real radio cleanup without devices or external network connections.
+if(TARGET sdrpp_server_support AND TARGET net_source_support)
+    add_executable(satdump-radio-cleanup-tests unit/main.cpp unit/test_radio_cleanup.cpp)
+    target_include_directories(satdump-radio-cleanup-tests PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
+    target_link_libraries(satdump-radio-cleanup-tests PRIVATE satdump_core sdrpp_server_support net_source_support)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET rtltcp_support)
+        target_link_libraries(satdump-radio-cleanup-tests PRIVATE rtltcp_support)
+        target_compile_definitions(satdump-radio-cleanup-tests PRIVATE SATDUMP_TEST_RTLTCP)
+    endif()
+    add_test(NAME unit_radio_cleanup COMMAND satdump-radio-cleanup-tests)
+    set_tests_properties(unit_radio_cleanup PROPERTIES LABELS unit TIMEOUT 20)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET sddc_sdr_support)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDDC_TEST_USB REQUIRED libusb-1.0)
+    add_executable(satdump-sddc-cleanup-tests unit/main.cpp unit/test_sddc_cleanup.cpp unit/test_sddc_source_cleanup.cpp)
+    target_include_directories(satdump-sddc-cleanup-tests PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core
+        ${PROJECT_SOURCE_DIR}/plugins/sdr_sources/sddc_sdr_support/lib/Core ${SDDC_TEST_USB_INCLUDE_DIRS})
+    # Export test interposition symbols to the driver DSO; no production fault hooks.
+    set_target_properties(satdump-sddc-cleanup-tests PROPERTIES ENABLE_EXPORTS ON)
+    target_link_libraries(satdump-sddc-cleanup-tests PRIVATE satdump_core sddc_sdr_support ${CMAKE_DL_LIBS})
+    add_test(NAME unit_sddc_cleanup COMMAND satdump-sddc-cleanup-tests)
+    set_tests_properties(unit_sddc_cleanup PROPERTIES LABELS unit TIMEOUT 60)
+endif()
+
 # Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
 # exit code 86, memory leaks included (the few kept on purpose are listed in
 # sanitizers/lsan.supp). Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports

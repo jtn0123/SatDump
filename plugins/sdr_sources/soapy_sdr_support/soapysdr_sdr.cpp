@@ -145,6 +145,7 @@ void SoapySdrSource::open()
     }
 
     SoapySDR::Device::unmake(soapy_dev);
+    soapy_dev = nullptr;
 }
 
 void SoapySdrSource::start()
@@ -166,6 +167,8 @@ void SoapySdrSource::start()
     set_params();
 
     soapy_dev_stream = soapy_dev->setupStream(SOAPY_SDR_RX, "CF32");
+    // Fork: remember activation independently from stream ownership.
+    stream_active = true;
     soapy_dev->activateStream(soapy_dev_stream);
 
     thread_should_run = true;
@@ -174,18 +177,31 @@ void SoapySdrSource::start()
 
 void SoapySdrSource::stop()
 {
-    if (is_started)
+    // Fork: each acquired stage is cleaned even when a later stage threw.
+    thread_should_run = false;
+    if (output_stream)
+        output_stream->stopWriter();
+    if (soapy_dev && soapy_dev_stream && stream_active)
     {
-        soapy_dev->deactivateStream(soapy_dev_stream);
-        thread_should_run = false;
-        logger->info("Waiting for the thread...");
-        if (is_started)
-            output_stream->stopWriter();
-        if (work_thread.joinable())
-            work_thread.join();
-        logger->info("Thread stopped");
-        soapy_dev->closeStream(soapy_dev_stream);
-        SoapySDR::Device::unmake(soapy_dev);
+        stream_active = false;
+        try { soapy_dev->deactivateStream(soapy_dev_stream); }
+        catch (const std::exception &e) { logger->error("SoapySDR deactivate failed: %s", e.what()); }
+    }
+    if (work_thread.joinable())
+        work_thread.join();
+    if (soapy_dev && soapy_dev_stream)
+    {
+        auto stream = soapy_dev_stream;
+        soapy_dev_stream = nullptr;
+        try { soapy_dev->closeStream(stream); }
+        catch (const std::exception &e) { logger->error("SoapySDR close stream failed: %s", e.what()); }
+    }
+    if (soapy_dev)
+    {
+        auto device = soapy_dev;
+        soapy_dev = nullptr;
+        try { SoapySDR::Device::unmake(device); }
+        catch (const std::exception &e) { logger->error("SoapySDR release failed: %s", e.what()); }
     }
     is_started = false;
 }

@@ -38,8 +38,8 @@ protected:
     }
 
 private:
-    ringbuffer<int16_t>* inputbuffer;    // pointer to input buffers
-    ringbuffer<float>* outputbuffer;    // pointer to ouput buffers
+    ringbuffer<int16_t>* inputbuffer = nullptr;    // pointer to input buffers
+    ringbuffer<float>* outputbuffer = nullptr;    // pointer to ouput buffers
     int bufIdx;         // index to next buffer to be processed
 
     float GainScale;

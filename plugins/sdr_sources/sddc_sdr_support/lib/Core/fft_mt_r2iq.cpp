@@ -111,10 +111,12 @@ void fft_mt_r2iq::TurnOn() {
 void fft_mt_r2iq::TurnOff(void) {
     r2iqControlClass::TurnOff();
 
-	inputbuffer->Stop();
-	outputbuffer->Stop();
+	// Fork: TurnOff is valid before Init and after partial thread startup.
+	if (inputbuffer) inputbuffer->Stop();
+	if (outputbuffer) outputbuffer->Stop();
 	for (unsigned t = 0; t < processor_count; t++) {
-		r2iq_thread[t].join();
+		if (r2iq_thread[t].joinable())
+			r2iq_thread[t].join();
 	}
 }
 
@@ -210,6 +212,10 @@ void fft_mt_r2iq::Init(float gain, ringbuffer<int16_t> *input, ringbuffer<float>
 	#include <cpuid.h>
 	#define cpuid(info, x)  __cpuid_count(x, 0, info[0], info[1], info[2], info[3])
 	#define DETECT_AVX
+#elif defined(__aarch64__)
+    // Fork: AArch64 has mandatory SIMD; the library previously rejected this host.
+    #define DETECT_NEON
+    static bool detect_neon() { return true; }
 #elif defined(__arm__)
 	#define DETECT_NEON
 	#include <sys/auxv.h>

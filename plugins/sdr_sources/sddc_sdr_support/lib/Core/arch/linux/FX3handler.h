@@ -2,6 +2,7 @@
 #define FX3HANDLER_H
 
 #include "config.h"
+#include <atomic>
 
 #define	VENDOR_ID     (0x04B4)
 #define	STREAMER_ID   (0x00F1)
@@ -34,10 +35,10 @@ private:
 
 	static void PacketRead(uint32_t data_size, uint8_t *data, void *context);
 
-	usb_device_t *dev;
-	streaming_t *stream;
-	ringbuffer<int16_t> *inputbuffer;
-    bool run;
+	usb_device_t *dev = nullptr;
+	streaming_t *stream = nullptr;
+	ringbuffer<int16_t> *inputbuffer = nullptr;
+    std::atomic<bool> run{false}; // Fork: shared with poll worker.
     int readsize;
     int fill;
     std::thread poll_thread;

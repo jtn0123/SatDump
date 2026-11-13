@@ -92,6 +92,7 @@ void RFNMSource::open()
         max_gain = 60;
 
     delete rfnm_dev_obj;
+    rfnm_dev_obj = nullptr; // Fork: discovery released this device.
 }
 
 void RFNMSource::start()
@@ -140,21 +141,28 @@ void RFNMSource::start()
 
 void RFNMSource::stop()
 {
+    // Fork: startup may fail with only some buffers allocated.
     thread_should_run = false;
-    logger->info("Waiting for the thread...");
-    if (is_started)
+    if (output_stream)
         output_stream->stopWriter();
     if (work_thread.joinable())
         work_thread.join();
-    logger->info("Thread stopped");
-    if (is_started)
+    if (rfnm_dev_obj)
     {
-        rfnm_dev_obj->s->rx.ch[channel].enable = RFNM_CH_OFF;
-        rfnm_dev_obj->set(channel == 1 ? LIBRFNM_APPLY_CH1_RX : LIBRFNM_APPLY_CH0_RX);
+        try
+        {
+            rfnm_dev_obj->s->rx.ch[channel].enable = RFNM_CH_OFF;
+            rfnm_dev_obj->set(channel == 1 ? LIBRFNM_APPLY_CH1_RX : LIBRFNM_APPLY_CH0_RX);
+        }
+        catch (const std::exception &e) { logger->error("RFNM stop failed: %s", e.what()); }
         delete rfnm_dev_obj;
-
-        for (int i = 0; i < LIBRFNM_MIN_RX_BUFCNT; i++)
-            volk_free(rx_buffers[i].buf);
+        rfnm_dev_obj = nullptr;
+    }
+    for (auto &buffer : rx_buffers)
+    {
+        if (buffer.buf)
+            volk_free(buffer.buf);
+        buffer.buf = nullptr;
     }
     is_started = false;
 }

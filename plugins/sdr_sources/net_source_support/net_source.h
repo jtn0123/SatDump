@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include "logger.h"
 #include <thread>
+#include <atomic>
 
 #include <nng/nng.h>
 #include <nng/protocol/pubsub0/sub.h>
@@ -28,32 +29,29 @@ protected:
 
     std::shared_ptr<net::UDPServer> udp_server;
 
-    nng_socket n_sock;
-    nng_dialer n_dialer;
+    nng_socket n_sock{}; // Fork: independent partial-start ownership.
+    nng_dialer n_dialer{};
+    bool socket_owned = false, dialer_owned = false;
 
     satdump::widgets::NotatedNum<uint64_t> current_samplerate = satdump::widgets::NotatedNum<uint64_t>("Samplerate##net", 0, "sps");
 
     std::string error;
 
 protected:
-    bool should_run = true;
+    std::atomic<bool> should_run{false}; // Fork: worker lifetime is per start/stop.
     std::thread work_thread;
     void run_thread();
 
 public:
     NetSource(dsp::SourceDescriptor source) : DSPSampleSource(source)
     {
-        should_run = true;
-        work_thread = std::thread(&NetSource::run_thread, this);
+        // Fork: create the worker only after its resources have been acquired.
     }
 
     ~NetSource()
     {
         stop();
         close();
-        should_run = false;
-        if (work_thread.joinable())
-            work_thread.join();
     }
 
     void set_settings(nlohmann::json settings);

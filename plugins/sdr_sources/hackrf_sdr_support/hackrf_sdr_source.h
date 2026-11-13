@@ -14,7 +14,7 @@ class HackRFSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    hackrf_device *hackrf_dev_obj;
+    hackrf_device *hackrf_dev_obj = nullptr; // Fork: owned even during partial startup.
     static int _rx_callback(hackrf_transfer *t);
 
     satdump::widgets::DoubleList samplerate_widget;

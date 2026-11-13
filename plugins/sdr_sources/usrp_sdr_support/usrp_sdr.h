@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include <uhd.h>
@@ -38,7 +39,7 @@ protected:
     void open_channel();
 
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     void mainThread()
     {
         uhd::rx_metadata_t meta;

@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include <libbladeRF.h>
@@ -11,7 +12,7 @@ class BladeRFSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    bladerf *bladerf_dev_obj;
+    bladerf *bladerf_dev_obj = nullptr; // Fork: owned even during partial startup.
     int bladerf_model = 0;
     int channel_cnt = 1;
     const bladerf_range *bladerf_range_samplerate;
@@ -44,7 +45,7 @@ protected:
     bool is_8bit = false;
 
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     void mainThread()
     {
         int16_t *sample_buffer;

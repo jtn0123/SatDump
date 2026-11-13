@@ -85,10 +85,11 @@ void fx3handler::StartStream(ringbuffer<int16_t> &input, int numofblock)
 void fx3handler::StopStream()
 {
     fprintf(stderr, "fx3handler::StopStream()\n");
-    if (!run)
-        return;
+    // Fork: stream allocation may succeed before the poll thread constructor throws.
     run = false;
-    poll_thread.join();
+    if (inputbuffer) inputbuffer->Stop();
+    if (poll_thread.joinable())
+        poll_thread.join();
     fprintf(stderr, "fx3handler::StopStream() thread joined\n");
     if (stream)
     {

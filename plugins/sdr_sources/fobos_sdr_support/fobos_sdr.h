@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp/resamp/rational_resampler.h"
 #include "common/dsp_source_sink/dsp_sample_source.h"
@@ -15,7 +16,8 @@ class FobosSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    fobos_dev_t *fobos_dev_ovj;
+    bool sync_started = false; // Fork: sync input has its own lifetime.
+    fobos_dev_t *fobos_dev_ovj = nullptr; // Fork: owned even during partial startup.
     // static int _rx_callback(airspy_transfer *t);
 
     satdump::widgets::DoubleList samplerate_widget;
@@ -33,7 +35,7 @@ protected:
     void open_sdr();
 
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     void mainThread()
     {
         auto &ostream = decimator ? decimator->input_stream : output_stream;

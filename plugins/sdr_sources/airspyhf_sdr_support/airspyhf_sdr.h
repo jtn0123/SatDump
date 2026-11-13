@@ -14,7 +14,7 @@ class AirspyHFSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    airspyhf_device *airspyhf_dev_obj;
+    airspyhf_device *airspyhf_dev_obj = nullptr; // Fork: owned even during partial startup.
     static int _rx_callback(airspyhf_transfer_t *t);
 
     satdump::widgets::DoubleList samplerate_widget;

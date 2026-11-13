@@ -82,22 +82,26 @@ void SpyServerSource::start()
 
     set_gains();
 
+    is_started = true; // Fork: stop a stream command sent before a later failure.
     client->startStream();
-
-    is_started = true;
 }
 
 void SpyServerSource::stop()
 {
+    if (output_stream)
+        output_stream->stopWriter();
     if (is_started)
-        client->stopStream();
-    is_started = false;
+    {
+        is_started = false; // Fork: cleanup remains repeatable if sending stop fails.
+        try { client->stopStream(); }
+        catch (const std::exception &e) { logger->error("SpyServer stop failed: %s", e.what()); }
+    }
 }
 
 void SpyServerSource::close()
 {
-    if (is_open && is_started)
-        client->close();
+    // Fork: connection ownership precedes stream startup and can survive a failure.
+    disconnect();
     is_open = false;
 }
 

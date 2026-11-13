@@ -175,6 +175,8 @@ void AaroniaSource::start()
     if (rtsa_api->AARTSAAPI_Open(&aaronia_handle) != AARTSAAPI_OK)
         throw satdump_exception("Could not open AARTSAAPI handle!");
 
+    handle_owned = true;
+
     if (rtsa_api->AARTSAAPI_RescanDevices(&aaronia_handle, 2000) != AARTSAAPI_OK)
         throw satdump_exception("Could not scan for Aaronia Devices!");
 
@@ -210,6 +212,7 @@ void AaroniaSource::start()
     if (rtsa_api->AARTSAAPI_OpenDevice(&aaronia_handle, &aaronia_device, devString.c_str(), aaronia_dinfo.serialNumber) != AARTSAAPI_OK)
         throw satdump_exception("Could not open Aaronia Device!");
 
+    device_owned = true;
     is_started = true;
 
     if (rtsa_api->AARTSAAPI_ConfigRoot(&aaronia_device, &root) != AARTSAAPI_OK)
@@ -315,8 +318,12 @@ void AaroniaSource::start()
     if (rtsa_api->AARTSAAPI_ConnectDevice(&aaronia_device) != AARTSAAPI_OK)
         throw satdump_exception("Could not connect to Aaronia device!");
 
+    device_connected = true;
+
     if (rtsa_api->AARTSAAPI_StartDevice(&aaronia_device) != AARTSAAPI_OK)
         throw satdump_exception("Could not start Aaronia device!");
+
+    device_started = true;
 
     // Wait
     logger->info("Waiting for device to stream...");
@@ -336,20 +343,24 @@ void AaroniaSource::start()
 
 void AaroniaSource::stop()
 {
+    // Fork: unwind only the stages acquired before a startup exception.
     thread_should_run = false;
-    logger->info("Waiting for the thread...");
-    if (is_started)
+    if (output_stream)
         output_stream->stopWriter();
     if (work_thread.joinable())
         work_thread.join();
-    logger->info("Thread stopped");
-    if (is_started)
-    {
+    if (device_started)
         rtsa_api->AARTSAAPI_StopDevice(&aaronia_device);
+    device_started = false;
+    if (device_connected)
         rtsa_api->AARTSAAPI_DisconnectDevice(&aaronia_device);
+    device_connected = false;
+    if (device_owned)
         rtsa_api->AARTSAAPI_CloseDevice(&aaronia_handle, &aaronia_device);
+    device_owned = false;
+    if (handle_owned)
         rtsa_api->AARTSAAPI_Close(&aaronia_handle);
-    }
+    handle_owned = false;
     is_started = false;
 }
 

@@ -117,14 +117,17 @@ void LimeSDRSource::start()
         LMS_GetDeviceList(found_devices);
 
         limeDevice = NULL;
-        LMS_Open(&limeDevice, found_devices[std::stoi(d_sdr_id)], NULL);
+        if (LMS_Open(&limeDevice, found_devices[std::stoi(d_sdr_id)], NULL) != 0)
+            throw satdump_exception("Could not open LimeSDR Device!");
         int err = LMS_Init(limeDevice);
 
         // LimeSuite Bug
         if (err)
         {
             LMS_Close(limeDevice);
-            LMS_Open(&limeDevice, found_devices[std::stoi(d_sdr_id)], NULL);
+            limeDevice = nullptr; // Fork: the retry must not retain a closed device.
+            if (LMS_Open(&limeDevice, found_devices[std::stoi(d_sdr_id)], NULL) != 0)
+                throw satdump_exception("Could not open LimeSDR Device!");
             err = LMS_Init(limeDevice);
         }
 
@@ -152,9 +155,13 @@ void LimeSDRSource::start()
     set_gains();
     set_others();
 
-    LMS_SetupStream(limeDevice, &limeStream);
-
-    LMS_StartStream(&limeStream);
+    // Fork: never stop/destroy an uninitialised stream after setup fails.
+    if (LMS_SetupStream(limeDevice, &limeStream) != 0)
+        throw satdump_exception("Could not set up LimeSDR stream!");
+    stream_owned = true;
+    if (LMS_StartStream(&limeStream) != 0)
+        throw satdump_exception("Could not start LimeSDR stream!");
+    stream_active = true;
 
     thread_should_run = true;
     work_thread = std::thread(&LimeSDRSource::mainThread, this);
@@ -164,19 +171,23 @@ void LimeSDRSource::start()
 
 void LimeSDRSource::stop()
 {
+    // Fork: unwind device and stream ownership independently.
     thread_should_run = false;
-    logger->info("Waiting for the thread...");
-    if (is_started)
+    if (output_stream)
         output_stream->stopWriter();
     if (work_thread.joinable())
         work_thread.join();
-    logger->info("Thread stopped");
-    if (is_started)
-    {
+    if (stream_active)
         LMS_StopStream(&limeStream);
+    stream_active = false;
+    if (stream_owned)
         LMS_DestroyStream(limeDevice, &limeStream);
+    stream_owned = false;
+    if (limeDevice)
+    {
         LMS_EnableChannel(limeDevice, false, channel_id, false);
         LMS_Close(limeDevice);
+        limeDevice = nullptr;
     }
     is_started = false;
 }

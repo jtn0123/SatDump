@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "common/rimgui.h"
@@ -18,7 +19,9 @@ protected:
     bool device_is_eco = false;
 
     bool is_open = false, is_started = false;
-    AARTSAAPI_Handle aaronia_handle;
+    // Fork: the API handle, device, connection and stream have separate lifetimes.
+    bool handle_owned = false, device_owned = false, device_connected = false, device_started = false;
+    AARTSAAPI_Handle aaronia_handle{};
     AARTSAAPI_DeviceInfo aaronia_dinfo;
     AARTSAAPI_Device aaronia_device;
     AARTSAAPI_Config config, root;
@@ -44,15 +47,16 @@ protected:
     void set_gains();
 
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     void mainThread()
     {
         AARTSAAPI_Packet packet;
-        AARTSAAPI_Result res;
+        AARTSAAPI_Result res = AARTSAAPI_EMPTY;
 
         while (thread_should_run)
         {
-            while ((res = rtsa_api->AARTSAAPI_GetPacket(&aaronia_device, 0, 0, &packet)) == AARTSAAPI_EMPTY)
+            // Fork: an empty device must still let stop join this worker.
+            while (thread_should_run && (res = rtsa_api->AARTSAAPI_GetPacket(&aaronia_device, 0, 0, &packet)) == AARTSAAPI_EMPTY)
 #ifdef _WIN32
                 Sleep(1);
 #else

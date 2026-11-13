@@ -70,7 +70,7 @@ protected:
 
     void disconnect()
     {
-        if (is_connected)
+        if (client)
             client->close();
         is_connected = false;
     }

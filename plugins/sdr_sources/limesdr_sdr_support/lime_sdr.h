@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #ifdef __ANDROID__
@@ -17,8 +18,9 @@ class LimeSDRSource : public dsp::DSPSampleSource
 protected:
     bool is_open = false, is_started = false;
 
-    lms_device_t *limeDevice;
-    lms_stream_t limeStream;
+    lms_device_t *limeDevice = nullptr; // Fork: setup can fail before streaming.
+    lms_stream_t limeStream{};
+    bool stream_owned = false, stream_active = false;
 
     satdump::widgets::DoubleList samplerate_widget;
     satdump::widgets::DoubleList bandwidth_widget;
@@ -37,7 +39,7 @@ protected:
     void set_others();
 
     std::thread work_thread;
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
     void mainThread()
     {
         lms_stream_meta_t md;

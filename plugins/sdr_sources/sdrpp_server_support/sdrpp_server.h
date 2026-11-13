@@ -6,6 +6,7 @@
 #include "logger.h"
 #include "imgui/imgui.h"
 #include "core/style.h"
+#include <atomic>
 
 class SDRPPServerSource : public dsp::DSPSampleSource
 {
@@ -50,7 +51,8 @@ protected:
 protected:
     std::thread convertThread;
 
-    bool convertShouldRun = false;
+    std::atomic<bool> convertShouldRun{false}; // Fork: shared with converter.
+    bool client_started = false;
 
     int process(int count, const uint8_t *in, complex_t *out)
     {
@@ -84,6 +86,14 @@ protected:
         while (convertShouldRun)
         {
             int count = client_output_stream->read();
+            // Fork: a stopped reader returns -1, which is not a packet length.
+            if (count < 0)
+                break;
+            if (count < 8)
+            {
+                client_output_stream->flush();
+                continue;
+            }
             int outCount = process(count, client_output_stream->readBuf, output_stream->writeBuf);
             client_output_stream->flush();
             output_stream->swap(outCount);

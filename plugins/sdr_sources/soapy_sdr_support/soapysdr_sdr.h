@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "logger.h"
@@ -16,7 +17,8 @@ protected:
     std::string d_source_label;
 
     SoapySDR::Device *soapy_dev = nullptr;
-    SoapySDR::Stream *soapy_dev_stream;
+    SoapySDR::Stream *soapy_dev_stream = nullptr; // Fork: setup may throw.
+    bool stream_active = false;
 
     int channel_id = 0;
 
@@ -46,7 +48,7 @@ protected:
 
     std::thread work_thread;
 
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
 
     void mainThread()
     {

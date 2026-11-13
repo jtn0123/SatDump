@@ -394,10 +394,13 @@ void fx3handler::StopStream()
 {
 	// set the flag
 	run = false;
-	adc_samples_thread->join();
+	// Fork: stop is valid before startup, after a failed constructor and twice.
+	if (adc_samples_thread && adc_samples_thread->joinable())
+		adc_samples_thread->join();
 
 	// force exit the thread
 	inputbuffer = nullptr;
 
 	delete adc_samples_thread;
+	adc_samples_thread = nullptr;
 }

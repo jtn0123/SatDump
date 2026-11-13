@@ -82,11 +82,13 @@ void RtAudioSource::start()
 
 void RtAudioSource::stop()
 {
-    if (is_started)
-    {
-        adc_dev.stopStream();
-        adc_dev.closeStream();
-    }
+    // Fork: openStream may have succeeded even though startStream threw.
+    if (output_stream)
+        output_stream->stopWriter();
+    try { if (adc_dev.isStreamRunning()) adc_dev.stopStream(); }
+    catch (const std::exception &e) { logger->error("Audio stop failed: %s", e.what()); }
+    try { if (adc_dev.isStreamOpen()) adc_dev.closeStream(); }
+    catch (const std::exception &e) { logger->error("Audio close failed: %s", e.what()); }
     is_started = false;
 }
 

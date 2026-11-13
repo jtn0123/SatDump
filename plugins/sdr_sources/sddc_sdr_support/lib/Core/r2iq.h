@@ -55,7 +55,7 @@ protected:
     int mratio [NDECIDX];  // ratio
 
 private:
-    bool r2iqOn;        // r2iq on flag
+    std::atomic<bool> r2iqOn{false}; // Fork: shutdown crosses threads.        // r2iq on flag
     bool randADC;       // randomized ADC output
     bool sideband;
 };

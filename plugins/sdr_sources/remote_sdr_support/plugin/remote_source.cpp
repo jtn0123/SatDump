@@ -60,20 +60,23 @@ void RemoteSource::open()
 void RemoteSource::start()
 {
     DSPSampleSource::start();
+    is_started = true; // Fork: remember a partially sent start command.
     sendPacketWithVector(tcp_client, dsp::remote::PKT_TYPE_SOURCESTART);
-    is_started = true;
 }
 
 void RemoteSource::stop()
 {
-    sendPacketWithVector(tcp_client, dsp::remote::PKT_TYPE_SOURCESTOP);
-
+    // Fork: wake callbacks first, then send at most one stop for a start attempt.
+    if (output_stream)
+    {
+        output_stream->stopReader();
+        output_stream->stopWriter();
+    }
     if (is_started)
     {
         is_started = false;
-
-        output_stream->stopReader();
-        output_stream->stopWriter();
+        try { sendPacketWithVector(tcp_client, dsp::remote::PKT_TYPE_SOURCESTOP); }
+        catch (const std::exception &e) { logger->error("Remote source stop failed: %s", e.what()); }
     }
 }
 

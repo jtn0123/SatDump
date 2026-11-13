@@ -123,6 +123,7 @@ void HydraSDRSource::open()
     samplerate_widget.set_list(available_samplerates, false);
 
     hydrasdr_close(hydrasdr_dev_obj);
+    hydrasdr_dev_obj = nullptr; // Fork: discovery no longer owns the device.
 }
 
 void HydraSDRSource::start()
@@ -151,11 +152,15 @@ void HydraSDRSource::start()
 
 void HydraSDRSource::stop()
 {
-    if (is_started)
+    // Fork: release the device even if setup or worker creation threw.
+    if (hydrasdr_dev_obj)
     {
+        if (output_stream)
+            output_stream->stopWriter();
         hydrasdr_set_rf_bias(hydrasdr_dev_obj, false);
         hydrasdr_stop_rx(hydrasdr_dev_obj);
         hydrasdr_close(hydrasdr_dev_obj);
+        hydrasdr_dev_obj = nullptr;
     }
     is_started = false;
 }

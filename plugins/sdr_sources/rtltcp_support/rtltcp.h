@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "rtltcp_client.h"
@@ -12,6 +13,7 @@ class RTLTCPSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
+    bool connection_owned = false; // Fork: connected before allocating the output.
     RTLTCPClient client;
 
     satdump::widgets::DoubleList samplerate_widget;
@@ -30,14 +32,16 @@ protected:
 
     std::thread work_thread;
 
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false}; // Fork: stop is read by the worker.
 
     void mainThread()
     {
         uint8_t in_buf[8192];
         while (thread_should_run)
         {
-            client.receiveData(in_buf, 8192);
+            // Fork: cancelled/short reads contain no complete sample block.
+            if (!client.receiveData(in_buf, 8192))
+                break;
             for (int i = 0; i < (int)8192 / 2; i++)
                 output_stream->writeBuf[i] = complex_t((in_buf[i * 2 + 0] - 127.4f) / 128.0f, (in_buf[i * 2 + 1] - 127.4f) / 128.0f);
             output_stream->swap(8192 / 2);
