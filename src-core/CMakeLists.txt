@@ -125,9 +125,6 @@ unset(ANGELSCRIPT_SOURCE)
 
 find_package(PkgConfig)
 
-if(SATDUMP_PACKAGE_PATH_MAP)
-    satdump_package_examples(SatDump_core_CPPS "src-core/handlers/experimental/dsp/cyclo_test.cpp")
-endif()
 add_library(satdump_core SHARED ${SatDump_core_CPPS})
 include(${PROJECT_SOURCE_DIR}/cmake/fork/rust.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake/fork/codecs.cmake)

@@ -37,7 +37,8 @@ namespace satdump
             recovery->link(costas.get(), 0, 0, 4);
             constell->link(recovery.get(), 0, 0, 4);
 
-            file_source->set_cfg("file", "/home/alan/Pictures/MetOpB.wav");
+            // Fork: example path outside any home folder (packages are checked for /home/ paths)
+            file_source->set_cfg("file", "/data/MetOpB.wav");
             file_source->set_cfg("type", "cs16");
             fft->set_fft_settings(8192, 6e6, 30);
             fft_plot = std::make_shared<widgets::FFTPlot>(fft->output_fft_buff, 8192, -200, 0);
