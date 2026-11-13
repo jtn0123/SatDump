@@ -110,9 +110,15 @@ namespace satdump
                     if (::dsp::block_failure_count() != dsp_failures)
                         throw satdump_exception("a DSP block failed (" + ::dsp::last_block_failure() + "), so the output is incomplete");
                 }
-                catch (std::exception &e)
+                catch (const std::exception &e)
                 {
                     logger->error("Error running command : %s", e.what());
+                    return true;
+                }
+                catch (...)
+                {
+                    // Fork: live cleanup rethrows non-standard errors too; command failure is exit 2.
+                    logger->error("Error running command : unknown exception");
                     return true;
                 }
             }

@@ -70,6 +70,8 @@ namespace satdump
                     // Fork: each chunk keeps the size chosen at its boundary. Only this
                     // worker resizes or reads the staging vector, including live growth.
                     const int bufsize = buffer_size.load();
+                    // Fork: also bound restored or corrupted state before staging allocation.
+                    DSPStream::checked_sample_bytes(static_cast<size_t>(bufsize), sizeof(T));
                     output_chunk.resize(bufsize);
                     int read = ring_buf.read(output_chunk.data(), bufsize);
                     if (read != bufsize)

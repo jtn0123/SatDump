@@ -51,6 +51,7 @@ namespace satdump
                 const int size = buffer_size.load();
                 if (size <= 0)
                     throw satdump_exception("Reshape buffer size must be greater than zero");
+                DSPStream::checked_sample_bytes(static_cast<size_t>(size), sizeof(T));
                 ring_buf.reset();
                 propagate_eof = false;
                 output_chunk.resize(size);
@@ -76,10 +77,12 @@ namespace satdump
                 if (key == "buffer_size")
                 {
                     // Fork: reject invalid requests without changing the last valid size.
-                    const int size = v.get<int>();
-                    if (size <= 0)
+                    if (!v.is_number_integer())
                         return RES_ERR;
-                    buffer_size = size;
+                    const int64_t size = v.get<int64_t>();
+                    if (size <= 0 || static_cast<uint64_t>(size) > DSPStream::max_buffer_bytes / sizeof(T))
+                        return RES_ERR;
+                    buffer_size = static_cast<int>(size);
                 }
                 else
                     throw satdump_exception(key);

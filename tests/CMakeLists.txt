@@ -285,6 +285,16 @@ if(SATDUMP_FUZZ)
     add_subdirectory(fuzz)
 endif()
 
+# Fork: deterministic shutdown resource failures, each bounded even with a reverted fix.
+target_sources(satdump-unit-tests PRIVATE unit/test_shutdown_failures.cpp)
+add_test(NAME unit_shutdown_failures COMMAND satdump-unit-tests "--test-case=shutdown failures:*")
+set_tests_properties(unit_shutdown_failures PROPERTIES LABELS unit TIMEOUT 30)
+add_executable(satdump-vfo-start-test unit/main.cpp unit/test_vfo_start_failure.cpp)
+target_include_directories(satdump-vfo-start-test PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
+target_link_libraries(satdump-vfo-start-test PRIVATE satdump_core)
+add_test(NAME unit_vfo_start_failure COMMAND satdump-vfo-start-test)
+set_tests_properties(unit_vfo_start_failure PROPERTIES LABELS unit TIMEOUT 20)
+
 # Sanitizer builds (-DSATDUMP_SANITIZERS=address,undefined): any finding fails the test with
 # exit code 86, memory leaks included (the few kept on purpose are listed in
 # sanitizers/lsan.supp). Every plugin defines its own SATDUMP_ABI_VERSION, which ASan reports

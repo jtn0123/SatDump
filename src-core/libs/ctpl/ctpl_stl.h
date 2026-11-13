@@ -94,26 +94,35 @@ namespace ctpl {
             if (!this->isStop && !this->isDone) {
                 int oldNThreads = static_cast<int>(this->threads.size());
                 if (oldNThreads <= nThreads) {  // if the number of threads is increased
-                    this->threads.resize(nThreads);
-                    this->flags.resize(nThreads);
-
-                    for (int i = oldNThreads; i < nThreads; ++i) {
-                        this->flags[i] = std::make_shared<std::atomic<bool>>(false);
-                        this->set_thread(i);
+                    try {
+                        this->threads.resize(nThreads);
+                        this->flags.resize(nThreads);
+                        for (int i = oldNThreads; i < nThreads; ++i) {
+                            this->flags[i] = std::make_shared<std::atomic<bool>>(false);
+                            this->set_thread(i);
+                        }
+                    }
+                    catch (...) {
+                        // Fork: construction has no destructor to join a partial pool. Stop
+                        // all created workers on failed growth too, including null slots.
+                        this->stop(false);
+                        throw;
                     }
                 }
                 else {  // the number of threads is decreased
-                    for (int i = oldNThreads - 1; i >= nThreads; --i) {
-                        *this->flags[i] = true;  // this thread will finish
-                        this->threads[i]->detach();
-                    }
+                    // Fork: detached workers still access this pool. Wake and join them before
+                    // removing their slots, so destruction cannot race their final queue access.
+                    for (int i = oldNThreads - 1; i >= nThreads; --i)
+                        *this->flags[i] = true;
                     {
-                        // stop the detached threads that were waiting
                         std::unique_lock<std::mutex> lock(this->mutex);
                         this->cv.notify_all();
                     }
-                    this->threads.resize(nThreads);  // safe to delete because the threads are detached
-                    this->flags.resize(nThreads);  // safe to delete because the threads have copies of shared_ptr of the flags, not originals
+                    for (int i = oldNThreads - 1; i >= nThreads; --i)
+                        if (this->threads[i]->joinable())
+                            this->threads[i]->join();
+                    this->threads.resize(nThreads);
+                    this->flags.resize(nThreads);
                 }
             }
         }
@@ -145,7 +154,8 @@ namespace ctpl {
                     return;
                 this->isStop = true;
                 for (int i = 0, n = this->size(); i < n; ++i) {
-                    *this->flags[i] = true;  // command the threads to stop
+                    if (i < static_cast<int>(this->flags.size()) && this->flags[i])
+                        *this->flags[i] = true;  // command the threads to stop
                 }
                 this->clear_queue();  // empty the queue
             }
@@ -159,7 +169,7 @@ namespace ctpl {
                 this->cv.notify_all();  // stop all waiting threads
             }
             for (int i = 0; i < static_cast<int>(this->threads.size()); ++i) {  // wait for the computing threads to finish
-                    if (this->threads[i]->joinable())
+                    if (this->threads[i] && this->threads[i]->joinable())
                         this->threads[i]->join();
             }
             // if there were no threads in the pool but some functors in the queue, the functors are not deleted by the threads
@@ -206,7 +216,12 @@ namespace ctpl {
         thread_pool & operator=(const thread_pool &);// = delete;
         thread_pool & operator=(thread_pool &&);// = delete;
 
+        // Fork: tests throw at the same boundary as a failed std::thread constructor.
+        friend struct ThreadPoolTestAccess;
+        static inline void (*before_thread)() = nullptr;
         void set_thread(int i) {
+            if (before_thread)
+                before_thread();
             std::shared_ptr<std::atomic<bool>> flag(this->flags[i]); // a copy of the shared ptr to the flag
             auto f = [this, i, flag/* a copy of the shared ptr to the flag */]() {
                 std::atomic<bool> & _flag = *flag;

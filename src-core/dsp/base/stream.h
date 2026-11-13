@@ -2,6 +2,10 @@
 
 #include "dsp_buffer.h"
 #include "readerwritercircularbuffer.h"
+#include <atomic>
+#include <limits>
+#include <new>
+#include <stdexcept>
 
 namespace satdump
 {
@@ -10,6 +14,10 @@ namespace satdump
         class DSPStream
         {
         private:
+            // Fork: injectable allocator for deterministic failure tests, without changing stream layout.
+            friend struct DSPStreamTestAccess;
+            using Allocator = void *(*)(size_t, size_t);
+            static inline std::atomic<Allocator> allocator{volk_malloc};
             moodycamel::BlockingReaderWriterCircularBuffer<DSPBuffer> fifo;
             moodycamel::BlockingReaderWriterCircularBuffer<DSPBuffer> ufifo;
 
@@ -47,20 +55,23 @@ namespace satdump
 
             DSPBuffer alloc(size_t size)
             {
+                if (size > max_buffer_bytes)
+                    throw std::length_error("DSP buffer exceeds 64 MiB");
                 DSPBuffer b;
                 ufifo.wait_dequeue(b);
-                if (b.ptr == nullptr)
+                // Fork: allocate before releasing the old storage, and recycle the token on
+                // failure. EOF needs no allocation, even when memory has run out.
+                if (size > b.ptr_size)
                 {
-                    b.ptr = volk_malloc(size, volk_get_alignment());
-                    b.ptr_size = size;
-                    // printf("Alloc\n");
-                }
-                else if (b.ptr_size < size)
-                {
+                    void *replacement = allocator.load()(size, volk_get_alignment());
+                    if (!replacement)
+                    {
+                        free(b);
+                        throw std::bad_alloc();
+                    }
                     volk_free(b.ptr);
-                    b.ptr = volk_malloc(size, volk_get_alignment());
+                    b.ptr = replacement;
                     b.ptr_size = size;
-                    // printf("Realloc\n");
                 }
                 return b;
             }
@@ -78,9 +89,22 @@ namespace satdump
                 return b;
             }
 
+            // Fork: cap each stream/staging allocation at 64 MiB (8M complex samples),
+            // well above normal DSP chunks, while bounding queue memory and rejecting wraparound.
+            static constexpr size_t max_buffer_bytes = 64 * 1024 * 1024;
+            static size_t checked_sample_bytes(size_t size, size_t typesize)
+            {
+                if (typesize == 0 || size > std::numeric_limits<size_t>::max() / typesize ||
+                    size * typesize > max_buffer_bytes)
+                    throw std::length_error("DSP buffer exceeds 64 MiB or byte count overflows");
+                return size * typesize;
+            }
+
             DSPBuffer newBufferSamples(uint32_t size, int typesize)
             {
-                DSPBuffer b = alloc(size * typesize);
+                if (typesize <= 0)
+                    throw std::length_error("DSP sample size must be positive");
+                DSPBuffer b = alloc(checked_sample_bytes(size, static_cast<size_t>(typesize)));
                 b.type = DSP_BUFFER_TYPE_SAMPLES;
                 b.max_size = size;
                 return b;

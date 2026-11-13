@@ -288,4 +288,8 @@ for mode in single multi; do
     check "$name-blocks-stopped" not_logged "$name" "BLOCK SHOULD BE STOPPED"
 done
 
+# Fork: a non-standard exception at the command boundary must use the real exit code 2.
+run 2 unknown-command fork_unknown
+check unknown-command-logged logged unknown-command "Error running command : unknown exception"
+
 exit $FAILED

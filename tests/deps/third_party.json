@@ -144,7 +144,7 @@
       "upstream": "https://github.com/vit-vit/CTPL",
       "license": "Apache-2.0",
       "debian": null,
-      "sha256": "997609619377443516399c219b4fde1ffc63dc5eebb5b07c420357be0d7720a7"
+      "sha256": "2db5399bac9c387259a61f2ca2ef5b9cdc4a303056c45d4627fd63f7796ba3b1"
     },
     {
       "name": "deepspace-turbo",

@@ -23,6 +23,7 @@ namespace dsp
 
     VFOSplitterBlock::VfoCFG VFOSplitterBlock::make_vfo(double samplerate, double frequency)
     {
+        // Fork: construct privately and stop a partially started shifter before publishing it.
         auto stream = std::make_shared<dsp::stream<complex_t>>();
         auto shifter = std::make_shared<FreqShiftBlock>(stream, samplerate, frequency);
         try
