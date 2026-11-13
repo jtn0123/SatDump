@@ -13,7 +13,7 @@ struct sockaddr { unsigned short family; char data[14]; };
 struct sockaddr_in { short sin_family; unsigned short sin_port; in_addr sin_addr; char padding[8]; };
 constexpr int AF_INET = 2, SOCK_DGRAM = 2, IPPROTO_UDP = 17;
 constexpr int SOL_SOCKET = 65535, SO_REUSEADDR = 4, SO_RCVTIMEO = 4102;
-constexpr int INADDR_ANY = 0, WSAEINTR = 10004;
+constexpr int INADDR_ANY = 0, WSAEINTR = 10004, WSAEWOULDBLOCK = 10035, WSAETIMEDOUT = 10060;
 // The old helper uses timeval even on Windows; retain the type to test that regression.
 #ifndef __timeval_defined
 struct timeval { long tv_sec; long tv_usec; };
