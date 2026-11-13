@@ -1,5 +1,6 @@
 #include "module_network_client.h"
 #include "core/cli/stop_signals.h"
+#include <chrono>
 #include "common/net/udp.h"
 #include "common/utils.h"
 #include "core/exception.h"
@@ -42,7 +43,8 @@ namespace satdump
                 else
                     throw satdump_exception("server_port parameter must be present!");
 
-                buffer = new uint8_t[pkt_size]; // Fork: recv never accepts more than one packet.
+                // Fork: an extra byte distinguishes oversized UDP datagrams from exact packets.
+                buffer = new uint8_t[static_cast<size_t>(pkt_size) + 1];
             }
 
             std::vector<ModuleDataType> NetworkClientModule::getInputTypes() { return {DATA_FILE, DATA_STREAM}; }
@@ -119,9 +121,23 @@ namespace satdump
                     net::UDPServer udp_server(port);
                     udp_server.enableTimeout(); // Fork: periodically recheck input_active on silence.
 
+                    auto next_warning = std::chrono::steady_clock::time_point::min();
                     while (input_active.load())
                     {
-                        int lpkt_size = udp_server.recv(buffer, pkt_size);
+                        bool truncated = false;
+                        int lpkt_size = udp_server.recv(buffer, pkt_size + 1, &truncated);
+                        // Fork: discard the entire oversized datagram, never a valid-looking
+                        // prefix. Keep valid short datagrams, and bound warnings to one/second.
+                        if (truncated || lpkt_size > pkt_size)
+                        {
+                            const auto now = std::chrono::steady_clock::now();
+                            if (now >= next_warning)
+                            {
+                                logger->warn("Discarding oversized UDP datagram (packet limit %d bytes)", pkt_size);
+                                next_warning = now + std::chrono::seconds(1);
+                            }
+                            continue;
+                        }
                         if (lpkt_size > 0 && input_active.load())
                             output_fifo->write(buffer, lpkt_size);
                     }

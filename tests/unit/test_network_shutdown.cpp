@@ -3,6 +3,7 @@
 #include "doctest.h"
 #include <nng/nng.h>
 #include <nng/protocol/pubsub0/sub.h>
+#include "log_capture.h"
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -140,4 +141,54 @@ TEST_CASE("network shutdown: silent UDP stops promptly after preserving normal d
     worker.join();
     CHECK_FALSE(failed);
     CHECK(std::chrono::steady_clock::now() - stop < std::chrono::seconds(1));
+}
+
+TEST_CASE("network shutdown: UDP keeps short and exact datagrams and drops oversized ones")
+{
+    test_log::LogCapture logs;
+    NetworkClientModule module("", "", {{"client_mode", "udp_listen"}, {"pkt_size", 16}, {"server_port", 0}});
+    module.output_fifo = std::make_shared<dsp::RingBuffer<uint8_t>>(100);
+    module.input_active = true;
+    received_datagrams = processed_datagrams = 0;
+    bound_port = 0;
+    std::atomic<bool> done{false}, failed{false};
+    std::thread worker([&]
+    {
+        try { module.process(); }
+        catch (const std::exception &) { failed = true; }
+        catch (...) { failed = true; }
+        done = true;
+    });
+    if (!within([] { return bound_port.load() != 0; })) std::_Exit(1);
+    int sender = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(bound_port.load());
+    std::vector<uint8_t> expected;
+    const auto began = std::chrono::steady_clock::now();
+    for (int length : {15, 16, 17, 17, 15})
+    {
+        std::vector<uint8_t> packet(length, uint8_t(length));
+        CHECK(sendto(sender, packet.data(), packet.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == length);
+        if (length <= 16) expected.insert(expected.end(), packet.begin(), packet.end());
+    }
+    close(sender);
+    // Fork: observe all five actual datagrams, not a count inflated by timeout retries.
+    if (!within([] { return processed_datagrams.load() >= 5; })) std::_Exit(1);
+    const int count = module.output_fifo->getReadable();
+    CHECK(count == static_cast<int>(expected.size()));
+    std::vector<uint8_t> got(count);
+    CHECK(module.output_fifo->read(got.data(), count) == count);
+    CHECK(got == expected);
+    module.input_active = false;
+    if (!within([&] { return done.load(); })) std::_Exit(1);
+    worker.join();
+    CHECK_FALSE(failed);
+    size_t warnings = 0;
+    for (const auto &message : logs.sink->msgs)
+        if (message.str.find("Discarding oversized UDP datagram") != std::string::npos) warnings++;
+    CHECK(warnings >= 1);
+    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
+    CHECK(warnings <= static_cast<size_t>(seconds + 1));
 }

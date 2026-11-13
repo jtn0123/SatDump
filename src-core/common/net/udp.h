@@ -150,8 +150,12 @@ namespace net
             return r;
         }
 
-        int recv(uint8_t *data, int len)
+        int recv(uint8_t *data, int len) { return recv(data, len, nullptr); }
+
+        int recv(uint8_t *data, int len, bool *truncated)
         {
+            if (truncated)
+                *truncated = false;
 #if defined(_WIN32)
             int slen = sizeof(sockaddr);
 #else
@@ -164,6 +168,12 @@ namespace net
                 // check their stop flag. Real socket errors retain their existing exception.
 #if defined(_WIN32)
                 const int error = WSAGetLastError();
+                // Fork: opt-in truncation reporting lets bounded datagram consumers drop it.
+                if (error == WSAEMSGSIZE && truncated)
+                {
+                    *truncated = true;
+                    return len;
+                }
                 if (error == WSAETIMEDOUT || error == WSAEWOULDBLOCK || error == WSAEINTR)
 #else
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
