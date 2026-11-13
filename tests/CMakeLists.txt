@@ -23,6 +23,7 @@ add_executable(satdump-unit-tests
     unit/test_block_lifetime.cpp
     unit/test_block_start_stop.cpp
     unit/test_block_extra_threads.cpp
+    unit/test_gain_mode.cpp
     ${PROJECT_SOURCE_DIR}/plugins/dvb_support/dvbs2/dvbs2_pl_sync.cpp
     unit/test_cc_decoder.cpp
     unit/test_temp_file.cpp

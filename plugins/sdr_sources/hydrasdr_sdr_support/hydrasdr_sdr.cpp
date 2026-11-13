@@ -1,3 +1,4 @@
+#include "common/dsp_source_sink/gain_mode.h"
 #include "hydrasdr_sdr.h"
 #include <cinttypes>
 
@@ -184,19 +185,19 @@ void HydraSDRSource::drawControlUI()
 
     // Gain settings
     bool gain_changed = false;
-    if (RImGui::RadioButton("Sensitive", gain_type == 0))
+    if (RImGui::RadioButton("Sensitive", satdump::gain_mode::selected(gain_type, satdump::gain_mode::SENSITIVE)))
     {
-        gain_type = 0;
+        gain_type = satdump::gain_mode::SENSITIVE;
         gain_changed = true;
     }
-    if (RImGui::RadioButton("Linear", gain_type == 1))
+    if (RImGui::RadioButton("Linear", satdump::gain_mode::selected(gain_type, satdump::gain_mode::LINEAR)))
     {
-        gain_type = 1;
+        gain_type = satdump::gain_mode::LINEAR;
         gain_changed = true;
     }
-    if (RImGui::RadioButton("Manual", gain_type == 22))
+    if (RImGui::RadioButton("Manual", satdump::gain_mode::selected(gain_type, satdump::gain_mode::MANUAL)))
     {
-        gain_type = 2;
+        gain_type = satdump::gain_mode::MANUAL;
         gain_changed = true;
     }
 
