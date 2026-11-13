@@ -118,7 +118,7 @@ version number.
 | bzip2 | `src-core/libs/bzlib` | 1.1.0, a development snapshot (`bz_version.h`, `BZ_VERSION`) | <https://gitlab.com/bzip2/bzip2> | bzip2 licence (BSD-style) | the `bzip2` command-line program removed |
 | CALCEPH | `src-core/libs/calceph` | 4.0.5 (`calceph.h`, `CALCEPH_VERSION_MAJOR/MINOR/PATCH`) | <https://www.imcce.fr/inpop/calceph> | CeCILL-C, CeCILL-B or CeCILL 2.1 | Windows fix in `calcephconfig.h` |
 | libcorrect | `src-core/libs/correct` | unversioned | <https://github.com/quiet/libcorrect> | BSD-3-Clause | only the Reed-Solomon part kept |
-| CTPL thread pool | `src-core/libs/ctpl` | unversioned (2014) | <https://github.com/vit-vit/CTPL> | Apache-2.0 | Partial construction/growth stops and joins created workers; shrinking joins removed workers *(fork)* |
+| CTPL thread pool | `src-core/libs/ctpl` | unversioned (2014) | <https://github.com/vit-vit/CTPL> | Apache-2.0 | Gated construction/growth rolls back only new workers, preserving the existing pool and queue; shrinking joins removed workers *(fork)* |
 | deepspace-turbo | `src-core/libs/deepspace-turbo` | unversioned (2017) | <https://github.com/geeanlooca/deepspace-turbo> | MIT | warning fixes |
 | dlfcn-win32 | `src-core/libs/dlfcn` | unversioned | <https://github.com/dlfcn-win32/dlfcn-win32> | MIT | Windows fixes (2024) |
 | fkYAML | `src-core/libs/fkyaml` | 0.4.3 (`node.hpp`, `FK_YAML_MAJOR/MINOR/PATCH_VERSION`) | <https://github.com/fktn-k/fkYAML> | MIT | none |

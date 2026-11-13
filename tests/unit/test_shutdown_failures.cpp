@@ -6,6 +6,7 @@
 #include "libs/ctpl/ctpl_stl.h"
 #include "log_capture.h"
 #include <limits>
+#include <cstdlib>
 #include <system_error>
 
 namespace ctpl
@@ -15,7 +16,8 @@ namespace ctpl
         static inline int remaining = 0;
         static void fail() { if (remaining-- == 0) throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again)); }
         static void inject(int after) { remaining = after; thread_pool::before_thread = fail; }
-        static void reset() { thread_pool::before_thread = nullptr; }
+        static void reset() { thread_pool::before_thread = nullptr; thread_pool::retirement_join_entered = nullptr; }
+        static void on_retirement(void (*hook)(std::thread &)) { thread_pool::retirement_join_entered = hook; }
         ~ThreadPoolTestAccess() { reset(); }
     };
 }
@@ -40,7 +42,7 @@ TEST_CASE("shutdown failures: partial pool construction joins workers")
     }
 }
 
-TEST_CASE("shutdown failures: failed pool growth joins workers")
+TEST_CASE("shutdown failures: failed pool growth preserves existing workers")
 {
     ctpl::ThreadPoolTestAccess injection;
     for (int after : {0, 1, 3})
@@ -50,25 +52,102 @@ TEST_CASE("shutdown failures: failed pool growth joins workers")
         CHECK(pool.push([](int) { return 42; }).get() == 42);
         ctpl::ThreadPoolTestAccess::inject(after);
         CHECK_THROWS_AS(pool.resize(6), std::system_error);
-        CHECK(pool.size() == 0);
+        CHECK(pool.size() == 2);
+        ctpl::ThreadPoolTestAccess::reset();
+        CHECK(pool.push([](int) { return 43; }).get() == 43);
+        pool.resize(3);
+        CHECK(pool.size() == 3);
         pool.stop();
     }
 }
 
+namespace
+{
+    using namespace std::chrono_literals;
+    std::promise<void> *retirement_entered = nullptr;
+    std::shared_future<void> retirement_release;
+    std::thread::id retiring_id;
+    std::atomic<bool> retiring_joinable{false};
+    void hold_retirement(std::thread &worker)
+    {
+        retiring_joinable = worker.joinable() && worker.get_id() == retiring_id;
+        retirement_entered->set_value();
+        retirement_release.wait();
+    }
+}
+TEST_CASE("shutdown failures: failed growth never waits for a task needing the caller")
+{
+    ctpl::ThreadPoolTestAccess injection;
+    ctpl::thread_pool pool(1);
+    std::promise<void> task_entered, release;
+    auto unblock = release.get_future().share();
+    auto first = pool.push([&](int) { task_entered.set_value(); unblock.wait(); });
+    REQUIRE(task_entered.get_future().wait_for(3s) == std::future_status::ready);
+    std::atomic<bool> pending_started{false};
+    auto pending = pool.push([&](int) { pending_started = true; unblock.wait(); return 17; });
+    ctpl::ThreadPoolTestAccess::inject(1);
+    std::promise<void> returned;
+    bool threw = false, unexpected = false;
+    std::thread resize([&]
+    {
+        try { pool.resize(3); }
+        catch (const std::system_error &) { threw = true; }
+        catch (...) { unexpected = true; }
+        returned.set_value();
+    });
+    // Fork: the caller cannot release its task until resize returns. A whole-pool rollback
+    // deadlocks here; a gated new worker must also leave the pending task untouched.
+    if (returned.get_future().wait_for(3s) != std::future_status::ready)
+        std::_Exit(1);
+    resize.join();
+    CHECK(threw);
+    CHECK_FALSE(unexpected);
+    CHECK(pool.size() == 1);
+    CHECK_FALSE(pending_started);
+    ctpl::ThreadPoolTestAccess::reset();
+    release.set_value();
+    if (first.wait_for(3s) != std::future_status::ready || pending.wait_for(3s) != std::future_status::ready)
+        std::_Exit(1);
+    first.get();
+    CHECK(pending.get() == 17);
+    auto next = pool.push([](int) { return 19; });
+    if (next.wait_for(3s) != std::future_status::ready)
+        std::_Exit(1);
+    CHECK(next.get() == 19);
+    pool.resize(2);
+    CHECK(pool.size() == 2);
+}
+
 TEST_CASE("shutdown failures: shrinking a pool joins its active removed worker")
 {
+    ctpl::ThreadPoolTestAccess injection;
     ctpl::thread_pool pool(1);
-    std::atomic<bool> entered{false}, release{false}, resized{false};
-    auto task = pool.push([&](int) { entered = true; while (!release) std::this_thread::yield(); });
-    while (!entered) std::this_thread::yield();
+    std::promise<void> task_entered, task_release, join_entered, join_release;
+    auto task_unblock = task_release.get_future().share();
+    retirement_release = join_release.get_future().share();
+    retirement_entered = &join_entered;
+    retiring_id = pool.get_thread(0).get_id();
+    retiring_joinable = false;
+    std::atomic<bool> resized{false}, completed{false};
+    auto task = pool.push([&](int) { task_entered.set_value(); task_unblock.wait(); completed = true; });
+    REQUIRE(task_entered.get_future().wait_for(3s) == std::future_status::ready);
+    ctpl::ThreadPoolTestAccess::on_retirement(hold_retirement);
     std::thread shrink([&] { pool.resize(0); resized = true; });
-    // Fork: a removed worker remains owned until its task completes.
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    CHECK_FALSE(resized);
-    release = true;
+    // Fork: this handshake is inside the real retirement join routine, for this exact worker.
+    // With detach restored the routine is never entered, so the test fails even on one CPU.
+    const bool reached_join = join_entered.get_future().wait_for(3s) == std::future_status::ready;
+    CHECK(reached_join);
+    CHECK(retiring_joinable);
+    if (reached_join)
+        CHECK_FALSE(resized);
+    task_release.set_value();
+    join_release.set_value();
     shrink.join();
     task.get();
+    CHECK(completed);
     CHECK(resized);
+    retirement_entered = nullptr;
+    retirement_release = {};
 }
 
 TEST_CASE("shutdown failures: sample bytes reject overflow and oversized reshape state")

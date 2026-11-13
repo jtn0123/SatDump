@@ -28,6 +28,7 @@
 #include <exception>
 #include <future>
 #include <mutex>
+#include <condition_variable>
 #include <queue>
 
 
@@ -94,20 +95,30 @@ namespace ctpl {
             if (!this->isStop && !this->isDone) {
                 int oldNThreads = static_cast<int>(this->threads.size());
                 if (oldNThreads <= nThreads) {  // if the number of threads is increased
+                    if (oldNThreads == nThreads)
+                        return;
+                    // Fork: new workers cannot take queued tasks until the whole growth commits.
+                    auto gate = std::make_shared<StartupGate>();
                     try {
                         this->threads.resize(nThreads);
                         this->flags.resize(nThreads);
                         for (int i = oldNThreads; i < nThreads; ++i) {
                             this->flags[i] = std::make_shared<std::atomic<bool>>(false);
-                            this->set_thread(i);
+                            this->set_thread(i, gate);
                         }
                     }
                     catch (...) {
-                        // Fork: construction has no destructor to join a partial pool. Stop
-                        // all created workers on failed growth too, including null slots.
-                        this->stop(false);
+                        // Fork: never stop/join pre-existing workers: their tasks may be
+                        // waiting for this caller. Only the gated additions belong to rollback.
+                        gate->release(false);
+                        for (int i = oldNThreads; i < static_cast<int>(this->threads.size()); ++i)
+                            if (this->threads[i] && this->threads[i]->joinable())
+                                this->threads[i]->join();
+                        this->threads.resize(oldNThreads);
+                        this->flags.resize(oldNThreads);
                         throw;
                     }
+                    gate->release(true);
                 }
                 else {  // the number of threads is decreased
                     // Fork: detached workers still access this pool. Wake and join them before
@@ -120,7 +131,7 @@ namespace ctpl {
                     }
                     for (int i = oldNThreads - 1; i >= nThreads; --i)
                         if (this->threads[i]->joinable())
-                            this->threads[i]->join();
+                            this->join_retiring_worker(*this->threads[i]);
                     this->threads.resize(nThreads);
                     this->flags.resize(nThreads);
                 }
@@ -219,11 +230,36 @@ namespace ctpl {
         // Fork: tests throw at the same boundary as a failed std::thread constructor.
         friend struct ThreadPoolTestAccess;
         static inline void (*before_thread)() = nullptr;
-        void set_thread(int i) {
+        // Fork: tests can hold the actual retirement join entry, without a scheduling sleep.
+        static inline void (*retirement_join_entered)(std::thread &) = nullptr;
+        static void join_retiring_worker(std::thread &worker) {
+            if (retirement_join_entered)
+                retirement_join_entered(worker);
+            worker.join();
+        }
+        struct StartupGate {
+            std::mutex mutex;
+            std::condition_variable cv;
+            bool ready = false, committed = false;
+            void release(bool commit) {
+                std::lock_guard<std::mutex> lock(mutex);
+                committed = commit;
+                ready = true;
+                cv.notify_all();
+            }
+            bool wait() {
+                std::unique_lock<std::mutex> lock(mutex);
+                cv.wait(lock, [this] { return ready; });
+                return committed;
+            }
+        };
+        void set_thread(int i, std::shared_ptr<StartupGate> gate) {
             if (before_thread)
                 before_thread();
             std::shared_ptr<std::atomic<bool>> flag(this->flags[i]); // a copy of the shared ptr to the flag
-            auto f = [this, i, flag/* a copy of the shared ptr to the flag */]() {
+            auto f = [this, i, flag, gate]() {
+                if (!gate->wait())
+                    return; // Fork: failed growth must not consume or discard queued work.
                 std::atomic<bool> & _flag = *flag;
                 std::function<void(int id)> * _f;
                 bool isPop = this->q.pop(_f);
