@@ -10,7 +10,12 @@
 #include "logger.h"
 #include "pipeline/live_pipeline.h"
 #include "webserver.h"
+#ifdef SATDUMP_TEST_LIVE_RUNNING
+#include "core/plugin.h"
+#include "live_running_event.h"
+#endif
 #include <cinttypes>
+#include <cmath>
 #include <csignal>
 #include <filesystem>
 
@@ -305,10 +310,13 @@ int main_live(int argc, char *argv[])
 
                     double final_shift = double(frequency) - vfrequency;
 
-                    if (abs(final_shift) > (samplerate / 2))
+                    if (std::abs(final_shift) > (samplerate / 2))
                     {
                         logger->error("Frequency shift for VFO %s is outside of samplerate range!", cfg.key().c_str());
-                        exit(1);
+                        // Fork: unwind through the owners after stopping everything already
+                        // started. exit(1) bypassed the radio, splitter and earlier VFOs.
+                        stop_running();
+                        return 1;
                     }
 
                     std::optional<satdump::pipeline::Pipeline> pipeline = satdump::pipeline::getPipelineFromID(vpipeline);
@@ -514,6 +522,11 @@ int main_live(int argc, char *argv[])
                     webserver_started = true;
                 }
 
+#ifdef SATDUMP_TEST_LIVE_RUNNING
+                // Fork: the test plugin can throw on this thread with everything running.
+                satdump::eventBus->fire_event(fork_test::LiveRunningEvent{});
+#endif
+
                 // Now, we wait
                 uint64_t start_time = time(0);
                 while (1)
@@ -570,8 +583,8 @@ int main_live(int argc, char *argv[])
                 // Fork: an error in this block stops whatever still runs (the radio, the FFT blocks,
                 // the pipeline) before it is reported. Upstream, an error while they ran (--http_server
                 // given as a number threw here) left them running, and the program waited for ever.
-                // Nothing known throws here before the normal stop now, so this is for errors not
-                // foreseen. An error after that stop, such as --finish_processing given as a number,
+                // Fork: the fault test module exercises this with the radio, FFT and pipeline
+                // running. An error after the stop, such as --finish_processing given as a number,
                 // comes here too; stopping again then does nothing
                 stop_running();
                 if (webserver_started)

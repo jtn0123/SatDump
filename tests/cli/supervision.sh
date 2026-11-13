@@ -13,7 +13,7 @@
 # The radio is the file source playing a short made-up MetOp signal (cli/ahrpt_baseband.py) in a
 # loop, in real time, or the test-only radio driver of tests/unit/probe_source_plugin.cpp, its
 # file given as $2.
-# Usage: supervision.sh <install prefix> <probe radio test plugin>
+# Usage: supervision.sh <install prefix> <probe radio test plugin> <fault test plugin>
 TESTS=$(cd "$(dirname "$0")/.." && pwd)
 . "$TESTS/cli/common.sh"
 PLUGIN=${2:?usage: $0 <install prefix> <probe radio test plugin>}
@@ -194,5 +194,82 @@ sleep 0.5
 touch "$SATDUMP_TEST_PROBE_RELEASE"
 wait_exit "$pid" early-sigterm "$sigterm_at"
 check early-sigterm-logged logged early-sigterm "Signal Received. Stopping."
+
+# Fork: the network client must stop even when the server accepts TCP but never answers
+# (not even the NNG handshake). A test pipeline uses the existing fault module as its reader.
+mkdir -p "$WORK/client/plugins"
+cp "${3:?usage: $0 <install prefix> <probe radio test plugin> <fault test plugin>}" "$WORK/client/plugins/" || exit 1
+cd "$WORK/client" || exit 1
+cat > pipelines.json <<'JSON'
+{
+    "fork_client_stop": {
+        "name": "Fork silent client test",
+        "live": { "pkt_size": 1024, "default": [1], "server": [1], "client": [1] },
+        "work": {
+            "baseband": {},
+            "bytes": { "module": "fork_fault_b", "parameters": {} }
+        }
+    }
+}
+JSON
+client_holder=
+client_pid=
+# Fork: also reap the listener and any hung client on an interrupted test.
+trap 'if [ -n "$client_pid" ]; then kill -KILL "$client_pid" 2>/dev/null; wait "$client_pid" 2>/dev/null; fi; if [ -n "$client_holder" ]; then kill "$client_holder" 2>/dev/null; wait "$client_holder" 2>/dev/null; fi; rm -rf "$WORK"' EXIT
+# Fork: keep a silent TCP peer and an idle NNG publisher. The latter completes only the
+# protocol greeting, then sends no messages: that forces a wait in nng_recv, not just dial.
+python3 -I -u -c 'import select, socket
+def listener():
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(); return s
+silent, idle = listener(), listener()
+print(silent.getsockname()[1], idle.getsockname()[1], flush=True)
+clients = []
+while True:
+    for s in select.select([silent, idle], [], [])[0]:
+        c, _ = s.accept(); clients.append(c)
+        if s is idle:
+            c.sendall(bytes.fromhex("0053500000200000"))
+            print("idle", flush=True)
+        else:
+            print("silent", flush=True)' > "$WORK/silent.out" &
+client_holder=$!
+for _ in $(seq 1 300); do [ -s "$WORK/silent.out" ] && break; sleep 0.1; done
+read -r CLIENT_PORT IDLE_PORT < "$WORK/silent.out"
+CLIENT=(legacy live fork_client_stop "$WORK/client-output" --client --server_address 127.0.0.1)
+for peer in silent idle; do
+    port=$CLIENT_PORT
+    [ "$peer" = idle ] && port=$IDLE_PORT
+    name=client-$peer-sigterm
+    "$SD" "${CLIENT[@]}" --server_port "$port" > "$WORK/$name.log" 2>&1 &
+    client_pid=$!
+    for _ in $(seq 1 300); do
+        grep -q "^$peer$" "$WORK/silent.out" && break
+        kill -0 "$client_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    check "client-$peer-connected" grep -q "^$peer$" "$WORK/silent.out"
+    sleep 1
+    check "client-$peer-still-running" kill -0 "$client_pid"
+    sigterm_at=$(now_ms)
+    kill -TERM "$client_pid"
+    wait_exit "$client_pid" "$name" "$sigterm_at"
+    client_pid=
+    check "$name-logged" logged "$name" "Signal Received. Stopping."
+done
+
+# Fork: client startup must also stop promptly on the same web server errors as radio mode.
+# The silent listener also occupies an HTTP port, avoiding a free-port race.
+for addr in "127.0.0.1:$CLIENT_PORT" 8080; do
+    start=$(date +%s)
+    name=client-http-$addr
+    timeout -k 5 10 "$SD" "${CLIENT[@]}" --server_port "$CLIENT_PORT" --http_server "$addr" > "$WORK/$name.log" 2>&1
+    got=$?
+    check "$name-exit-1" [ "$got" = 1 ]
+    check "$name-quick" [ $(($(date +%s) - start)) -lt 10 ]
+    check "$name-reported" logged "$name" "Cannot start the web server on $addr: "
+done
+kill "$client_holder" 2>/dev/null
+wait "$client_holder" 2>/dev/null
+client_holder=
 
 exit $FAILED

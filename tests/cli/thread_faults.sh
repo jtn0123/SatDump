@@ -3,7 +3,7 @@
 # reports the error and ends with exit code 2. So does a legacy command during which a DSP block
 # failed. Uses the test plugin built from tests/unit/fault_plugin.cpp (its modules fail on
 # purpose), given as $2.
-# Usage: thread_faults.sh <install prefix> <fault test plugin>
+# Usage: thread_faults.sh <install prefix> <fault test plugin> <probe radio test plugin>
 . "$(dirname "$0")/common.sh"
 PLUGIN=${2:?usage: $0 <install prefix> <fault test plugin>}
 [ -f "$PLUGIN" ] || { echo "no test plugin at $PLUGIN"; exit 1; }
@@ -11,6 +11,9 @@ PLUGIN=${2:?usage: $0 <install prefix> <fault test plugin>}
 # Plugins and pipelines in the current folder are loaded as well as the installed ones
 mkdir -p plugins
 cp "$PLUGIN" plugins/
+# Fork: the probe radio proves stop() was called, even when the command used exit(1).
+PROBE_PLUGIN=${3:?usage: $0 <install prefix> <fault test plugin> <probe radio test plugin>}
+cp "$PROBE_PLUGIN" plugins/ || exit 1
 cat > pipelines.json <<'JSON'
 {
     "fork_fault_good": {
@@ -71,6 +74,15 @@ cat > pipelines.json <<'JSON'
             "frames": { "module": "fork_fault_b", "parameters": {} }
         }
     },
+    "fork_fault_live_running_error": {
+        "name": "Fork fault test, command fails while everything runs",
+        "live": [1, 2],
+        "work": {
+            "baseband": {},
+            "soft": { "module": "fork_fault_a", "parameters": { "with_block": true, "fail_running": true } },
+            "frames": { "module": "fork_fault_b", "parameters": {} }
+        }
+    },
     "fork_fault_live_good": {
         "name": "Fork fault test, live, no failure",
         "live": [1, 2],
@@ -102,6 +114,15 @@ cat > vfo_good.json <<'JSON'
     "v1": { "frequency": 100000000, "pipeline": "fork_fault_live_good", "parameters": {} }
 }
 JSON
+# Fork: the first VFO starts before the second one is rejected; test both shift signs.
+for freq in 101000000 99000000; do
+    cat > "vfo_range_$freq.json" <<JSON
+{
+    "v1": { "frequency": 100000000, "pipeline": "fork_fault_live_good", "parameters": { "with_block": true } },
+    "v2": { "frequency": $freq, "pipeline": "fork_fault_live_good", "parameters": {} }
+}
+JSON
+done
 head -c $((64 * 4096)) /dev/zero > in.bin
 head -c $((100000 * 8)) /dev/zero > in.cf32
 
@@ -132,6 +153,15 @@ timed_satdump() {
 }
 logged() { sed 's/\x1b\[[0-9;]*m//g' "$WORK/$1.log" | grep -q "$2"; }
 not_logged() { ! logged "$@"; }
+# Fork: the radio must stop before its consumers, and the error is reported after cleanup.
+running_cleanup_order() {
+    sed 's/\x1b\[[0-9;]*m//g' "$WORK/$1.log" | awk '
+        /Fork probe radio stopped/ { radio = NR }
+        /Stop processing/ { pipeline = NR }
+        /Fault test running module stopped/ { module = NR }
+        /Error running command.*running failure on purpose/ { error = NR }
+        END { exit !(radio && radio < pipeline && pipeline < module && module < error) }'
+}
 size_of() { wc -c 2> /dev/null < "$1" | tr -d ' '; }
 
 # Offline, two modules at once: the error comes back to the command
@@ -175,9 +205,7 @@ else
     echo "note legacy-block-fails-one-cpu not run: it needs taskset and chrt (Linux)"
 fi
 # An error after the radio and the pipeline have stopped (--finish_processing given as a number,
-# read only then) is reported with exit code 2. This checks only that; nothing known throws
-# while everything runs, so the stop on such an error has no test here (multi-VFO has one:
-# live-vfo-cannot-start)
+# read only then) is reported with exit code 2.
 run 2 live-error-after-start legacy live fork_fault_live_good out_live_error "${LIVE[@]}" --finish_processing 5
 check live-error-after-start-logged logged live-error-after-start "Error running command"
 # --http_server given as a number, or with no value, is not an address: like a server that cannot
@@ -202,5 +230,30 @@ check live-vfo-http-number-logged logged live-vfo-http-number "Cannot start the 
 check live-vfo-http-number-blocks-stopped not_logged live-vfo-http-number "BLOCK SHOULD BE STOPPED"
 run 0 live-vfo-good legacy live fork_fault_live_good out_vfo_good "${LIVE[@]}" --multi_vfo vfo_good.json
 check live-vfo-good-blocks-stopped not_logged live-vfo-good "BLOCK SHOULD BE STOPPED"
+
+# Fork: throw on the command thread after startup, with the probe radio, FFT and the fault
+# module's DSP block still running. The module event waits for its block, rather than relying
+# on a sleep. The radio has no samples, so the pipeline cannot have finished on its own.
+PROBE=(--source fork_probe --samplerate 1000000 --frequency 100000000 --timeout 3)
+run 2 live-error-while-running legacy live fork_fault_live_running_error out_live_running "${PROBE[@]}" --fft_enable
+check live-running-error-logged logged live-error-while-running "Error running command.*running failure on purpose"
+check live-running-radio-stopped logged live-error-while-running "Fork probe radio stopped"
+check live-running-module-stopped logged live-error-while-running "Fault test running module stopped"
+check live-running-cleanup-order running_cleanup_order live-error-while-running
+check live-running-blocks-stopped not_logged live-error-while-running "BLOCK SHOULD BE STOPPED"
+check live-running-no-late-block not_logged live-error-while-running "destroyed while running"
+
+# Fork: a bad frequency must clean up the radio, splitter and the valid VFO already added.
+# Requiring the stop marker catches exit(1), which can otherwise look like a successful test.
+for freq in 101000000 99000000; do
+    name=live-vfo-range-$freq
+    run 1 "$name" legacy live fork_fault_live_good out_vfo_range "${PROBE[@]}" --multi_vfo "vfo_range_$freq.json"
+    check "$name-first-started" logged "$name" "Added VFO for v1"
+    check "$name-reported" logged "$name" "Frequency shift for VFO v2 is outside of samplerate range"
+    check "$name-radio-stopped" logged "$name" "Fork probe radio stopped"
+    check "$name-pipeline-stopped" logged "$name" "Stop processing"
+    check "$name-blocks-stopped" not_logged "$name" "BLOCK SHOULD BE STOPPED"
+    check "$name-no-late-block" not_logged "$name" "destroyed while running"
+done
 
 exit $FAILED

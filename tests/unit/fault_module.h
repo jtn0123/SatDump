@@ -6,6 +6,8 @@
 // Parameters:
 //   fail_after  chunks to process before throwing (-1, the default: never; 0: at once)
 //   fail_init   true to throw from init()
+// Fork: fail_running throws on the live command thread after the radio and pipeline start;
+// with_block also checks that the module's block has started before that error is raised.
 //   fail_with   "std" (the default) throws a std::exception, "other" throws an int
 //   out_factor  bytes written per byte read (default 1)
 //   with_block  true to start a DSP block in process() and stop it in stop(), as demodulators do
@@ -15,6 +17,8 @@
 
 #include "common/dsp/block.h"
 #include "core/exception.h"
+#include "core/plugin.h"
+#include "live_running_event.h"
 #include "logger.h"
 #include "pipeline/module.h"
 #include <atomic>
@@ -84,6 +88,9 @@ namespace fork_test
         int d_out_factor = 1;
         bool d_with_block = false;
         bool d_block_fails = false;
+        // Fork: shared with the event handler, so it never holds a dangling module pointer.
+        bool d_fail_running = false;
+        std::shared_ptr<std::atomic<bool>> d_running_ready = std::make_shared<std::atomic<bool>>(false);
         std::shared_ptr<FaultBlock> d_block;
 
         struct Running
@@ -107,6 +114,8 @@ namespace fork_test
         {
             if (parameters.contains("fail_after"))
                 d_fail_after = parameters["fail_after"].get<int>();
+            if (parameters.contains("fail_running"))
+                d_fail_running = parameters["fail_running"].get<bool>();
             if (parameters.contains("fail_init"))
                 d_fail_init = parameters["fail_init"].get<bool>();
             if (parameters.contains("fail_with"))
@@ -126,6 +135,20 @@ namespace fork_test
         {
             if (d_fail_init)
                 throw satdump_exception("init failure on purpose");
+            if (d_fail_running)
+            {
+                // Fork: wait for the module task, including its DSP block, before throwing on
+                // the command thread. A loaded test machine may schedule that task late.
+                satdump::eventBus->register_handler<LiveRunningEvent>([ready = d_running_ready](LiveRunningEvent)
+                {
+                    auto end = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+                    while (!ready->load() && std::chrono::steady_clock::now() < end)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    if (!ready->load())
+                        throw satdump_exception("fault module did not start in time");
+                    throw satdump_exception("running failure on purpose");
+                });
+            }
             if (d_with_block || d_block_fails)
             {
                 d_block = std::make_shared<FaultBlock>();
@@ -138,6 +161,9 @@ namespace fork_test
         {
             if (d_block)
                 d_block->stop();
+            // Fork: proves stop() ran, rather than merely reaching the process exit code.
+            if (d_fail_running && d_running_ready->exchange(false))
+                logger->info("Fault test running module stopped");
         }
 
         void process() override
@@ -146,6 +172,11 @@ namespace fork_test
 
             if (d_block) // Like a demodulator, which starts its blocks here
                 d_block->start();
+
+            // Fork: publish only after the block has started; the event handler only reads
+            // this atomic, never the block or the module's other state.
+            if (d_fail_running)
+                d_running_ready->store(true);
 
             // A block that fails on purpose has failed before this goes on. Its thread may first
             // run only after the module has stopped the block (a file input takes well under a

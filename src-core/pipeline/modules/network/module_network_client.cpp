@@ -51,26 +51,46 @@ namespace satdump
                 if (mode == "default")
                 {
                     nng_socket sock;
+                    const std::string url = "tcp://" + address + ":" + std::to_string(port);
+                    logger->info("Opening TCP socket on %s", url.c_str());
+
+                    // Fork: only this worker owns the socket. Closing it here also closes its
+                    // dialer, on normal stop and on every error, without racing stop().
+                    int rv = nng_sub0_open_raw(&sock);
+                    if (rv != 0)
+                        throw satdump_exception(std::string("Cannot open network client: ") + nng_strerror(rv));
+                    struct SocketCloser
+                    {
+                        nng_socket sock;
+                        ~SocketCloser() { nng_close(sock); }
+                    } close_socket{sock};
+
                     nng_dialer dialer;
-
-                    logger->info("Opening TCP socket on " + std::string("tcp://" + address + ":" + std::to_string(port)));
-
-                    nng_sub0_open_raw(&sock);
-                    nng_dialer_create(&dialer, sock, std::string("tcp://" + address + ":" + std::to_string(port)).c_str());
-                    nng_dialer_start(dialer, (int)0);
+                    // Fork: connection setup must not wait for a server's handshake, and a
+                    // receive must periodically check the existing atomic input_active flag.
+                    // Otherwise stopping the pipeline could wait forever in either call.
+                    if ((rv = nng_socket_set_ms(sock, NNG_OPT_RECVTIMEO, 100)) != 0 ||
+                        (rv = nng_dialer_create(&dialer, sock, url.c_str())) != 0 ||
+                        (rv = nng_dialer_start(dialer, NNG_FLAG_NONBLOCK)) != 0)
+                        throw satdump_exception(std::string("Cannot start network client: ") + nng_strerror(rv));
 
                     while (input_active.load())
                     {
-                        size_t lpkt_size;
-                        nng_recv(sock, buffer, &lpkt_size, (int)0);
-
-                        if (pkt_size != (int)lpkt_size)
+                        // Fork: nng_recv takes the buffer capacity as input. It was uninitialized,
+                        // and errors were ignored before the returned size was read.
+                        size_t lpkt_size = static_cast<size_t>(pkt_size);
+                        rv = nng_recv(sock, buffer, &lpkt_size, 0);
+                        if (rv == NNG_ETIMEDOUT || rv == NNG_EMSGSIZE)
+                            continue;
+                        if (rv != 0)
+                            throw satdump_exception(std::string("Network client receive failed: ") + nng_strerror(rv));
+                        if (!input_active.load())
+                            break;
+                        if (lpkt_size != static_cast<size_t>(pkt_size))
                             continue;
 
                         output_fifo->write(buffer, pkt_size);
                     }
-
-                    nng_dialer_close(dialer);
                 }
                 else if (mode == "udp_listen")
                 {

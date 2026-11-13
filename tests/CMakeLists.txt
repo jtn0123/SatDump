@@ -118,11 +118,15 @@ set_tests_properties(cli_unreadable_folders PROPERTIES LABELS cli SKIP_RETURN_CO
 
 # Modules that fail on purpose (tests/unit/fault_module.h), as a plugin for the cli test only;
 # never installed
+# Fork: a test-only event lets the fault module fail on the live command thread while
+# everything runs. Normal builds have neither this event nor its call site.
+target_compile_definitions(satdump PRIVATE SATDUMP_TEST_LIVE_RUNNING)
+target_include_directories(satdump PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit)
 add_library(fork_fault_test_plugin SHARED unit/fault_plugin.cpp)
 target_include_directories(fork_fault_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(fork_fault_test_plugin PRIVATE satdump_core)
 add_test(NAME cli_thread_faults
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/thread_faults.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_fault_test_plugin>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/thread_faults.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_fault_test_plugin> $<TARGET_FILE:fork_probe_source_test_plugin>)
 set_tests_properties(cli_thread_faults PROPERTIES LABELS cli)
 
 # Fork: orbit elements and Earth orientation data read from local files (file://), the TLE
@@ -139,7 +143,7 @@ add_library(fork_probe_source_test_plugin SHARED unit/probe_source_plugin.cpp)
 target_include_directories(fork_probe_source_test_plugin PRIVATE ${PROJECT_SOURCE_DIR}/src-core)
 target_link_libraries(fork_probe_source_test_plugin PRIVATE satdump_core)
 add_test(NAME cli_supervision
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/supervision.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/supervision.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin> $<TARGET_FILE:fork_fault_test_plugin>)
 set_tests_properties(cli_supervision PROPERTIES LABELS cli)
 
 if(Python3_FOUND)

@@ -9,6 +9,7 @@
 
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "core/plugin.h"
+#include "logger.h"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -32,6 +33,13 @@ namespace
     public:
         explicit ProbeSource(dsp::SourceDescriptor source) : dsp::DSPSampleSource(source) {}
 
+        // Fork: cleanup tests must see stop(), including on paths that used exit(1).
+        ~ProbeSource()
+        {
+            if (started)
+                logger->error("Fork probe radio destroyed while running");
+        }
+
         void open() override
         {
             mark("SATDUMP_TEST_PROBE_OPENING");
@@ -44,12 +52,16 @@ namespace
         {
             dsp::DSPSampleSource::start();
             started = true;
+            logger->info("Fork probe radio started");
         }
 
         void stop() override
         {
             if (started)
+            {
                 output_stream->flush();
+                logger->info("Fork probe radio stopped");
+            }
             started = false;
         }
 
