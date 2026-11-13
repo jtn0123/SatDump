@@ -1,4 +1,5 @@
 #include "legacy.h"
+#include "core/cli/stop_signals.h"
 #include "init.h"
 #include "logger.h"
 
@@ -16,6 +17,12 @@ namespace satdump
     void LegacyCmdHandler::run(CLI::App *app, CLI::App *subcom, bool is_gui)
     {
         auto args = subcom->remaining();
+
+        // Fork: only these legacy commands poll the shared stop request while running.
+        if (args.empty() || (args[0] != "live" && args[0] != "record" && args[0] != "autotrack"))
+            satdump::cli::restore_stop_signals();
+        if (satdump::cli::stop_requested())
+            return;
 
         std::vector<char *> vec;
         args.insert(args.begin(), "satdump legacy");

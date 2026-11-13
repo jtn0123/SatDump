@@ -9,19 +9,19 @@
 #include "live.h"
 #include "logger.h"
 #include "webserver.h"
-#include <signal.h>
+#include "core/cli/stop_signals.h"
+#include "core/exception.h"
 #include <cinttypes>
-
-// Catch CTRL+C to exit live properly!
-bool rec_should_exit = false;
-void sig_handler_rec(int signo)
-{
-    if (signo == SIGINT || signo == SIGTERM)
-        rec_should_exit = true;
-}
 
 int main_record(int argc, char *argv[])
 {
+    // Fork: a stop during CLI startup cancels the pass before any radio is opened.
+    if (satdump::cli::stop_requested())
+    {
+        logger->warn("Signal Received. Stopping.");
+        return 0;
+    }
+
     if (argc < 5) // Check overall command
     {
         logger->error("Usage : " + std::string(argv[0]) + " record [output_baseband (without extension!)] [additional options as required]");
@@ -60,6 +60,13 @@ int main_record(int argc, char *argv[])
     catch (std::exception &e)
     {
         logger->error("Error parsing arguments! %s", e.what());
+        return 1;
+    }
+
+    // Fork: reject a missing format before starting any radio or processing block.
+    if (!parameters.contains("baseband_format"))
+    {
+        logger->error("baseband_format flag is required!");
         return 1;
     }
 
@@ -121,156 +128,197 @@ int main_record(int argc, char *argv[])
     std::unique_ptr<dsp::SmartResamplerBlock<complex_t>> decim;
     std::unique_ptr<dsp::SplitterBlock> splitter;
     std::unique_ptr<dsp::FFTPanBlock> fft;
+    std::shared_ptr<dsp::FileSinkBlock> file_sink;
     bool webserver_already_set = false;
+    bool webserver_started = false;
+    bool source_start_attempted = false;
+    bool recording = false;
 
-    // Attempt to start the source
+    // Fork: one cleanup path for normal stops, usage errors and exceptions, including partial
+    // startup. Stop callbacks first, then producers before consumers, and join the sink before
+    // closing its file (or writing a WAV header). No derived block may be destroyed running.
+    auto stop_running = [&]()
+    {
+        bool failed = false;
+        auto stop = [&](const char *name, auto action)
+        {
+            try
+            {
+                action();
+            }
+            catch (const std::exception &e)
+            {
+                logger->error("Error stopping %s: %s", name, e.what());
+                failed = true;
+            }
+            catch (...)
+            {
+                logger->error("Error stopping %s: unknown exception", name);
+                failed = true;
+            }
+        };
+        if (webserver_started)
+            stop("web server", [&]() { webserver::stop(); });
+        webserver_started = false;
+        if (source_start_attempted)
+            stop("radio", [&]() { source_ptr->stop(); });
+        source_start_attempted = false;
+        if (decim)
+            stop("resampler", [&]() { decim->stop(); });
+        if (splitter)
+            stop("splitter", [&]() { splitter->stop(); });
+        if (fft)
+            stop("FFT", [&]() { fft->stop(); });
+        if (file_sink)
+            stop("file sink", [&]() { file_sink->stop(); });
+        if (recording)
+            stop("recording", [&]() { file_sink->stop_recording(); });
+        recording = false;
+        // Fork: callbacks capture local block owners, so release them before those owners go.
+        webserver::handle_callback = {};
+        return failed;
+    };
+
     try
     {
-        source_ptr->start();
-    }
-    catch (std::exception &e)
-    {
-        logger->error("Radio problem: could not start the radio: " + std::string(e.what()));
-        return satdump::EXIT_RADIO;
-    }
-
-    // Decimation if requested
-    if (decimation > 1)
-    {
-        decim = std::make_unique<dsp::SmartResamplerBlock<complex_t>>(source_ptr->output_stream, 1, decimation);
-        decim->start();
-        logger->info("Setting up resampler...");
-    }
-
-    // Optional FFT
-    std::shared_ptr<dsp::stream<complex_t>> final_stream = decimation > 1 ? decim->output_stream : source_ptr->output_stream;
-
-    int fft_size = 0;
-    if (parameters.contains("fft_enable"))
-    {
-        fft_size = parameters.contains("fft_size") ? parameters["fft_size"].get<int>() : 512;
-        int fft_rate = parameters.contains("fft_rate") ? parameters["fft_rate"].get<int>() : 30;
-
-        splitter = std::make_unique<dsp::SplitterBlock>(source_ptr->output_stream);
-        splitter->add_output("fft");
-        splitter->set_enabled("fft", true);
-        final_stream = splitter->output_stream;
-        fft = std::make_unique<dsp::FFTPanBlock>(splitter->get_output("fft"));
-        fft->set_fft_settings(fft_size, samplerate / decimation, fft_rate);
-        if (parameters.contains("fft_avgn"))
-            fft->avg_num = parameters["fft_avgn"].get<float>();
-        splitter->start();
-        fft->start();
-    }
-
-    // Setup file sink
-    std::shared_ptr<dsp::FileSinkBlock> file_sink = std::make_shared<dsp::FileSinkBlock>(final_stream);
-
-    if (parameters.contains("fft_enable"))
-    {
-        webserver::handle_callback = [&file_sink, &fft, fft_size]()
+        // Attempt to start the source
+        try
         {
-            nlohmann::json stats;
-            stats["written"] = file_sink->get_written();
-            stats["written_raw"] = file_sink->get_written_raw();
-            for (int i = 0; i < fft_size; i++)
-                stats["fft_values"][i] = fft->output_stream->writeBuf[i];
-            return stats.dump(4);
-        };
+            source_start_attempted = true;
+            source_ptr->start();
+        }
+        catch (std::exception &e)
+        {
+            stop_running();
+            logger->error("Radio problem: could not start the radio: " + std::string(e.what()));
+            return satdump::EXIT_RADIO;
+        }
 
-        webserver_already_set = true;
-    }
+        // Decimation if requested
+        if (decimation > 1)
+        {
+            decim = std::make_unique<dsp::SmartResamplerBlock<complex_t>>(source_ptr->output_stream, 1, decimation);
+            decim->start();
+            logger->info("Setting up resampler...");
+        }
 
-    if (!parameters.contains("baseband_format"))
-    {
-        logger->error("baseband_format flag is required!");
-        return 1;
-    }
+        // Optional FFT
+        std::shared_ptr<dsp::stream<complex_t>> final_stream = decimation > 1 ? decim->output_stream : source_ptr->output_stream;
 
-    dsp::BasebandType baseband_type = parameters["baseband_format"].get<std::string>();
+        int fft_size = 0;
+        if (parameters.contains("fft_enable"))
+        {
+            fft_size = parameters.contains("fft_size") ? parameters["fft_size"].get<int>() : 512;
+            int fft_rate = parameters.contains("fft_rate") ? parameters["fft_rate"].get<int>() : 30;
 
-#if defined(BUILD_ZIQ) || defined(BUILD_ZIQ2)
-    if (parameters.contains("ziq_depth"))
-        baseband_type.ziq_depth = parameters["ziq_depth"].get<int>();
+            // Fork: split the decimated stream; two readers of the source race and bypass decimation.
+            splitter = std::make_unique<dsp::SplitterBlock>(final_stream);
+            splitter->add_output("fft");
+            splitter->set_enabled("fft", true);
+            final_stream = splitter->output_stream;
+            fft = std::make_unique<dsp::FFTPanBlock>(splitter->get_output("fft"));
+            fft->set_fft_settings(fft_size, samplerate / decimation, fft_rate);
+            if (parameters.contains("fft_avgn"))
+                fft->avg_num = parameters["fft_avgn"].get<float>();
+            splitter->start();
+            fft->start();
+        }
 
-    if (parameters["baseband_format"].get<std::string>() == "ziq")
-        logger->info("Using ZIQ Depth %d", baseband_type.ziq_depth);
-#endif
+        // Setup file sink
+        file_sink = std::make_shared<dsp::FileSinkBlock>(final_stream);
 
-    file_sink->set_output_sample_type(baseband_type);
-    file_sink->start();
-    file_sink->start_recording(output_file, samplerate / decimation);
-
-    // If requested, boot up webserver
-    bool webserver_failed = false; // Fork: see below
-    if (parameters.contains("http_server"))
-    {
-        if (!webserver_already_set)
-            webserver::handle_callback = [&file_sink]()
+        if (parameters.contains("fft_enable"))
+        {
+            webserver::handle_callback = [&file_sink, &fft, fft_size]()
             {
                 nlohmann::json stats;
                 stats["written"] = file_sink->get_written();
                 stats["written_raw"] = file_sink->get_written_raw();
+                for (int i = 0; i < fft_size; i++)
+                    stats["fft_values"][i] = fft->output_stream->writeBuf[i];
                 return stats.dump(4);
             };
-        // Fork: a server that cannot start (the reason is logged) stops the recording at once,
-        // with exit code 1, as for live. The recording used to go on with no server. That
-        // includes a value that is not an address and port (a number, or a flag given no
-        // value), which threw while the radio and the recording ran
-        webserver_failed = !webserver::start_from_flag(parameters["http_server"]);
-    }
 
-    // Attach signal
-    signal(SIGINT, sig_handler_rec);
-    signal(SIGTERM, sig_handler_rec);
+            webserver_already_set = true;
+        }
 
-    // Now, we wait
-    uint64_t start_time = time(0);
-    while (!webserver_failed)
-    {
-        uint64_t elapsed_time = time(0) - start_time;
+        dsp::BasebandType baseband_type = parameters["baseband_format"].get<std::string>();
 
-        if (timeout > 0)
+#if defined(BUILD_ZIQ) || defined(BUILD_ZIQ2)
+        if (parameters.contains("ziq_depth"))
+            baseband_type.ziq_depth = parameters["ziq_depth"].get<int>();
+
+        if (parameters["baseband_format"].get<std::string>() == "ziq")
+            logger->info("Using ZIQ Depth %d", baseband_type.ziq_depth);
+#endif
+
+        file_sink->set_output_sample_type(baseband_type);
+        file_sink->start_recording(output_file, samplerate / decimation);
+        recording = true;
+        file_sink->start();
+
+        // If requested, boot up webserver
+        bool webserver_failed = false; // Fork: see below
+        if (parameters.contains("http_server"))
         {
-            if (elapsed_time >= timeout)
+            if (!webserver_already_set)
+                webserver::handle_callback = [&file_sink]()
+                {
+                    nlohmann::json stats;
+                    stats["written"] = file_sink->get_written();
+                    stats["written_raw"] = file_sink->get_written_raw();
+                    return stats.dump(4);
+                };
+            // Fork: a server that cannot start (the reason is logged) stops the recording at once,
+            // with exit code 1, as for live. The recording used to go on with no server. That
+            // includes a value that is not an address and port (a number, or a flag given no
+            // value), which threw while the radio and the recording ran
+            webserver_failed = !webserver::start_from_flag(parameters["http_server"]);
+            webserver_started = !webserver_failed;
+        }
+
+        // Now, we wait
+        uint64_t start_time = time(0);
+        while (!webserver_failed)
+        {
+            uint64_t elapsed_time = time(0) - start_time;
+
+            if (timeout > 0)
             {
-                // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
-                logger->warn("Timeout is over! (%" PRIu64 "s >= %" PRIu64 "s) Stopping.", elapsed_time, timeout);
+                if (elapsed_time >= timeout)
+                {
+                    // Fork: PRIu64 for a uint64_t (was the wrong printf type for it)
+                    logger->warn("Timeout is over! (%" PRIu64 "s >= %" PRIu64 "s) Stopping.", elapsed_time, timeout);
+                    break;
+                }
+            }
+
+            if (satdump::cli::stop_requested())
+            {
+                logger->warn("Signal Received. Stopping.");
                 break;
             }
+
+            if (int(elapsed_time) % 2 == 0)
+            {
+                if (parameters["baseband_format"].get<std::string>() == "ziq")
+                    logger->info("Wrote %d MB, raw %d MB", int(file_sink->get_written() / 1e6), int(file_sink->get_written_raw() / 1e6));
+                else
+                    logger->info("Wrote %d MB", int(file_sink->get_written() / 1e6));
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
-        if (rec_should_exit)
-        {
-            logger->warn("Signal Received. Stopping.");
-            break;
-        }
-
-        if (int(elapsed_time) % 2 == 0)
-        {
-            if (parameters["baseband_format"].get<std::string>() == "ziq")
-                logger->info("Wrote %d MB, raw %d MB", int(file_sink->get_written() / 1e6), int(file_sink->get_written_raw() / 1e6));
-            else
-                logger->info("Wrote %d MB", int(file_sink->get_written() / 1e6));
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool stop_failed = stop_running();
+        if (stop_failed)
+            throw satdump_exception("record cleanup failed");
+        return webserver_failed ? 1 : 0;
     }
-
-    // Stop recording
-    file_sink->stop_recording();
-
-    // Stop cleanly
-    source_ptr->stop();
-    if (parameters.contains("fft_enable"))
+    catch (...)
     {
-        splitter->stop();
-        fft->stop();
+        // Fork: cleanup is also required when setup or the run throws, before owners unwind.
+        stop_running();
+        throw;
     }
-    file_sink->stop();
-
-    if (parameters.contains("http_server") && !webserver_failed)
-        webserver::stop();
-
-    return webserver_failed ? 1 : 0;
 }

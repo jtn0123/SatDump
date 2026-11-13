@@ -3,18 +3,17 @@
 #include "init.h"
 #include "logger.h"
 #include <filesystem>
-#include <signal.h>
-
-// Catch CTRL+C to exit live properly!
-bool autotrack_should_exit = false;
-void sig_handler_autotrack(int signo)
-{
-    if (signo == SIGINT || signo == SIGTERM)
-        autotrack_should_exit = true;
-}
+#include "core/cli/stop_signals.h"
 
 int main_autotrack(int argc, char *argv[])
 {
+    // Fork: a request remembered during CLI startup must not engage a radio.
+    if (satdump::cli::stop_requested())
+    {
+        logger->warn("Signal Received. Stopping.");
+        return 0;
+    }
+
     if (argc < 3) // Check overall command
     {
         logger->error("Usage : " + std::string(argv[0]) + " autotrack autotrack_config.json");
@@ -41,16 +40,12 @@ int main_autotrack(int argc, char *argv[])
 
     AutoTrackApp *app = new AutoTrackApp(settings, parameters, output_folder);
 
-    // Attach signal
-    signal(SIGINT, sig_handler_autotrack);
-    signal(SIGTERM, sig_handler_autotrack);
-
     logger->info("Setup Done!");
 
     // Now, we wait
     while (1)
     {
-        if (autotrack_should_exit)
+        if (satdump::cli::stop_requested())
         {
             logger->warn("Signal Received. Stopping.");
             break;

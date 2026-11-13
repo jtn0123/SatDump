@@ -1,4 +1,5 @@
 #include "cli.h"
+#include "stop_signals.h"
 #include "common/dsp/block_failures.h"
 #include "core/cli/dsp_bench/dsp_bench.h"
 #include "core/cli/experimental/hserver.h"
@@ -86,6 +87,13 @@ namespace satdump
 
             for (auto *subcom : app.get_subcommands())
             {
+                // Fork: these commands have no cooperative stop. Restore their usual handling
+                // after startup, but still cancel dispatch for a request received before now.
+                if (!is_gui && subcom->get_name() != "legacy")
+                    restore_stop_signals();
+                if (!is_gui && stop_requested())
+                    return false;
+
                 //  std::cout << "Subcommand: " << subcom->get_name() << '\n';
 
                 try

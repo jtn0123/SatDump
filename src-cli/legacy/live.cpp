@@ -15,18 +15,9 @@
 #include "live_running_event.h"
 #endif
 #include <cinttypes>
+#include "core/cli/stop_signals.h"
 #include <cmath>
-#include <csignal>
 #include <filesystem>
-
-// Catch CTRL+C to exit live properly!
-// Fork: a volatile sig_atomic_t, the only type a signal handler may safely set (was a plain bool)
-static volatile std::sig_atomic_t live_should_exit = 0;
-static void sig_handler_live(int signo)
-{
-    if (signo == SIGINT || signo == SIGTERM)
-        live_should_exit = 1;
-}
 
 // Fork: starts the web server asked for with --http_server. False when it cannot start, most
 // often because another program uses the port, or the value is not an address and port (a
@@ -57,6 +48,13 @@ static void throw_if_failed(std::map<std::string, satdump::pipeline::LivePipelin
 
 int main_live(int argc, char *argv[])
 {
+    // Fork: preserve a stop received during CLI startup, before opening any radio.
+    if (satdump::cli::stop_requested())
+    {
+        logger->warn("Signal Received. Stopping.");
+        return 0;
+    }
+
     if (argc < 5) // Check overall command
     {
         logger->error("Usage : " + std::string(argv[0]) + " live [pipeline_id] [output_file_or_directory] [additional options as required]");
@@ -68,13 +66,6 @@ int main_live(int argc, char *argv[])
         logger->error("./satdump live metop_ahrpt metop_output_directory --source airspy --samplerate 6e6 --frequency 1701.3e6 --general_gain 18 --bias --timeout 780");
         return 1;
     }
-
-    // Fork: SIGINT and SIGTERM are caught from here on, so one that comes while the run is still
-    // starting (opening the radio, starting the pipeline) also ends it cleanly with exit code 0,
-    // once it has started. Until now they were caught only once everything ran, and one that
-    // came earlier ended the program at once, by the signal
-    signal(SIGINT, sig_handler_live);
-    signal(SIGTERM, sig_handler_live);
 
     std::string downlink_pipeline = argv[2];
     std::string output_file = argv[3];
@@ -139,7 +130,7 @@ int main_live(int argc, char *argv[])
             // Now, we wait
             while (1)
             {
-                if (live_should_exit)
+                if (satdump::cli::stop_requested())
                 {
                     logger->warn("Signal Received. Stopping.");
                     break;
@@ -386,7 +377,7 @@ int main_live(int argc, char *argv[])
                         // live_pipeline->stats["timeout_left"] = timeout - elapsed_time;
                     }
 
-                    if (live_should_exit)
+                    if (satdump::cli::stop_requested())
                     {
                         logger->warn("Signal Received. Stopping.");
                         break;
@@ -550,7 +541,7 @@ int main_live(int argc, char *argv[])
                         live_pipeline_stats["timeout_left"] = timeout - elapsed_time;
                     }
 
-                    if (live_should_exit)
+                    if (satdump::cli::stop_requested())
                     {
                         logger->warn("Signal Received. Stopping.");
                         break;

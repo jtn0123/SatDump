@@ -149,6 +149,13 @@ add_test(NAME cli_supervision
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/supervision.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin> $<TARGET_FILE:fork_fault_test_plugin> $<TARGET_FILE:fork_client_publisher>)
 set_tests_properties(cli_supervision PROPERTIES LABELS cli)
 
+# Fork: record cleanup and stop requests received before command startup.
+add_test(NAME cli_record_shutdown COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/record_shutdown.sh ${SATDUMP_CHECK_PREFIX})
+set_tests_properties(cli_record_shutdown PROPERTIES LABELS cli TIMEOUT 240)
+add_test(NAME cli_early_signals
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/early_signals.sh ${SATDUMP_CHECK_PREFIX} $<TARGET_FILE:fork_probe_source_test_plugin>)
+set_tests_properties(cli_early_signals PROPERTIES LABELS cli TIMEOUT 300)
+
 if(Python3_FOUND)
     add_test(NAME thread_catches_lint COMMAND ${Python3_EXECUTABLE} -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lint/thread_catches.py ${PROJECT_SOURCE_DIR})
     set_tests_properties(thread_catches_lint PROPERTIES LABELS lint)

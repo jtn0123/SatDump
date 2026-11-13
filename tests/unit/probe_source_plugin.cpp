@@ -148,7 +148,15 @@ class ForkProbeSourceTestPlugin : public satdump::Plugin
 public:
     std::string getID() override { return "fork_probe_source_test"; }
 
-    void init() override { satdump::eventBus->register_handler<dsp::RegisterDSPSampleSourcesEvent>(registerSources); }
+    void init() override
+    {
+        // Fork: an optional startup barrier lets early_signals.sh stop before command dispatch.
+        mark("SATDUMP_TEST_PROBE_INIT_READY");
+        const char *release = std::getenv("SATDUMP_TEST_PROBE_INIT_RELEASE");
+        for (int i = 0; release != nullptr && i < 600 && !std::filesystem::exists(release); i++)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        satdump::eventBus->register_handler<dsp::RegisterDSPSampleSourcesEvent>(registerSources);
+    }
 
     static void registerSources(const dsp::RegisterDSPSampleSourcesEvent &evt) { evt.dsp_sources_registry.insert({"fork_probe", {makeProbeSource, listProbeSources}}); }
 };
