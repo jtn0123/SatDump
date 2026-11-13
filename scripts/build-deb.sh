@@ -13,6 +13,7 @@
 # from a git clone (see cmake/fork/debian_version.cmake).
 # Release keeps the Pi preset's optimisation flags, with -g for both C and C++;
 # RelWithDebInfo would change -O3 to -O2.
+# Source/build paths in debug information and filename macros use neutral /usr/src paths.
 # The programs, libraries and plugins in satdump-fork_<version>_arm64.deb are stripped. Their
 # debug information is in satdump-fork-dbgsym_<version>_arm64.ddeb, next to it, which needs the
 # same version of satdump-fork: install it too only to debug (gdb finds each file's debug
@@ -82,7 +83,10 @@ SATDUMP_MIN_FREE_GB=${SATDUMP_MIN_FREE_GB:-9}
 . "$ROOT/tests/guard.sh"
 
 options=(-C "$ROOT/cmake/fork/pi.cmake" -S "$ROOT" -B "$B" -DCMAKE_INSTALL_PREFIX=/usr -DSATDUMP_TESTS=OFF
-    -DCMAKE_BUILD_TYPE=Release -DENABLE_CRASHDUMP=ON)
+    -DCMAKE_BUILD_TYPE=Release -DENABLE_CRASHDUMP=ON -DSATDUMP_PACKAGE_PATH_MAP=ON)
+# Let the compiler see absolute input paths and apply the maps above. Relative paths
+# introduced by ccache's base_dir would depend on the source/build folder layout.
+export CCACHE_BASEDIR=
 if [ ! -f "$B/CMakeCache.txt" ] && command -v ninja > /dev/null; then
     options+=(-G Ninja)
 fi

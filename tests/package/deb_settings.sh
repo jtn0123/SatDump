@@ -186,4 +186,27 @@ cpack_start TGZ
 [ $rc = 0 ] && ok "TGZ with none of them: goes ahead (other package types are not affected)" ||
     fail "TGZ with none of them: stopped (exit $rc): $out"
 
+# Payload path scanning must inspect binary bytes and ordinary files, not just ELF
+# section/entry names. Also exercise arbitrary non-home source and build roots.
+probe=$(mktemp -d)
+mkdir -p "$probe/root"
+printf 'neutral /usr/src/satdump-fork/file.cpp\n' > "$probe/root/clean"
+path_probe() {
+    bash "$SRC/tests/package/check_paths.sh" "$probe/root" /source-fixture /build-fixture > "$probe/result"
+}
+path_probe && ok "path scan accepts neutral paths" || fail "path scan refuses neutral paths"
+for kind in binary text source build link entry; do
+    case $kind in
+        binary) printf '\177ELF\000/home/example/file.cpp\000' > "$probe/root/bad" ;;
+        text) printf '/home/example/file.cpp\n' > "$probe/root/bad" ;;
+        source) printf '/source-fixture/file.cpp\n' > "$probe/root/bad" ;;
+        build) printf '/build-fixture/generated.cpp\n' > "$probe/root/bad" ;;
+        link) ln -s /home/example/file "$probe/root/bad" ;;
+        entry) mkdir -p "$probe/root/home/example" ;;
+    esac
+    if path_probe; then fail "path scan accepted a $kind path leak"; else ok "path scan rejects $kind path leak"; fi
+    rm -rf "$probe/root/bad" "$probe/root/home"
+done
+rm -rf "$probe"
+
 exit $FAILED

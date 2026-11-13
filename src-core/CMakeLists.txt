@@ -332,3 +332,14 @@ endif()
 # (cmake/fork/codecs.cmake)
 install(DIRECTORY . DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump FILES_MATCHING PATTERN "*.h" ${SATDUMP_CORE_HEADERS_EXCLUDE})
 install(DIRECTORY . DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump FILES_MATCHING PATTERN "*.hpp" ${SATDUMP_CORE_HEADERS_EXCLUDE})
+if(SATDUMP_PACKAGE_PATH_MAP)
+    # One installed header has an obsolete, commented-out local example path. Strip
+    # that example comment from the package copy, retaining the code and source tree.
+    set(_package_header "handlers/dataset/flowgraph/imageproduct_node.h")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/${_package_header}" _package_header_text)
+    string(REGEX REPLACE "//\"[^\n]*" "" _package_header_text "${_package_header_text}")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/package-headers")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/package-headers/imageproduct_node.h" "${_package_header_text}")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/package-headers/imageproduct_node.h"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/satdump/handlers/dataset/flowgraph)
+endif()

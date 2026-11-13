@@ -21,8 +21,30 @@ list(APPEND _satdump_rs_sources ${_satdump_rs_aos_sources})
 file(GLOB _satdump_rs_lrpt CONFIGURE_DEPENDS ${SATDUMP_RUST_DIR}/src/lrpt/*.rs)
 list(APPEND _satdump_rs_sources ${_satdump_rs_lrpt})
 
+set(_satdump_rs_env "")
+if(SATDUMP_PACKAGE_PATH_MAP)
+    # Preserve caller flags; encoded flags take precedence over RUSTFLAGS in cargo.
+    string(ASCII 31 _satdump_rs_sep)
+    if(DEFINED ENV{CARGO_ENCODED_RUSTFLAGS})
+        set(_satdump_rs_flags "$ENV{CARGO_ENCODED_RUSTFLAGS}")
+    else()
+        separate_arguments(_satdump_rs_flags UNIX_COMMAND "$ENV{RUSTFLAGS}")
+        list(JOIN _satdump_rs_flags "${_satdump_rs_sep}" _satdump_rs_flags)
+    endif()
+    foreach(_satdump_rs_map
+            "${CMAKE_SOURCE_DIR}=${SATDUMP_PACKAGE_SOURCE_ROOT}"
+            "${CMAKE_BINARY_DIR}=${SATDUMP_PACKAGE_BUILD_ROOT}"
+            "${SATDUMP_RUST_TARGET_DIR}=${SATDUMP_PACKAGE_BUILD_ROOT}/rust-target")
+        if(_satdump_rs_flags)
+            string(APPEND _satdump_rs_flags "${_satdump_rs_sep}")
+        endif()
+        string(APPEND _satdump_rs_flags "--remap-path-prefix=${_satdump_rs_map}")
+    endforeach()
+    list(APPEND _satdump_rs_env "CARGO_ENCODED_RUSTFLAGS=${_satdump_rs_flags}")
+endif()
+
 add_custom_command(OUTPUT ${_satdump_rs_lib}
-    COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${SATDUMP_RUST_TARGET_DIR}
+    COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${SATDUMP_RUST_TARGET_DIR} ${_satdump_rs_env}
             ${SATDUMP_CARGO} build --release --offline --locked --manifest-path ${SATDUMP_RUST_DIR}/Cargo.toml
     DEPENDS ${_satdump_rs_sources} ${SATDUMP_RUST_DIR}/Cargo.toml ${SATDUMP_RUST_DIR}/Cargo.lock
     COMMENT "Building SatDump's Rust parts (cargo)"

@@ -12,6 +12,9 @@
 #
 # The debug-symbols package scripts/build-deb.sh makes with it is taken from the same folder
 # (satdump-fork-dbgsym_<version>_<arch>.ddeb; DBGSYM=<file> names another).
+# Every payload/control file in both packages is scanned for source/build and home paths.
+# For packages copied away from their build folder, set PACKAGE_SOURCE_DIR and
+# PACKAGE_BUILD_DIR to the original roots (normally read from adjacent CMakeCache.txt).
 #
 # It checks, in order:
 #   1. dpkg-deb --info: the name is satdump-fork, the version is valid, the architecture is
@@ -48,6 +51,7 @@
 # debug symbols are removed after part 4). gdb is optional. KEEP=1 keeps the temporary folder
 # (logs, products, debug symbols).
 set -uo pipefail
+export LC_ALL=C
 usage="usage: $0 <satdump-fork_*.deb> <baseline prefix> <recording>"
 DEB=$(realpath "${1:?$usage}") || exit 1
 BASE=$(realpath "${2:?$usage}") || exit 1
@@ -61,6 +65,13 @@ SAMPLERATE=${SAMPLERATE:-10e6}
 FORMAT=${FORMAT:-cs16}
 ARCH=${ARCH:-arm64}
 MAX_MIB=${MAX_MIB:-110}
+# Adjacent CMakeCache.txt records the actual build roots. For copied packages,
+# PACKAGE_SOURCE_DIR/PACKAGE_BUILD_DIR can supply them; defaults are this tree/folder.
+cache="$(dirname "$DEB")/CMakeCache.txt"
+package_source=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$cache" 2>/dev/null)
+package_build=$(sed -n 's/^CMAKE_CACHEFILE_DIR:INTERNAL=//p' "$cache" 2>/dev/null)
+PACKAGE_SOURCE_DIR=${PACKAGE_SOURCE_DIR:-${package_source:-$SRC}}
+PACKAGE_BUILD_DIR=${PACKAGE_BUILD_DIR:-${package_build:-$(dirname "$DEB")}}
 
 WORK=$(mktemp -d)
 trap '[ -n "${KEEP:-}" ] && echo "kept $WORK" || rm -rf "$WORK"' EXIT
@@ -73,6 +84,23 @@ fail() {
 }
 section() { printf '\n== %s\n' "$*"; }
 indent() { sed 's/^/     /'; }
+check_paths() {
+    local label=$1 dir=$2
+    if bash "$SRC/tests/package/check_paths.sh" "$dir" "$PACKAGE_SOURCE_DIR" "$PACKAGE_BUILD_DIR" > "$WORK/paths.log"; then
+        ok "$label: no source/build or home paths in any file, entry or symlink"
+    else
+        fail "$label: source/build or home paths found"
+        cat "$WORK/paths.log" | indent
+    fi
+}
+check_sums() {
+    local label=$1 dir=$2 control=$3
+    if (cd "$dir" && md5sum --check --status "$control/md5sums"); then
+        ok "$label: control checksums match every payload file"
+    else
+        fail "$label: invalid control checksums"
+    fi
+}
 
 section "1. Package information"
 dpkg-deb --info "$DEB" | indent
@@ -139,6 +167,10 @@ build_paths=$(grep -E '(^|/)(build[-_][^/]*|_CPack_Packages|CMakeFiles|check-pre
 
 section "3. Libraries of the unpacked package"
 dpkg-deb -x "$DEB" "$ROOT" || { fail "dpkg-deb -x failed"; exit 1; }
+dpkg-deb -e "$DEB" "$WORK/main-control" || { fail "cannot unpack main control files"; exit 1; }
+check_paths "main package" "$ROOT"
+check_paths "main control" "$WORK/main-control"
+check_sums "main package" "$ROOT" "$WORK/main-control"
 grep -q '"value": "Soft OLED"' "$ROOT/usr/share/satdump/satdump_cfg.json" &&
     ok "satdump_cfg.json: default theme Soft OLED" || fail "satdump_cfg.json does not default to Soft OLED"
 libpath=$(find "$ROOT" \( -type f -o -type l \) -name '*.so*' -printf '%h\n' | sort -u | paste -sd:)
@@ -242,6 +274,13 @@ else
         fail "debug package Build-Ids differs from main ELF build-ids"
     DEBUG="$WORK/debug"
     if dpkg-deb -x "$DBGSYM" "$DEBUG"; then
+        check_paths "debug package" "$DEBUG"
+        if dpkg-deb -e "$DBGSYM" "$WORK/debug-control"; then
+            check_paths "debug control" "$WORK/debug-control"
+            check_sums "debug package" "$DEBUG" "$WORK/debug-control"
+        else
+            fail "cannot unpack debug control files"
+        fi
         : > "$WORK/expected-debug-files"
         matched=0
         while IFS= read -r id; do

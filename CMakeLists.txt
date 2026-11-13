@@ -36,6 +36,7 @@ option(BUILD_DOCS "Build with Doxygen Documentation" OFF)
 option(ENABLE_INSTALL "Enable INSTALL TARGET" ON)
 option(ENABLE_I18N "Enable internationalizaton (allows changing language)" ON)
 option(ENABLE_CRASHDUMP "Enable crashdump feature (requires libcpptrace or libbacktrace)" ON)
+include(cmake/fork/package_paths.cmake)
 
 # I18N
 if(ENABLE_I18N)
@@ -292,7 +293,12 @@ else()
 endif()
 
 # Used for error messages
-string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
+if(SATDUMP_PACKAGE_PATH_MAP)
+    # satdump_exception trims __FILE__ to a source-relative diagnostic filename.
+    string(LENGTH "${SATDUMP_PACKAGE_SOURCE_ROOT}/" SOURCE_PATH_SIZE)
+else()
+    string(LENGTH "${CMAKE_SOURCE_DIR}/" SOURCE_PATH_SIZE)
+endif()
 add_compile_definitions(SOURCE_PATH_SIZE=${SOURCE_PATH_SIZE})
 
 if(ANDROID)
@@ -490,6 +496,10 @@ if((NOT ANDROID) AND ENABLE_INSTALL)
         # ENABLE_CRASHDUMP above): RelWithDebInfo would compile with -O2 and change the
         # version tag the programs show.
         set(CPACK_DEBIAN_DEBUGINFO_PACKAGE ON)
+        if(SATDUMP_PACKAGE_PATH_MAP)
+            # CPack 3.31 writes absolute staging paths into dbgsym control/md5sums.
+            set(CPACK_POST_BUILD_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/fork/dbgsym_control.cmake")
+        endif()
         # Fork: dpkg-shlibdeps, the file program (which CPack uses to find the programs and
         # libraries to pass it), objcopy and readelf are checked before anything is installed,
         # and making the package stops with the Debian packages to install. Without
