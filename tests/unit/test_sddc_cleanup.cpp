@@ -113,17 +113,22 @@ TEST_CASE("SDDC simple converter stops before Init and after worker creation fai
 
 TEST_CASE("SDDC USB stage releases a stream when poll thread creation fails")
 {
+    // Fork: the borrowed ring buffer must outlive its handler.
+    ringbuffer<int16_t> input;
+    input.setBlockSize(16);
     fx3handler usb;
     usb.StopStream();
     usb.StopStream();
-    ringbuffer<int16_t> input;
-    input.setBlockSize(16);
     thread_budget = 0;
     CHECK_THROWS_AS(usb.StartStream(input, 4), std::system_error);
     thread_budget = -1;
     CHECK(usb_streams == 1);
     usb.StopStream();
+    // Fork: after shutdown the caller can reuse the input; a second stop must not reset it.
+    input.ReadDone();
+    const auto read_position = input.peekReadPtr(0);
     usb.StopStream();
+    CHECK(input.peekReadPtr(0) == read_position);
     CHECK(usb_streams == 0);
     CHECK(usb_starts == 0);
 }

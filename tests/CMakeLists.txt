@@ -317,6 +317,32 @@ target_link_libraries(satdump-web-callback-test PRIVATE satdump_core)
 add_test(NAME unit_web_callback_failure COMMAND satdump-web-callback-test)
 set_tests_properties(unit_web_callback_failure PROPERTIES LABELS unit TIMEOUT 15)
 
+# Fork: exercise the Windows socket-option contract without Windows or a real host.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(satdump-udp-windows-timeout-tests unit/main.cpp unit/test_udp_windows_timeout.cpp)
+    target_include_directories(satdump-udp-windows-timeout-tests PRIVATE third_party/doctest
+        unit/fake_winsock ${PROJECT_SOURCE_DIR}/src-core)
+    target_link_libraries(satdump-udp-windows-timeout-tests PRIVATE satdump_core)
+    add_test(NAME unit_udp_windows_timeout COMMAND satdump-udp-windows-timeout-tests)
+    set_tests_properties(unit_udp_windows_timeout PROPERTIES LABELS unit)
+    add_executable(satdump-udp-posix-timeout-tests unit/main.cpp unit/test_udp_posix_timeout.cpp)
+    target_include_directories(satdump-udp-posix-timeout-tests PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
+    target_link_libraries(satdump-udp-posix-timeout-tests PRIVATE satdump_core)
+    add_test(NAME unit_udp_posix_timeout COMMAND satdump-udp-posix-timeout-tests)
+    set_tests_properties(unit_udp_posix_timeout PROPERTIES LABELS unit)
+endif()
+
+# Fork: load a local SDRplay API double; the test never loads a vendor library.
+if(TARGET sdrplay_sdr_support)
+    add_library(fork_fake_sdrplay_api SHARED unit/fake_sdrplay_api.cpp)
+    add_executable(satdump-sdrplay-cleanup-tests unit/main.cpp unit/test_sdrplay_cleanup.cpp)
+    target_include_directories(satdump-sdrplay-cleanup-tests PRIVATE third_party/doctest ${PROJECT_SOURCE_DIR}/src-core)
+    target_link_libraries(satdump-sdrplay-cleanup-tests PRIVATE satdump_core sdrplay_sdr_support fork_fake_sdrplay_api)
+    target_compile_definitions(satdump-sdrplay-cleanup-tests PRIVATE SATDUMP_FAKE_SDRPLAY="$<TARGET_FILE:fork_fake_sdrplay_api>")
+    add_test(NAME unit_sdrplay_cleanup COMMAND satdump-sdrplay-cleanup-tests)
+    set_tests_properties(unit_sdrplay_cleanup PROPERTIES LABELS unit TIMEOUT 20)
+endif()
+
 # Fork: test real radio cleanup without devices or external network connections.
 if(TARGET sdrpp_server_support AND TARGET net_source_support)
     add_executable(satdump-radio-cleanup-tests unit/main.cpp unit/test_radio_cleanup.cpp)

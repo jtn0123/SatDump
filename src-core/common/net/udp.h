@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdexcept>
+#include <system_error>
 #include <cerrno>
 #include <string.h>
 
@@ -128,15 +129,16 @@ namespace net
 
         void enableTimeout()
         {
-            // Fork: Windows expects milliseconds, POSIX a timeval. Check failure so a
-            // supposedly cancellable receiver can never silently fall back to an endless wait.
+            // Fork: Winsock takes milliseconds in a DWORD, POSIX takes a timeval.
 #if defined(_WIN32)
-            DWORD timeout = 100;
+            const DWORD read_timeout = 10;
+            if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&read_timeout), sizeof read_timeout) != 0)
+                throw std::system_error(WSAGetLastError(), std::system_category(), "Setting UDP receive timeout failed");
 #else
-            struct timeval timeout = {0, 100000};
+            const timeval read_timeout{0, 10000};
+            if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof read_timeout) != 0)
+                throw std::system_error(errno, std::generic_category(), "Setting UDP receive timeout failed");
 #endif
-            if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) != 0)
-                throw std::runtime_error("Couldn't set UDP receive timeout!");
         }
 
         int send(uint8_t *data, int len)

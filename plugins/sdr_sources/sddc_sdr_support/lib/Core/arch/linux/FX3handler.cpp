@@ -99,6 +99,7 @@ void fx3handler::StopStream()
         fprintf(stderr, "fx3handler::StopStream() streaming_close\n");
         stream = nullptr;
     }
+    inputbuffer = nullptr; // Fork: shutdown releases the borrowed input.
 }
 
 void fx3handler::PacketRead(uint32_t data_size, uint8_t *data, void *context)

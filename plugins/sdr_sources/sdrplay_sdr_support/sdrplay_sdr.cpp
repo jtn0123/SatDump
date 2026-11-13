@@ -218,6 +218,7 @@ void SDRPlaySource::open()
     else if (sdrplay_dev.hwVer == SDRPLAY_RSPdx_ID || sdrplay_dev.hwVer == SDRPLAY_RSPdxR2_ID) // RSPdx
         max_gain = 28;
     api.sdrplay_api_ReleaseDevice(&sdrplay_dev);
+    device_selected = false; // Fork: discovery no longer owns the selection.
 }
 
 void SDRPlaySource::start()
