@@ -18,7 +18,8 @@ namespace satdump
             std::shared_ptr<pipeline::ProcessingModule> mod;
 
             std::thread modThread;
-            bool work2shouldrun;
+            std::atomic<bool> work2shouldrun{false}; // Fork: shared with the output worker.
+            bool module_needs_stop = false;
             std::thread work2Thread;
 
             int output_read_size = 1024;
@@ -31,8 +32,12 @@ namespace satdump
             ModuleWrapperBlock();
             ~ModuleWrapperBlock();
 
-            void start();
-            void stop(bool stop_now = false, bool force = false);
+        protected:
+            // Fork: the base serialises these with its own worker's start and join.
+            void start_extra() override;
+            void stop_extra() noexcept override;
+
+        public:
 
             nlohmann::ordered_json get_cfg_list()
             {

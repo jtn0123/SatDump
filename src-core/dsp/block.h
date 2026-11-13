@@ -537,6 +537,26 @@ namespace satdump
              */
             virtual void init() {}
 
+        protected:
+            // Fork: extra workers start and join under blk_th_mtx too. Start runs after
+            // init() and before the main worker. Stop runs after the main worker is joined,
+            // and also cleans up partial starts; it must tolerate never having started.
+            virtual void start_extra() {}
+            virtual void stop_extra() noexcept {}
+
+            // Fork: derived destructors must join extra workers before their members die.
+            // Preserve the base class's deliberate abort for a main worker still running.
+            void stop_extra_before_destruction()
+            {
+                if (blk_should_run && !blk_th_done)
+                {
+                    if (logger)
+                        logger->critical("DSP block %s was destroyed while running, stop() was not called first. Stopping SatDump.", d_id.c_str());
+                    std::abort();
+                }
+                stop();
+            }
+
         public:
             /**
              * @brief Starts this block's internal thread and loop.
@@ -557,7 +577,18 @@ namespace satdump
                 }
                 blk_th_done = false;
                 blk_should_run = true;
-                blk_th = std::thread(&Block::run, this);
+                try
+                {
+                    start_extra();
+                    blk_th = std::thread(&Block::run, this);
+                }
+                catch (...)
+                {
+                    // Fork: a partial start owns no main worker; join any extra workers.
+                    blk_should_run = false;
+                    stop_extra();
+                    throw;
+                }
 #ifndef _WIN32
 #ifndef __APPLE__
                 std::string th_id = d_id;
@@ -602,6 +633,7 @@ namespace satdump
                 if (blk_th.joinable())
                     blk_th.join();
                 blk_should_run = false;
+                stop_extra(); // Fork: no concurrent start or second join can slip in here.
             }
         };
     } // namespace ndsp

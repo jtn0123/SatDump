@@ -218,14 +218,21 @@ namespace dsp
         {
             size = RING_BUF_SZ;
             _buffer = new T[size];
+            this->maxLatency = maxLatency;
+            reset();
+            memset((void *)_buffer, 0, size * sizeof(T));
+        }
+
+        // Fork: discard the previous run before starting either worker; both must be joined.
+        // Reusing init() would leak the old allocation on every restart.
+        void reset()
+        {
             _stopReader = false;
             _stopWriter = false;
-            this->maxLatency = maxLatency;
             writec = 0;
             readc = 0;
             readable = 0;
             writable = size;
-            memset((void *)_buffer, 0, size * sizeof(T));
         }
 
         int read(T *data, int len)

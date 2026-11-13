@@ -33,6 +33,7 @@ namespace dvbs2
 
     S2PLSyncBlock::~S2PLSyncBlock()
     {
+        stop(); // Fork: neither worker may use the buffers after they are freed.
         delete[] correlation_buffer;
     }
 
@@ -52,7 +53,9 @@ namespace dvbs2
 
     void S2PLSyncBlock::work2()
     {
-        /*int got =*/ring_buffer.read(correlation_buffer, raw_frame_size);
+        // Fork: a stop interrupts this read; never correlate or publish an incomplete frame.
+        if (ring_buffer.read(correlation_buffer, raw_frame_size) != raw_frame_size)
+            return;
 
         // Correlate the PLHeader
         int best_pos = 0;
@@ -114,7 +117,8 @@ namespace dvbs2
         {
             int pos = best_pos;
             memmove(&correlation_buffer[0], &correlation_buffer[pos], (raw_frame_size - pos) * sizeof(complex_t));
-            ring_buffer.read(&correlation_buffer[raw_frame_size - pos], pos);
+            if (ring_buffer.read(&correlation_buffer[raw_frame_size - pos], pos) != pos)
+                return;
             best_pos = 0;
         }
 

@@ -14,22 +14,19 @@ namespace satdump
         template <typename T>
         ReshapeBufferBlock<T>::~ReshapeBufferBlock()
         {
+            stop_extra_before_destruction(); // Fork: join before destroying ring_buf.
         }
 
         template <typename T>
-        void ReshapeBufferBlock<T>::start()
+        void ReshapeBufferBlock<T>::start_extra()
         {
             work2shouldrun = true;
             work2Thread = std::thread(&ReshapeBufferBlock::work2, this);
-
-            Block::start();
         }
 
         template <typename T>
-        void ReshapeBufferBlock<T>::stop(bool stop_now, bool force)
+        void ReshapeBufferBlock<T>::stop_extra() noexcept
         {
-            Block::stop(stop_now, force);
-
             work2shouldrun = false;
             ring_buf.stopWriter();
             ring_buf.stopReader();

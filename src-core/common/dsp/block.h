@@ -71,6 +71,12 @@ namespace dsp
             workFailed(error);
         }
 
+        // Fork: extra workers belong to the same lifecycle as d_thread. Hooks run under
+        // d_start_stop_mtx; start_extra() runs once per start, before the main worker.
+        // stop_extra() must tolerate a partial start or no start, and wake and join its workers.
+        virtual void start_extra() {}
+        virtual void stop_extra() noexcept {}
+
     private:
         // Fork: held across the whole of start() and of stop(), so they run one at a time. A
         // stop() on one thread could clear should_run, then a start() on another thread (a live
@@ -135,7 +141,7 @@ namespace dsp
 
     protected:
         // Fork: extra-output blocks use the same start/stop lock while waking all writers and
-        // joining. A template keeps this allocation-free without changing the block's vtable.
+        // joining. A template keeps this allocation-free; extra workers stop through stop_extra().
         template <typename StopOutputs>
         void stop_with_outputs(StopOutputs stop_outputs)
         {
@@ -144,6 +150,9 @@ namespace dsp
             if (d_got_input && input_stream)
                 input_stream->stopReader();
             stop_outputs();
+            // Fork: wake the extra worker's buffers before joining the main worker,
+            // which may be waiting to write to them.
+            stop_extra();
             if (d_thread.joinable())
                 d_thread.join();
         }
@@ -176,6 +185,10 @@ namespace dsp
         {
             std::lock_guard<std::mutex> start_stop(d_start_stop_mtx); // Fork: see d_start_stop_mtx
 
+            // Fork: reject a duplicate start before either worker can be replaced.
+            if (d_thread.joinable())
+                throw satdump_exception("Block wasn't properly stopped before start() was called again!");
+
             // Fork: a block started again begins without a failure, with its output open
             d_failed = false;
             {
@@ -185,7 +198,18 @@ namespace dsp
             if (output_stream)
                 output_stream->clearWriterFailed();
             should_run = true;
-            d_thread = std::thread(&Block::run, this);
+            try
+            {
+                start_extra();
+                d_thread = std::thread(&Block::run, this);
+            }
+            catch (...)
+            {
+                // Fork: roll back all workers if creating either thread failed.
+                should_run = false;
+                stop_extra();
+                throw;
+            }
         }
         virtual void stop()
         {

@@ -16,13 +16,14 @@ namespace dvbs2
         void work();
 
         std::thread d_thread2;
-        bool should_run2;
+        std::atomic<bool> should_run2{false}; // Fork: shared with the second worker.
         void run2()
         {
             while (should_run2)
                 work2();
         }
-        void work2();
+        // Fork: a test can hold the second worker while stop() waits to join it.
+        virtual void work2();
 
         s2_sof sof;
         s2_plscodes pls;
@@ -52,19 +53,19 @@ namespace dvbs2
         S2PLSyncBlock(std::shared_ptr<dsp::stream<complex_t>> input, int slot_number, bool pilots);
         ~S2PLSyncBlock();
 
-        void start()
+    protected:
+        // Fork: the base calls these with its start/stop lock held for both workers.
+        void start_extra() override
         {
-            Block::start();
+            ring_buffer.reset();
             should_run2 = true;
             d_thread2 = std::thread(&S2PLSyncBlock::run2, this);
         }
-        void stop()
+        void stop_extra() noexcept override
         {
-            Block::stop();
             should_run2 = false;
             ring_buffer.stopReader();
             ring_buffer.stopWriter();
-
             if (d_thread2.joinable())
                 d_thread2.join();
         }

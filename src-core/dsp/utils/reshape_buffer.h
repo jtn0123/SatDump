@@ -18,7 +18,7 @@ namespace satdump
         {
         private:
             int buffer_size = 1024;
-            dsp::RingBuffer<T> ring_buf;
+            dsp::RingBuffer<T> ring_buf{100};
 
             // Fork: written by stop() and read by the work2 thread, so atomic
             std::atomic<bool> work2shouldrun{false};
@@ -31,10 +31,14 @@ namespace satdump
             ReshapeBufferBlock();
             ~ReshapeBufferBlock();
 
-            void start();
-            void stop(bool stop_now = false, bool force = false);
+        protected:
+            // Fork: the base serialises these with its own worker's start and join.
+            void start_extra() override;
+            void stop_extra() noexcept override;
 
-            void init() { ring_buf.init(100); }
+        public:
+
+            void init() { ring_buf.reset(); }
 
             nlohmann::ordered_json get_cfg_list()
             {
