@@ -780,7 +780,7 @@
       "upstream": "https://github.com/ik1xpv/ExtIO_sddc",
       "license": "MIT (PFFFT: FFTPACK BSD-style)",
       "debian": null,
-      "sha256": "4c3eebfca556bb1d51b4ef00156a8cb303c9f96d621477d801526bb87618e408"
+      "sha256": "7d6c2ce40e24b8ccff2090793ccfa9a40e3cf8f88c2b6685302574f2088067c4"
     },
     {
       "name": "libmirisdr-4",
